@@ -190,4 +190,4 @@ The domain model and workflow logic are platform-agnostic — all MLflow-specifi
 
 ## License
 
-TBD
+Apache-2.0 licence
