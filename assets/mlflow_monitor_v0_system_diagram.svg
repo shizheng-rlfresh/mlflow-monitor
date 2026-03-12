@@ -1,0 +1,86 @@
+<svg width="100%" viewBox="0 0 680 640">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<g class="c-gray">
+  <rect x="230" y="16" width="220" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th" x="340" y="38" text-anchor="middle" dominant-baseline="central">Caller</text>
+</g>
+<text class="ts" x="340" y="76" text-anchor="middle">SDK / CLI</text>
+<line x1="340" y1="60" x2="340" y2="96" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-gray">
+  <rect x="50" y="96" width="580" height="400" rx="20" stroke-width="0.5" fill-opacity="0.3"/>
+  <text class="th" x="340" y="120" text-anchor="middle">MLflow-Monitor</text>
+</g>
+
+<g class="c-purple">
+  <rect x="80" y="138" width="520" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th" x="340" y="153" text-anchor="middle" dominant-baseline="central">Recipe layer</text>
+  <text class="ts" x="340" y="170" text-anchor="middle" dominant-baseline="central">Validation, compilation, binding</text>
+</g>
+<line x1="340" y1="182" x2="340" y2="204" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-teal">
+  <rect x="80" y="204" width="520" height="90" rx="8" stroke-width="0.5"/>
+  <text class="th" x="340" y="224" text-anchor="middle" dominant-baseline="central">Workflow layer</text>
+</g>
+<g class="c-gray">
+  <rect x="100" y="240" width="86" height="34" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="143" y="257" text-anchor="middle" dominant-baseline="central">Create</text>
+</g>
+<line x1="186" y1="257" x2="206" y2="257" class="arr" marker-end="url(#arrow)"/>
+<g class="c-gray">
+  <rect x="206" y="240" width="86" height="34" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="249" y="257" text-anchor="middle" dominant-baseline="central">Prepare</text>
+</g>
+<line x1="292" y1="257" x2="312" y2="257" class="arr" marker-end="url(#arrow)"/>
+<g class="c-gray">
+  <rect x="312" y="240" width="72" height="34" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="348" y="257" text-anchor="middle" dominant-baseline="central">Check</text>
+</g>
+<line x1="384" y1="257" x2="404" y2="257" class="arr" marker-end="url(#arrow)"/>
+<g class="c-gray">
+  <rect x="404" y="240" width="82" height="34" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="445" y="257" text-anchor="middle" dominant-baseline="central">Analyze</text>
+</g>
+<line x1="486" y1="257" x2="506" y2="257" class="arr" marker-end="url(#arrow)"/>
+<g class="c-gray">
+  <rect x="506" y="240" width="72" height="34" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="542" y="257" text-anchor="middle" dominant-baseline="central">Close</text>
+</g>
+
+<line x1="340" y1="294" x2="340" y2="316" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-coral">
+  <rect x="80" y="316" width="520" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th" x="340" y="331" text-anchor="middle" dominant-baseline="central">Domain layer (CAST)</text>
+  <text class="ts" x="340" y="348" text-anchor="middle" dominant-baseline="central">Entities, invariants, semantics</text>
+</g>
+<line x1="340" y1="360" x2="340" y2="382" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-blue">
+  <rect x="80" y="382" width="520" height="56" rx="8" stroke-width="0.5"/>
+  <text class="th" x="340" y="402" text-anchor="middle" dominant-baseline="central">Persistence gateway</text>
+  <text class="ts" x="340" y="420" text-anchor="middle" dominant-baseline="central">Namespace, sequencing, LKG, idempotency</text>
+</g>
+
+<line x1="220" y1="438" x2="220" y2="530" stroke="#888780" stroke-width="0.5" marker-end="url(#arrow)"/>
+<line x1="220" y1="530" x2="220" y2="550" stroke="#888780" stroke-width="0.5"/>
+<text class="ts" x="198" y="492" text-anchor="end">Read-only</text>
+
+<line x1="460" y1="438" x2="460" y2="530" stroke="#185FA5" stroke-width="0.5" marker-end="url(#arrow)"/>
+<line x1="460" y1="550" x2="460" y2="530" stroke="#185FA5" stroke-width="0.5" marker-end="url(#arrow)"/>
+<text class="ts" x="482" y="492" text-anchor="start">Read-write</text>
+
+<g class="c-gray">
+  <rect x="80" y="550" width="220" height="56" rx="8" stroke-width="0.5"/>
+  <text class="th" x="190" y="571" text-anchor="middle" dominant-baseline="central">Training experiments</text>
+  <text class="ts" x="190" y="589" text-anchor="middle" dominant-baseline="central">Source runs</text>
+</g>
+
+<g class="c-blue">
+  <rect x="380" y="550" width="220" height="56" rx="8" stroke-width="0.5"/>
+  <text class="th" x="490" y="568" text-anchor="middle" dominant-baseline="central">Monitoring experiments</text>
+  <text class="ts" x="490" y="586" text-anchor="middle" dominant-baseline="central">mlflow_monitor/{id}</text>
+</g>
+</svg>

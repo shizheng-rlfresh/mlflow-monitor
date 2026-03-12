@@ -121,22 +121,7 @@ mlflow-monitor run --subject churn_model
 
 ## Architecture
 
-```mermaid
-graph TD
-    Caller["Your code<br/>(notebook, CI, cron, Airflow)"]
-    Caller -->|SDK / CLI| System
-
-    subgraph System["MLflow-Monitor"]
-        Recipe["Recipe layer<br/>configuration"]
-        Workflow["Workflow layer<br/>create → prepare → check → analyze → close"]
-        Domain["Domain layer<br/>entities and invariants"]
-        Gateway["Persistence gateway<br/>MLflow interface"]
-        Recipe --> Workflow --> Domain --> Gateway
-    end
-
-    Gateway -->|read-only| Training["Training experiments"]
-    Gateway <-->|read-write| Monitoring["Monitoring experiments<br/>mlflow_monitor/subject_id"]
-```
+![MLflow-Monitoring System Diagram](assets/mlflow_monitor_v0_system_diagram.svg)
 
 The domain model and workflow logic are platform-agnostic — all MLflow-specific code lives behind the persistence gateway. The core monitoring engine could work with a different backend in the future.
 
