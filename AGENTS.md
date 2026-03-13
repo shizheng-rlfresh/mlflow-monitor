@@ -14,7 +14,7 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 - If no timeline exists, the first run must include `baseline_source_run_id`.
 - Do not infer the initial baseline automatically.
 - After bootstrap, baseline is immutable and must be read from timeline state.
-- Failed runs are excluded from default timeline / trajectory / anchor-window views unless explicitly requested.
+- Failed runs are included from default timeline / trajectory / anchor-window views unless explicitly requested to be excluded.
 - Promotion happens after close and does not invalidate closed state.
 - Do not broaden scope beyond the requested ticket.
 - Do not introduce speculative abstractions, plugin systems, or framework-style extensibility unless required by the current ticket.

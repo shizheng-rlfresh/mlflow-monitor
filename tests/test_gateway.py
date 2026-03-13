@@ -127,7 +127,7 @@ def test_set_and_resolve_active_lkg_run_id() -> None:
     assert gateway.resolve_active_lkg_run_id("churn_model") is None
 
 
-def test_list_timeline_runs_excludes_failed_by_default() -> None:
+def test_list_timeline_runs_includes_failed_by_default() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     subject_id = "churn_model"
     gateway.upsert_monitoring_run(
@@ -151,10 +151,13 @@ def test_list_timeline_runs_excludes_failed_by_default() -> None:
 
     run_ids = tuple(run.run_id for run in gateway.list_timeline_runs(subject_id))
 
-    assert run_ids == ("run-created", "run-closed")
+    assert run_ids == (
+        "run-failed",
+        "run-closed",
+    )
 
 
-def test_list_timeline_runs_includes_failed_when_requested() -> None:
+def test_list_timeline_runs_excludes_failed_when_requested() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     subject_id = "churn_model"
     gateway.upsert_monitoring_run(
@@ -174,11 +177,11 @@ def test_list_timeline_runs_includes_failed_when_requested() -> None:
         run.run_id
         for run in gateway.list_timeline_runs(
             subject_id=subject_id,
-            include_failed=True,
+            exclude_failed=True,
         )
     )
 
-    assert run_ids == ("run-1", "run-2")
+    assert run_ids == ("run-1",)
 
 
 def test_namespace_violation_raises_on_invalid_monitoring_write() -> None:

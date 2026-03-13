@@ -256,13 +256,15 @@ class InMemoryMonitoringGateway:
     def list_timeline_runs(
         self,
         subject_id: str,
-        include_failed: bool = False,
+        exclude_failed: bool = False,
     ) -> tuple[MonitoringRunRecord, ...]:
         """List timeline runs for a subject with visibility filtering.
 
+        Trasient states are excluded and failed runs are included by default.
+
         Args:
             subject_id: Monitored subject identifier.
-            include_failed: Whether to include runs with FAILED lifecycle status.
+            exclude_failed: Whether exclude runs with FAILED lifecycle status.
 
         Returns:
             Tuple of monitoring run records for the subject, ordered by sequence index.
@@ -274,9 +276,14 @@ class InMemoryMonitoringGateway:
                 key=lambda run: run.sequence_index,
             )
         )
-        if include_failed:
-            return runs
-        return tuple(run for run in runs if run.lifecycle_status is not LifecycleStatus.FAILED)
+
+        if exclude_failed:
+            return tuple(run for run in runs if run.lifecycle_status is LifecycleStatus.CLOSED)
+        return tuple(
+            run
+            for run in runs
+            if run.lifecycle_status in {LifecycleStatus.FAILED, LifecycleStatus.CLOSED}
+        )
 
     def mutate_training_run(self, run_id: str, updates: Mapping[str, str]) -> None:
         """Reject any attempt to mutate training runs through the gateway.
