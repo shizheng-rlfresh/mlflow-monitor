@@ -1,0 +1,15 @@
+{
+    "python-envs.pythonProjects": [],
+    "editor.codeActionsOnSave": {
+        "source.fixAll.ruff": "explicit",
+        "source.organizeImports.ruff": "explicit"
+    },
+    "editor.formatOnSave": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "ruff.nativeServer": "on",
+    "ruff.lint.enable": true,
+    "ruff.format.enable": true,
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff"
+    }
+}
