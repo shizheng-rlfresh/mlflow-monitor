@@ -104,7 +104,7 @@ class MonitoringGateway(Protocol):
     def list_timeline_runs(
         self,
         subject_id: str,
-        include_failed: bool = False,
+        exclude_failed: bool = False,
     ) -> tuple[MonitoringRunRecord, ...]:
         """List timeline runs for a subject with visibility filtering."""
         ...
