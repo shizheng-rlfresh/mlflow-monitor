@@ -63,6 +63,22 @@ def test_parse_recipe_v0_lite_rejects_missing_required_top_level_section() -> No
         parse_recipe_v0_lite(raw)
 
 
+def test_parse_recipe_v0_lite_rejects_non_mapping_payload() -> None:
+    with pytest.raises(ValueError, match="Recipe payload must be a mapping."):
+        parse_recipe_v0_lite([])  # type: ignore[arg-type]
+
+
+def test_parse_recipe_v0_lite_rejects_non_string_top_level_section_name() -> None:
+    raw = make_valid_recipe()
+    raw[1] = {"unexpected": "section"}  # type: ignore[index]
+
+    with pytest.raises(
+        ValueError,
+        match="Top-level recipe section names must be strings.",
+    ):
+        parse_recipe_v0_lite(raw)
+
+
 def test_parse_recipe_v0_lite_rejects_non_string_identity_field() -> None:
     raw = make_valid_recipe()
     raw["identity"] = {"recipe_id": 123, "version": "v0"}

@@ -134,12 +134,19 @@ def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
         ValueError: If required sections are missing, unknown sections are
             present, or any section value is malformed.
     """
-    missing_sections = sorted(_REQUIRED_TOP_LEVEL_SECTIONS - set(raw.keys()))
+    if not isinstance(raw, Mapping):
+        raise ValueError("Recipe payload must be a mapping.")
+
+    raw_keys = tuple(raw.keys())
+    if any(not isinstance(key, str) for key in raw_keys):
+        raise ValueError("Top-level recipe section names must be strings.")
+
+    missing_sections = sorted(_REQUIRED_TOP_LEVEL_SECTIONS - set(raw_keys))
     if missing_sections:
         missing = ", ".join(missing_sections)
         raise ValueError(f"Missing required recipe section(s): {missing}")
 
-    unknown_sections = sorted(set(raw.keys()) - _REQUIRED_TOP_LEVEL_SECTIONS)
+    unknown_sections = sorted(set(raw_keys) - _REQUIRED_TOP_LEVEL_SECTIONS)
     if unknown_sections:
         unknown = ", ".join(unknown_sections)
         raise ValueError(f"Unknown/disallowed recipe section(s): {unknown}")
