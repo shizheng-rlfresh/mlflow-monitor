@@ -5,15 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "mlflow-monitor"
 version = "0.1.0"
-description = "MLflow experiment monitoring and alerting"
+description = "Baseline-aware model monitoring for MLflow"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "mlflow",
-    "pandas",
-    "scipy",
-    "numpy",
-    "pyyaml",
 ]
 
 [project.optional-dependencies]
@@ -44,5 +40,6 @@ ignore = []
 known-first-party = ["mlflow_monitor"]
 
 [tool.pytest.ini_options]
+minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-v"
