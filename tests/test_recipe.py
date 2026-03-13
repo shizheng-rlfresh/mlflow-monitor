@@ -36,3 +36,19 @@ def test_parse_recipe_v0_lite_rejects_unknown_top_level_section() -> None:
 
     with pytest.raises(ValueError, match="Unknown/disallowed recipe section\\(s\\): subject"):
         parse_recipe_v0_lite(raw)
+
+
+def test_parse_recipe_v0_lite_rejects_missing_required_top_level_section() -> None:
+    raw = {
+        "identity": {"recipe_id": "default", "version": "v0"},
+        "input_binding": {"run_selector": "latest"},
+        "contract_binding": {"contract_id": "contract-default"},
+        "metrics_slices": {},
+        "finding_policy": {},
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="Missing required recipe section\\(s\\): output_binding",
+    ):
+        parse_recipe_v0_lite(raw)

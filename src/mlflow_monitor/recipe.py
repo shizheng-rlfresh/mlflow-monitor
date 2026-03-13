@@ -66,6 +66,11 @@ class RecipeV0Lite:
 
 def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
     """Parse a mapping into the canonical v0-lite recipe model."""
+    missing_sections = sorted(_REQUIRED_TOP_LEVEL_SECTIONS - set(raw.keys()))
+    if missing_sections:
+        missing = ", ".join(missing_sections)
+        raise ValueError(f"Missing required recipe section(s): {missing}")
+
     unknown_sections = sorted(set(raw.keys()) - _REQUIRED_TOP_LEVEL_SECTIONS)
     if unknown_sections:
         unknown = ", ".join(unknown_sections)
