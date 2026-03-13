@@ -307,6 +307,28 @@ Acceptance criteria:
 
 Dependencies: D-001, W-001
 
+**W-001b: Hydrate synchronous SDK/CLI result with inline findings** (P1, M2)
+
+Goal:
+Make the synchronous result contract self-sufficient for downstream automation decisions.
+
+Required deliverables:
+
+- Inline structured finding payloads in the result envelope.
+- Backward-compatible ID fields retained.
+- Deterministic serialization for SDK/CLI parity.
+
+Non-goals:
+
+- No diff-payload hydration unless separately ticketed.
+
+Acceptance criteria:
+
+- Callers can gate on finding severity using the returned object only.
+- Success and failure envelopes preserve stable top-level keys.
+
+Dependencies: W-004, E-001, E-002, W-001a
+
 **W-002: Implement prepare stage** (P0)
 
 Goal:

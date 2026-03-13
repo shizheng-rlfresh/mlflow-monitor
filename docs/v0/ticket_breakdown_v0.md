@@ -194,6 +194,13 @@
 - Both paths produce summary outputs
 - Dependencies: W-003, E-001, E-002, W-001a
 
+**W-001b: Hydrate synchronous result with inline finding payloads** (P1)
+
+- Extend SDK/CLI result envelope to include structured findings (severity, category, summary, evidence diff IDs, recommendation, finding_id)
+- Preserve existing `finding_ids` and `diff_ids` fields for traceability
+- Keep one consistent shape across success/failure envelopes
+- Dependencies: W-004, E-001, E-002, W-001a
+
 ### Persistence Gateway
 
 **P-002: Stage-aligned write implementation** (P0)
@@ -391,9 +398,9 @@ Foundation (M1):
   W-001 + D-001 → P-001
 
 Analysis (M2):
-  W-003 + E-001 + E-002 + W-001a → W-004
+  W-003 + E-001 + E-002 + W-001a → W-004 → W-001b
   P-001 + W-004 → P-002
-  P-001 + E-001 + E-002 + W-001a → P-002a
+  P-001 + E-001 + E-002 + W-001a + W-001b → P-002a
   P-002 + P-002a → Q-001 → Q-002
   All P0 → T-001
 
