@@ -31,7 +31,10 @@ Use descriptive test names. Add test docstrings only for non-obvious scenarios o
 
 ## Review guidelines
 - Don't log PII.
-- Verify that authentication middleware wraps every route.
+- Branch names reveal if the PR is for a specific ticket
+  - branch name as `MM-{number}/{ticket number}-xxx` is for ticket
+  - branch name starting with `zs/` is for hotfix, revision, etc.
+- tickets in `docs/v0/ticket_breakdown_v0.md`
 
 ## Validation
 Use Python 3.12+ and `uv`.
