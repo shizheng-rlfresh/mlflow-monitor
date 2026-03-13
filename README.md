@@ -53,7 +53,9 @@ MLflow-Monitor fills that gap.
 
 ## How it works
 
-![System Diagram](assets/system_diagram_v0.png)
+<p align="center">
+  <img src="assets/system_diagram_v0.png" alt="system_diagram" width="250">
+</p>
 
 MLflow-Monitor **reads from training experiments in MLflow** and **writes only to its own monitoring namespace**. Your training history remains untouched.
 
