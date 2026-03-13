@@ -27,6 +27,13 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 - Preserve existing semantics unless the task explicitly changes them.
 - For behavior changes, add or update tests.
 
+## Implementation discipline
+
+- Only add code that is necessary for the current ticket.
+- Do not add speculative abstractions, placeholder structures, or future-facing indirection unless the current task cannot be solved cleanly without them.
+- Prefer the smallest change that preserves correctness and keeps later options open.
+- If something should likely exist later but is not yet needed, defer it explicitly instead of implementing it now.
+
 ## Documentation
 
 Use Google-style docstrings for public modules, classes, and functions.
