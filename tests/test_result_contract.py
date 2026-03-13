@@ -127,6 +127,49 @@ def test_monitor_run_result_to_dict_stable_keys_for_success_and_failure() -> Non
     assert success_keys == failure_keys
 
 
+def test_monitor_run_result_failed_requires_error() -> None:
+    """Failed lifecycle status should require a structured error payload."""
+    with pytest.raises(
+        ValueError,
+        match="lifecycle_status=failed requires a non-null error",
+    ):
+        MonitorRunResult(
+            run_id="run-failed",
+            subject_id="churn_model",
+            timeline_id=None,
+            lifecycle_status=LifecycleStatus.FAILED,
+            comparability_status=None,
+            summary=None,
+            finding_ids=(),
+            diff_ids=(),
+            reference_run_ids={},
+            error=None,
+        )
+
+
+def test_monitor_run_result_non_failed_forbids_error() -> None:
+    """Non-failed lifecycle statuses should not include structured error payload."""
+    with pytest.raises(
+        ValueError,
+        match="non-failed lifecycle_status must have error=None",
+    ):
+        MonitorRunResult(
+            run_id="run-checked",
+            subject_id="churn_model",
+            timeline_id="timeline-1",
+            lifecycle_status=LifecycleStatus.CHECKED,
+            comparability_status=ComparabilityStatus.WARN,
+            summary={"status": "warn"},
+            finding_ids=(),
+            diff_ids=(),
+            reference_run_ids={},
+            error=MonitorRunError(
+                code="unexpected_error",
+                message="Should not be set for non-failed lifecycle states.",
+            ),
+        )
+
+
 def test_monitor_run_error_details_are_immutable_after_construction() -> None:
     """Error details should be copied defensively and immutable on the dataclass."""
     details = {"stage": "prepare"}

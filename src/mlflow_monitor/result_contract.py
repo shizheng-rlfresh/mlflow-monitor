@@ -58,7 +58,7 @@ class MonitorRunResult:
         finding_ids: Finding identifiers associated with the run.
         diff_ids: Diff identifiers associated with the run.
         reference_run_ids: Reference kind to run ID mapping used in analysis.
-        error: Optional structured error payload for failed runs.
+        error: Structured error payload for failed runs only.
     """
 
     run_id: str
@@ -74,6 +74,14 @@ class MonitorRunResult:
 
     def __post_init__(self) -> None:
         """Freeze mapping and sequence fields after defensive copies."""
+        if self.lifecycle_status is LifecycleStatus.FAILED and self.error is None:
+            raise ValueError(
+                "MonitorRunResult with lifecycle_status=failed requires a non-null error."
+            )
+        if self.lifecycle_status is not LifecycleStatus.FAILED and self.error is not None:
+            raise ValueError(
+                "MonitorRunResult with non-failed lifecycle_status must have error=None."
+            )
         if self.summary is not None:
             object.__setattr__(
                 self,
