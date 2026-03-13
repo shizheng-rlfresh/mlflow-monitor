@@ -15,6 +15,7 @@ from mlflow_monitor.domain import (
 )
 from mlflow_monitor.errors import InvariantViolation
 
+# the blocking mechanism
 _CONTRACT_REASON_BLOCKING_BY_CODE = {
     "environment_mismatch": False,
     "schema_mismatch": True,
@@ -227,7 +228,17 @@ def validate_contract_check_reason(reason: ContractCheckReason) -> None:
 
 
 def _validate_contract_check_status(result: ContractCheckResult) -> None:
-    """Validate that result status matches the blocking profile of its reasons."""
+    """Validate that result status matches the blocking profile of its reasons.
+
+    Args:
+        result: The contract-check result to validate.
+
+    Raises:
+        InvariantViolation: If the status code and reasons do not align.
+
+    Returns:
+        None if the status code and reasons are aligned.
+    """
     has_reasons = bool(result.reasons)
     has_blocking_reason = any(reason.blocking for reason in result.reasons)
 
@@ -251,8 +262,7 @@ def _validate_contract_check_status(result: ContractCheckResult) -> None:
         raise InvariantViolation(
             code="contract_check_status_reason_mismatch",
             message=(
-                "Comparability status 'fail' requires at least one "
-                "blocking contract-check reason."
+                "Comparability status 'fail' requires at least one blocking contract-check reason."
             ),
             entity="ContractCheckResult",
             field="status",
