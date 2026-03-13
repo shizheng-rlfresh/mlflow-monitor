@@ -100,7 +100,6 @@ class Baseline:
 
     def __post_init__(self) -> None:
         """Freeze nested baseline mappings after defensive copies."""
-
         object.__setattr__(
             self,
             "metric_snapshot",

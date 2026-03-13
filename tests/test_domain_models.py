@@ -205,10 +205,10 @@ def test_baseline_snapshot_mappings_are_immutable() -> None:
 
     assert baseline.metric_snapshot["f1"] == 0.87
     assert baseline.environment_context["python"] == "3.12"
-    
+
     # Intentionally trigger a type error to verify immutability
     try:
-        baseline.metric_snapshot["f1"] = 0.0 # pyright: ignore[reportIndexIssue]
+        baseline.metric_snapshot["f1"] = 0.0  # pyright: ignore[reportIndexIssue]
     except TypeError:
         pass
     else:

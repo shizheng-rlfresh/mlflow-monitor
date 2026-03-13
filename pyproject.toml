@@ -33,8 +33,18 @@ select = [
     "I",   # isort
     "UP",  # pyupgrade
     "B",   # flake8-bugbear
+    "D",   # pydocstyle
 ]
 ignore = []
+
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "D",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["mlflow_monitor"]
@@ -43,3 +53,4 @@ known-first-party = ["mlflow_monitor"]
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-v"
+
