@@ -1,4 +1,9 @@
-"""Recipe schema and parser for MLflow-Monitor v0-lite."""
+"""Recipe schema and parser for MLflow-Monitor v0-lite.
+
+This module defines the canonical in-memory recipe representation used by the
+M1 recipe pipeline. It accepts only mapping inputs and intentionally excludes
+file-format parsing (for example JSON/YAML text decoding), which is deferred.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +22,12 @@ _REQUIRED_TOP_LEVEL_SECTIONS = {
 
 @dataclass(frozen=True, slots=True)
 class RecipeIdentity:
-    """Identity and version metadata for a recipe."""
+    """Identity and version metadata for a recipe.
+
+    Attributes:
+        recipe_id: Stable recipe identifier.
+        version: Recipe version identifier.
+    """
 
     recipe_id: str
     version: str
@@ -25,7 +35,17 @@ class RecipeIdentity:
 
 @dataclass(frozen=True, slots=True)
 class RecipeInputBinding:
-    """Input binding section for source run selection and required evidence."""
+    """Input binding section for source run selection and required evidence.
+
+    Attributes:
+        run_selector: Selector used to resolve a source run.
+        source_experiment: Optional source training experiment name.
+        required_metrics: Optional metric names that must exist on the source run.
+        required_artifacts: Optional artifact names that must exist on the source run.
+        custom_reference_run_id: Optional additional same-timeline reference run id
+            used for analysis diffs. This is not the baseline reference and does
+            not replace default baseline/previous/LKG comparisons.
+    """
 
     run_selector: str
     source_experiment: str | None = None
@@ -36,14 +56,23 @@ class RecipeInputBinding:
 
 @dataclass(frozen=True, slots=True)
 class RecipeContractBinding:
-    """Contract binding section for resolved contract selection."""
+    """Contract binding section for resolved contract selection.
+
+    Attributes:
+        contract_id: Resolved contract identifier.
+    """
 
     contract_id: str
 
 
 @dataclass(frozen=True, slots=True)
 class RecipeMetricsSlices:
-    """Metrics and slices section for analysis selection."""
+    """Metrics and slices section for analysis selection.
+
+    Attributes:
+        metrics: Optional metric names selected by the recipe.
+        slices: Optional slice names selected by the recipe.
+    """
 
     metrics: tuple[str, ...] = ()
     slices: tuple[str, ...] = ()
@@ -51,21 +80,38 @@ class RecipeMetricsSlices:
 
 @dataclass(frozen=True, slots=True)
 class RecipeFindingPolicy:
-    """Finding policy section for interpreted output behavior."""
+    """Finding policy section for interpreted output behavior.
+
+    Attributes:
+        profile: Optional finding policy profile identifier.
+    """
 
     profile: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RecipeOutputBinding:
-    """Output binding section for summary rendering options."""
+    """Output binding section for summary rendering options.
+
+    Attributes:
+        summary_mode: Optional summary mode identifier.
+    """
 
     summary_mode: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RecipeV0Lite:
-    """Canonical v0-lite recipe runtime model."""
+    """Canonical v0-lite recipe runtime model.
+
+    Attributes:
+        identity: Recipe identity and version metadata.
+        input_binding: Source run and evidence binding details.
+        contract_binding: Resolved contract binding.
+        metrics_slices: Metrics and slices selection.
+        finding_policy: Finding policy configuration.
+        output_binding: Output rendering and summary options.
+    """
 
     identity: RecipeIdentity
     input_binding: RecipeInputBinding
@@ -76,7 +122,18 @@ class RecipeV0Lite:
 
 
 def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
-    """Parse a mapping into the canonical v0-lite recipe model."""
+    """Parse a mapping into the canonical v0-lite recipe model.
+
+    Args:
+        raw: Raw recipe mapping containing v0-lite top-level sections.
+
+    Returns:
+        Parsed recipe model with strongly typed section objects.
+
+    Raises:
+        ValueError: If required sections are missing, unknown sections are
+            present, or any section value is malformed.
+    """
     missing_sections = sorted(_REQUIRED_TOP_LEVEL_SECTIONS - set(raw.keys()))
     if missing_sections:
         missing = ", ".join(missing_sections)
@@ -105,7 +162,18 @@ def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
 
 
 def _require_section(raw: Mapping[str, object], section_name: str) -> Mapping[str, object]:
-    """Return a required section and ensure it is a mapping."""
+    """Return a required section and ensure it is a mapping.
+
+    Args:
+        raw: Raw recipe mapping.
+        section_name: Required top-level section key.
+
+    Returns:
+        Section mapping for the given key.
+
+    Raises:
+        ValueError: If the section is not a mapping.
+    """
     section = raw[section_name]
     if not isinstance(section, Mapping):
         raise ValueError(f"Section '{section_name}' must be a mapping.")
@@ -113,7 +181,14 @@ def _require_section(raw: Mapping[str, object], section_name: str) -> Mapping[st
 
 
 def _parse_identity(section: Mapping[str, object]) -> RecipeIdentity:
-    """Parse identity section values."""
+    """Parse identity section values.
+
+    Args:
+        section: Identity section mapping.
+
+    Returns:
+        Parsed RecipeIdentity value.
+    """
     return RecipeIdentity(
         recipe_id=_require_string(section, "recipe_id", "identity"),
         version=_require_string(section, "version", "identity"),
@@ -121,7 +196,14 @@ def _parse_identity(section: Mapping[str, object]) -> RecipeIdentity:
 
 
 def _parse_input_binding(section: Mapping[str, object]) -> RecipeInputBinding:
-    """Parse input binding section values."""
+    """Parse input binding section values.
+
+    Args:
+        section: Input binding section mapping.
+
+    Returns:
+        Parsed RecipeInputBinding value.
+    """
     return RecipeInputBinding(
         run_selector=_require_string(section, "run_selector", "input_binding"),
         source_experiment=_optional_string(section, "source_experiment", "input_binding"),
@@ -136,14 +218,28 @@ def _parse_input_binding(section: Mapping[str, object]) -> RecipeInputBinding:
 
 
 def _parse_contract_binding(section: Mapping[str, object]) -> RecipeContractBinding:
-    """Parse contract binding section values."""
+    """Parse contract binding section values.
+
+    Args:
+        section: Contract binding section mapping.
+
+    Returns:
+        Parsed RecipeContractBinding value.
+    """
     return RecipeContractBinding(
         contract_id=_require_string(section, "contract_id", "contract_binding"),
     )
 
 
 def _parse_metrics_slices(section: Mapping[str, object]) -> RecipeMetricsSlices:
-    """Parse metrics and slices section values."""
+    """Parse metrics and slices section values.
+
+    Args:
+        section: Metrics/slices section mapping.
+
+    Returns:
+        Parsed RecipeMetricsSlices value.
+    """
     return RecipeMetricsSlices(
         metrics=_optional_string_tuple(section, "metrics", "metrics_slices"),
         slices=_optional_string_tuple(section, "slices", "metrics_slices"),
@@ -151,21 +247,47 @@ def _parse_metrics_slices(section: Mapping[str, object]) -> RecipeMetricsSlices:
 
 
 def _parse_finding_policy(section: Mapping[str, object]) -> RecipeFindingPolicy:
-    """Parse finding policy section values."""
+    """Parse finding policy section values.
+
+    Args:
+        section: Finding policy section mapping.
+
+    Returns:
+        Parsed RecipeFindingPolicy value.
+    """
     return RecipeFindingPolicy(
         profile=_optional_string(section, "profile", "finding_policy"),
     )
 
 
 def _parse_output_binding(section: Mapping[str, object]) -> RecipeOutputBinding:
-    """Parse output binding section values."""
+    """Parse output binding section values.
+
+    Args:
+        section: Output binding section mapping.
+
+    Returns:
+        Parsed RecipeOutputBinding value.
+    """
     return RecipeOutputBinding(
         summary_mode=_optional_string(section, "summary_mode", "output_binding"),
     )
 
 
 def _require_string(section: Mapping[str, object], key: str, section_name: str) -> str:
-    """Require one non-empty string field from a section."""
+    """Require one non-empty string field from a section.
+
+    Args:
+        section: Section mapping containing the field.
+        key: Required field key.
+        section_name: Section name used in deterministic error messages.
+
+    Returns:
+        Non-empty string value for the required key.
+
+    Raises:
+        ValueError: If the field is missing, non-string, or empty.
+    """
     if key not in section:
         raise ValueError(f"Section '{section_name}' missing required field '{key}'.")
     value = section[key]
@@ -177,7 +299,19 @@ def _require_string(section: Mapping[str, object], key: str, section_name: str) 
 
 
 def _optional_string(section: Mapping[str, object], key: str, section_name: str) -> str | None:
-    """Return one optional non-empty string field from a section."""
+    """Return one optional non-empty string field from a section.
+
+    Args:
+        section: Section mapping containing the field.
+        key: Optional field key.
+        section_name: Section name used in deterministic error messages.
+
+    Returns:
+        Optional non-empty string value, or ``None`` when omitted.
+
+    Raises:
+        ValueError: If the field is provided and is non-string or empty.
+    """
     if key not in section or section[key] is None:
         return None
     value = section[key]
@@ -193,7 +327,19 @@ def _optional_string_tuple(
     key: str,
     section_name: str,
 ) -> tuple[str, ...]:
-    """Return an optional sequence of non-empty strings as an immutable tuple."""
+    """Return an optional sequence of non-empty strings as an immutable tuple.
+
+    Args:
+        section: Section mapping containing the field.
+        key: Optional field key.
+        section_name: Section name used in deterministic error messages.
+
+    Returns:
+        Tuple of string values. Returns empty tuple when omitted.
+
+    Raises:
+        ValueError: If provided value is not a sequence of non-empty strings.
+    """
     if key not in section or section[key] is None:
         return ()
 
