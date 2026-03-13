@@ -66,6 +66,7 @@ All reads from training experiments and all writes to monitoring experiments pas
 MLflow-Monitor is invoked via a Python SDK or CLI. Both are synchronous, caller-initiated interfaces.
 
 **SDK:**
+
 ```python
 from mlflow_monitor import monitor
 
@@ -78,6 +79,7 @@ result = monitor.run(
 ```
 
 **CLI:**
+
 ```bash
 # First run for a subject: baseline-source-run is required.
 mlflow-monitor run \
@@ -195,6 +197,7 @@ Each stage has a defined set of inputs, actions, outputs, and transition rules. 
 **Check** — Execute contract checks (schema, features, metric definitions, data scope, execution environment). Aggregate into comparability status: pass, warn, or fail. Persist machine-readable reasons. Transition to `checked`.
 
 **Analyze** — Two paths diverge based on comparability:
+
 - *Comparable path (pass or allowed warn):* Compute diffs against all available references. Generate findings with severity and evidence linkage. Build run summary.
 - *Non-comparable path (fail):* Skip metric diff computation. Emit explicit non-comparable records. Generate compatibility findings if policy defines them. Build summary with non-comparable emphasis.
 
@@ -308,6 +311,7 @@ growth_team_monitor/churn_model
 The default prefix `mlflow_monitor` works out of the box for single-team setups. The prefix is set once in configuration and applied globally — individual users do not need to specify it per run.
 
 Naming principles:
+
 1. System owns all monitoring experiment names. Users never type monitoring experiment names.
 2. One subject maps to exactly one monitoring experiment.
 3. The namespace prefix is reserved and enforced by the gateway.
@@ -320,6 +324,7 @@ System-owned naming is a direct response to a known failure mode in production M
 The gateway is the single module through which all MLflow reads and writes pass. No other component in the system interacts with MLflow primitives directly.
 
 Gateway responsibilities:
+
 1. Enforce `{namespace_prefix}/{subject_id}` namespace for all writes.
 2. Enforce read-only access to training experiments.
 3. Create sentinel run for timeline initialization using the caller-supplied baseline on first run (baseline pointer storage).
@@ -341,6 +346,7 @@ Gateway responsibilities:
 ### 7.5 Stage-Aligned Writes
 
 Writes to `{namespace_prefix}/{subject_id}` reflect workflow stages:
+
 1. On prepare: source run ID, source experiment, sequence index, baseline reference, recipe version. On first run, this stage also initializes the sentinel from the explicit caller-supplied baseline.
 2. On check: comparability status tag + check artifacts.
 3. On analyze: diff/finding artifacts + summary artifact.
@@ -370,11 +376,13 @@ Retrieve the ordered sequence of monitoring runs for a subject. Runs are ordered
 The anchor window is a generalized timeline view. A user selects any run on the timeline as an anchor, and the system returns diffs, findings, and status for runs from that anchor onward.
 
 Presets:
+
 1. **Baseline-anchored** — anchor is the baseline run. Shows full trajectory from the beginning.
 2. **LKG-anchored** — anchor is the current LKG. Shows performance since the last trusted state.
 3. **Custom** — user specifies any run on the timeline as anchor.
 
 Rules:
+
 1. One anchor per query.
 2. Window outputs are derived from persisted run-level outputs — no recomputation at read time.
 3. Non-comparable runs are explicitly listed, not silently dropped.
@@ -462,6 +470,7 @@ graph TD
 ```
 
 **Layer responsibilities:**
+
 - **Recipe Layer** configures what to run. Cannot alter workflow semantics.
 - **Workflow Layer** orchestrates execution order and decision logic. Deterministic stage transitions.
 - **Domain Layer** owns entity semantics and invariants. Source of truth for what outputs mean.
@@ -524,31 +533,41 @@ The following questions are intentionally deferred to ticket-level engineering w
 The following items are intentionally deferred from v0. They are recorded here to preserve design intent and ensure the v0 architecture does not block them.
 
 ### 15.1 Training Run Annotation (Opt-In)
+
 Allow MLflow-Monitor to tag source training runs with monitoring status (e.g. "outdated", "incompatible"). This would make monitoring conclusions visible directly in the MLflow training experiment UI. Deferred because it breaks the read-only constraint. Future implementation would require explicit opt-in from users granting write access to their training experiments.
 
 ### 15.2 Event-Driven and Scheduled Triggering
+
 A long-running process that watches for new training runs and automatically triggers monitoring. The SDK-first architecture supports this — a future `mlflow-monitor watch` command would simply call `monitor.run()` when conditions are met. The key decision is whether the system owns scheduling state or stays stateless.
 
 ### 15.3 Push Notifications and Output Integrations
+
 Proactive delivery of monitoring results to Slack, email, or webhooks. Because the SDK returns results synchronously, callers can already build this in a few lines of downstream code. A future built-in notification system would add convenience but is not required for core value delivery.
 
 ### 15.4 Counterfactual Multi-Model Comparison
+
 What would a retired model have scored on more recent evaluation windows. Requires decoupling model identity from evaluation window. Not supported in v0 because MLflow input provides one evaluation snapshot per training run. Design note: model identity and evaluation window are kept as separate conceptual fields to avoid designing this out.
 
 ### 15.5 Production Deployment Pointer
+
 A pointer indicating which model is currently deployed in production, distinct from both baseline (where the timeline started) and LKG (last monitoring-validated good run). Useful for "how does this new run compare to what's currently serving?" Deferred because it introduces coupling to deployment systems external to MLflow-Monitor. For v0, LKG serves as a reasonable proxy for current trusted state.
 
 ### 15.6 Deploy-Readiness Verdict
+
 A separate pass/warn/fail axis answering "should we ship this?" alongside the existing comparability axis. Deferred to let users define their own promotion policies through the existing LKG promotion hook.
 
 ### 15.7 Baseline Reset with Epoch Marker
+
 Allow re-pinning a new baseline on an existing timeline, creating a new epoch. The timeline continues but the reference point shifts, with the epoch boundary explicit. Deferred because it adds complexity to anchor-window queries and historical comparison logic. v0 baseline is immutable.
 
 ### 15.8 Recipe Ecosystem
+
 Recipe inheritance and composition graphs, GUI recipe builder, template marketplace. Deferred to v1 once the core recipe model is validated in practice.
 
 ### 15.9 Multi-Backend Persistence
+
 Abstracting the gateway to support persistence backends beyond MLflow (e.g. a dedicated database, cloud storage). The gateway abstraction already exists — future backends would implement the same interface.
 
 ### 15.10 Advanced Query and Performance
+
 Rich query acceleration, caching, and aggregation/sampling views for large timelines. Deferred until usage patterns are clear.
