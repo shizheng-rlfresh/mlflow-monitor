@@ -311,6 +311,7 @@ class InMemoryMonitoringGateway:
         Returns:
             The monitoring namespace for the subject.
         """
+        self._validate_namespace_prefix(self._config.namespace_prefix)
         self._validate_subject_id(subject_id)
         return f"{self._config.namespace_prefix}/{subject_id}"
 
@@ -330,6 +331,20 @@ class InMemoryMonitoringGateway:
             if key.subject_id == subject_id
         }
         return MappingProxyType(bindings)
+
+    def _validate_namespace_prefix(self, prefix: str) -> None:
+        """Validate namespace prefix can safely compose a monitoring namespace.
+
+        Args:
+            prefix: Namespace prefix to validate.
+
+        Returns:
+            None
+        """
+        if not prefix or "/" in prefix:
+            raise GatewayNamespaceViolation(
+                message=(f"namespace_prefix must be non-empty and must not contain '/': {prefix!r}")
+            )
 
     def _validate_subject_id(self, subject_id: str) -> None:
         """Validate subject id can safely compose a monitoring namespace.

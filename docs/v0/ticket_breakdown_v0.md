@@ -222,7 +222,7 @@
 - Ordered runs by `sequence_index`
 - Lifecycle and comparability statuses included
 - Non-comparable closed runs visible
-- Failed runs excluded from default views unless explicitly requested
+- Failed runs included from default views unless explicitly requested to be excluded
 - Dependencies: P-002, P-002a
 
 **Q-002: Anchor-window query API** (P0)
@@ -373,11 +373,11 @@
 - New promoted run supersedes prior active LKG
 - Retrieval returns only the active LKG deterministically
 
-**I. Default query views exclude failed runs**
+**I. Default query views include failed runs**
 
 - Failed runs may exist in storage
-- Default timeline / anchor-window views exclude them
-- Explicit retrieval can still request them
+- Default timeline / anchor-window views include them
+- Explicit exclusion can still remove them from views
 
 **J. Baseline remains immutable after bootstrap**
 
