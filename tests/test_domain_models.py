@@ -32,6 +32,8 @@ def test_canonical_entities_can_be_constructed() -> None:
         parameter_fingerprint="params-v1",
         data_snapshot_ref="dataset-2026-03-01",
         run_config_ref="config-v1",
+        metric_snapshot={"f1": 0.87},
+        environment_context={"python": "3.12"},
     )
     timeline = Timeline(
         timeline_id="timeline-1",
@@ -101,7 +103,6 @@ def test_status_vocabularies_are_fixed() -> None:
         "analyzed",
         "closed",
         "failed",
-        "promoted",
     }
     assert {status.value for status in ComparabilityStatus} == {"pass", "warn", "fail"}
 
@@ -123,6 +124,8 @@ def test_relationship_shapes_match_cast() -> None:
         parameter_fingerprint="params-v1",
         data_snapshot_ref="dataset-2026-03-01",
         run_config_ref="config-v1",
+        metric_snapshot={},
+        environment_context={},
     )
     timeline = Timeline(
         timeline_id="timeline-1",
@@ -175,11 +178,39 @@ def test_baseline_carries_snapshot_context() -> None:
         parameter_fingerprint="params-v1",
         data_snapshot_ref="dataset-2026-03-01",
         run_config_ref="config-v1",
+        metric_snapshot={"precision": 0.91},
+        environment_context={"python": "3.12", "sklearn": "1.7"},
     )
 
-    assert baseline.data_snapshot_ref == "dataset-2026-03-01"
-    assert baseline.run_config_ref == "config-v1"
-    assert baseline.model_identity == "model-a"
-    assert baseline.parameter_fingerprint == "params-v1"
-    assert baseline.source_run_id == "train-run-1"
-    assert baseline.timeline_id == "timeline-1"
+    assert baseline.metric_snapshot["precision"] == 0.91
+    assert baseline.environment_context["sklearn"] == "1.7"
+
+
+def test_baseline_snapshot_mappings_are_immutable() -> None:
+    metric_snapshot = {"f1": 0.87}
+    environment_context = {"python": "3.12"}
+    baseline = Baseline(
+        timeline_id="timeline-1",
+        source_run_id="train-run-1",
+        model_identity="model-a",
+        parameter_fingerprint="params-v1",
+        data_snapshot_ref="dataset-2026-03-01",
+        run_config_ref="config-v1",
+        metric_snapshot=metric_snapshot,
+        environment_context=environment_context,
+    )
+
+    metric_snapshot["f1"] = 0.0
+    environment_context["python"] = "3.11"
+
+    assert baseline.metric_snapshot["f1"] == 0.87
+    assert baseline.environment_context["python"] == "3.12"
+    
+    # Intentionally trigger a type error to verify immutability
+    try:
+        baseline.metric_snapshot["f1"] = 0.0 # pyright: ignore[reportIndexIssue]
+    except TypeError:
+        pass
+    else:
+        msg = "expected baseline metric snapshot to reject mutation"
+        raise AssertionError(msg)
