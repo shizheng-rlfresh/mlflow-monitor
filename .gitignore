@@ -210,9 +210,14 @@ __marimo__/
 .codex/
 .claude/
 CLAUDE.md
-*.md
+# *.md
 plan.md
 spec.md
 
 # macOS
 .DS_Store
+
+
+# temp file types
+.csv
+.pdf
