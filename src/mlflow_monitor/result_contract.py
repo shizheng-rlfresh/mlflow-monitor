@@ -1,0 +1,114 @@
+"""Canonical synchronous result contract for SDK and CLI outputs."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
+
+from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus
+
+
+@dataclass(frozen=True, slots=True)
+class MonitorRunError:
+    """Minimal structured error payload for monitoring run failures.
+
+    Attributes:
+        code: Stable machine-readable error code.
+        message: Human-readable error summary.
+        stage: Optional stage name where the failure occurred.
+        details: Optional additional key-value details for diagnostics.
+    """
+
+    code: str
+    message: str
+    stage: str | None = None
+    details: Mapping[str, str] | None = None
+
+    def __post_init__(self) -> None:
+        """Freeze error details after a defensive copy."""
+        if self.details is not None:
+            object.__setattr__(
+                self,
+                "details",
+                MappingProxyType(dict(self.details)),
+            )
+
+    def to_dict(self) -> dict[str, str | None | dict[str, str]]:
+        """Serialize this error payload into a deterministic dictionary."""
+        return {
+            "code": self.code,
+            "message": self.message,
+            "stage": self.stage,
+            "details": None if self.details is None else dict(self.details),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MonitorRunResult:
+    """Canonical SDK/CLI run result envelope.
+
+    Attributes:
+        run_id: Unique monitoring run identifier.
+        subject_id: Monitored subject identifier.
+        timeline_id: Timeline identifier if known for this run.
+        lifecycle_status: Current workflow lifecycle status.
+        comparability_status: Optional comparability verdict if computed.
+        summary: Optional structured summary payload.
+        finding_ids: Finding identifiers associated with the run.
+        diff_ids: Diff identifiers associated with the run.
+        reference_run_ids: Reference kind to run ID mapping used in analysis.
+        error: Optional structured error payload for failed runs.
+    """
+
+    run_id: str
+    subject_id: str
+    timeline_id: str | None
+    lifecycle_status: LifecycleStatus
+    comparability_status: ComparabilityStatus | None
+    summary: Mapping[str, str] | None
+    finding_ids: tuple[str, ...]
+    diff_ids: tuple[str, ...]
+    reference_run_ids: Mapping[str, str]
+    error: MonitorRunError | None = None
+
+    def __post_init__(self) -> None:
+        """Freeze mapping and sequence fields after defensive copies."""
+        if self.summary is not None:
+            object.__setattr__(
+                self,
+                "summary",
+                MappingProxyType(dict(self.summary)),
+            )
+        object.__setattr__(
+            self,
+            "finding_ids",
+            tuple(self.finding_ids),
+        )
+        object.__setattr__(
+            self,
+            "diff_ids",
+            tuple(self.diff_ids),
+        )
+        object.__setattr__(
+            self,
+            "reference_run_ids",
+            MappingProxyType(dict(self.reference_run_ids)),
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize this result envelope into a deterministic dictionary."""
+        return {
+            "run_id": self.run_id,
+            "subject_id": self.subject_id,
+            "timeline_id": self.timeline_id,
+            "lifecycle_status": self.lifecycle_status.value,
+            "comparability_status": (
+                None if self.comparability_status is None else self.comparability_status.value
+            ),
+            "summary": None if self.summary is None else dict(self.summary),
+            "finding_ids": list(self.finding_ids),
+            "diff_ids": list(self.diff_ids),
+            "reference_run_ids": dict(self.reference_run_ids),
+            "error": None if self.error is None else self.error.to_dict(),
+        }
