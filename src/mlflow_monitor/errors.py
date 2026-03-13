@@ -30,3 +30,25 @@ class InvalidRunTransition(ValueError):
     def __str__(self) -> str:
         """Return the error message when the exception is converted to a string."""
         return self.message
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayNamespaceViolation(ValueError):
+    """Raised when a gateway operation violates namespace constraints."""
+
+    message: str
+
+    def __str__(self) -> str:
+        """Return the error message when the exception is converted to a string."""
+        return self.message
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingRunMutationViolation(ValueError):
+    """Raised when code attempts to mutate source training run data."""
+
+    message: str
+
+    def __str__(self) -> str:
+        """Return the error message when the exception is converted to a string."""
+        return self.message
