@@ -294,7 +294,7 @@ class TestInvariantFindingToDiffEvidence:
             metadata={"feature": "age"},
         )
 
-        diff_ids = {diff_id for diff_id in FINDING.evidence_diff_ids}
+        diff_ids = [diff_id for diff_id in FINDING.evidence_diff_ids]
 
         with pytest.raises(InvariantViolation) as exc_info:
             validate_finding_to_diff_evidence(FINDING, non_evidence_diff)
