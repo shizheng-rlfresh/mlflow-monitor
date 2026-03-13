@@ -67,8 +67,6 @@ class Baseline:
     parameter_fingerprint: str
     data_snapshot_ref: str
     run_config_ref: str
-    metric_snapshot: dict[str, float]
-    environment_context: dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)

@@ -32,8 +32,6 @@ def test_canonical_entities_can_be_constructed() -> None:
         parameter_fingerprint="params-v1",
         data_snapshot_ref="dataset-2026-03-01",
         run_config_ref="config-v1",
-        metric_snapshot={"f1": 0.87},
-        environment_context={"python": "3.12"},
     )
     timeline = Timeline(
         timeline_id="timeline-1",
@@ -125,8 +123,6 @@ def test_relationship_shapes_match_cast() -> None:
         parameter_fingerprint="params-v1",
         data_snapshot_ref="dataset-2026-03-01",
         run_config_ref="config-v1",
-        metric_snapshot={},
-        environment_context={},
     )
     timeline = Timeline(
         timeline_id="timeline-1",
@@ -179,9 +175,11 @@ def test_baseline_carries_snapshot_context() -> None:
         parameter_fingerprint="params-v1",
         data_snapshot_ref="dataset-2026-03-01",
         run_config_ref="config-v1",
-        metric_snapshot={"precision": 0.91},
-        environment_context={"python": "3.12", "sklearn": "1.7"},
     )
 
-    assert baseline.metric_snapshot["precision"] == 0.91
-    assert baseline.environment_context["sklearn"] == "1.7"
+    assert baseline.data_snapshot_ref == "dataset-2026-03-01"
+    assert baseline.run_config_ref == "config-v1"
+    assert baseline.model_identity == "model-a"
+    assert baseline.parameter_fingerprint == "params-v1"
+    assert baseline.source_run_id == "train-run-1"
+    assert baseline.timeline_id == "timeline-1"
