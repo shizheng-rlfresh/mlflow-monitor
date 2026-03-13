@@ -106,7 +106,6 @@ def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
 
 def _require_section(raw: Mapping[str, object], section_name: str) -> Mapping[str, object]:
     """Return a required section and ensure it is a mapping."""
-
     section = raw[section_name]
     if not isinstance(section, Mapping):
         raise ValueError(f"Section '{section_name}' must be a mapping.")
@@ -115,7 +114,6 @@ def _require_section(raw: Mapping[str, object], section_name: str) -> Mapping[st
 
 def _parse_identity(section: Mapping[str, object]) -> RecipeIdentity:
     """Parse identity section values."""
-
     return RecipeIdentity(
         recipe_id=_require_string(section, "recipe_id", "identity"),
         version=_require_string(section, "version", "identity"),
@@ -124,7 +122,6 @@ def _parse_identity(section: Mapping[str, object]) -> RecipeIdentity:
 
 def _parse_input_binding(section: Mapping[str, object]) -> RecipeInputBinding:
     """Parse input binding section values."""
-
     return RecipeInputBinding(
         run_selector=_require_string(section, "run_selector", "input_binding"),
         source_experiment=_optional_string(section, "source_experiment", "input_binding"),
@@ -140,7 +137,6 @@ def _parse_input_binding(section: Mapping[str, object]) -> RecipeInputBinding:
 
 def _parse_contract_binding(section: Mapping[str, object]) -> RecipeContractBinding:
     """Parse contract binding section values."""
-
     return RecipeContractBinding(
         contract_id=_require_string(section, "contract_id", "contract_binding"),
     )
@@ -148,7 +144,6 @@ def _parse_contract_binding(section: Mapping[str, object]) -> RecipeContractBind
 
 def _parse_metrics_slices(section: Mapping[str, object]) -> RecipeMetricsSlices:
     """Parse metrics and slices section values."""
-
     return RecipeMetricsSlices(
         metrics=_optional_string_tuple(section, "metrics", "metrics_slices"),
         slices=_optional_string_tuple(section, "slices", "metrics_slices"),
@@ -157,7 +152,6 @@ def _parse_metrics_slices(section: Mapping[str, object]) -> RecipeMetricsSlices:
 
 def _parse_finding_policy(section: Mapping[str, object]) -> RecipeFindingPolicy:
     """Parse finding policy section values."""
-
     return RecipeFindingPolicy(
         profile=_optional_string(section, "profile", "finding_policy"),
     )
@@ -165,7 +159,6 @@ def _parse_finding_policy(section: Mapping[str, object]) -> RecipeFindingPolicy:
 
 def _parse_output_binding(section: Mapping[str, object]) -> RecipeOutputBinding:
     """Parse output binding section values."""
-
     return RecipeOutputBinding(
         summary_mode=_optional_string(section, "summary_mode", "output_binding"),
     )
@@ -173,7 +166,6 @@ def _parse_output_binding(section: Mapping[str, object]) -> RecipeOutputBinding:
 
 def _require_string(section: Mapping[str, object], key: str, section_name: str) -> str:
     """Require one non-empty string field from a section."""
-
     if key not in section:
         raise ValueError(f"Section '{section_name}' missing required field '{key}'.")
     value = section[key]
@@ -186,7 +178,6 @@ def _require_string(section: Mapping[str, object], key: str, section_name: str) 
 
 def _optional_string(section: Mapping[str, object], key: str, section_name: str) -> str | None:
     """Return one optional non-empty string field from a section."""
-
     if key not in section or section[key] is None:
         return None
     value = section[key]
@@ -203,7 +194,6 @@ def _optional_string_tuple(
     section_name: str,
 ) -> tuple[str, ...]:
     """Return an optional sequence of non-empty strings as an immutable tuple."""
-
     if key not in section or section[key] is None:
         return ()
 
