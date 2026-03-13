@@ -53,25 +53,9 @@ MLflow-Monitor fills that gap.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A[Training pipeline] --> B[MLflow training experiment]
-    B --> C[MLflow-Monitor run]
-    C --> D[Read source run]
-    D --> E[Check comparability]
-    E --> F[Compute diffs]
-    F --> G[Generate findings]
-    G --> H[Persist monitoring state]
-    H --> I["{namespace_prefix}/{subject_id}"]
+![System Diagram](assets/system_diagram_v0.png)
 
-    B:::train
-    I:::monitor
-
-    classDef train fill:#f6f8fa,stroke:#999,stroke-width:1px;
-    classDef monitor fill:#eef6ff,stroke:#4a90e2,stroke-width:1px;
-```
-
-MLflow-Monitor **reads from training experiments** and **writes only to its own monitoring namespace**. Your training history remains untouched.
+MLflow-Monitor **reads from training experiments in MLflow** and **writes only to its own monitoring namespace**. Your training history remains untouched.
 
 ## Why this design
 
