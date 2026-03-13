@@ -84,7 +84,7 @@ Acceptance criteria:
 
 Dependencies: D-001
 
-**D-004: Define resolved contract model and checker boundary** (P0)
+**D-004: Define resolved contract model and checker boundary** (P0) **DONE**
 
 Goal:
 Define the minimal workflow-facing API needed for W-003 to execute comparability checks against one resolved contract.
@@ -251,7 +251,7 @@ Dependencies: R-002, R-000a
 
 ### Workflow Orchestration
 
-**W-001: Build run state machine** (P0)
+**W-001: Build run state machine** (P0) **DONE**
 
 Goal:
 Define and enforce the core execution lifecycle for monitoring runs.
@@ -277,7 +277,7 @@ Acceptance criteria:
 
 Dependencies: D-001
 
-**W-001a: Define synchronous SDK/CLI result contract** (P0)
+**W-001a: Define synchronous SDK/CLI result contract** (P0) **DONE**
 
 Goal:
 Define the stable result envelope returned by `monitor.run(...)` and mirrored by the CLI.
@@ -414,7 +414,7 @@ Dependencies: W-002, D-003, D-004
 
 ### Persistence Gateway
 
-**P-001: Implement persistence gateway abstraction** (P0)
+**P-001: Implement persistence gateway abstraction** (P0) **DONE**
 
 Goal:
 Create the only MLflow-facing read/write boundary for v0 workflow code.

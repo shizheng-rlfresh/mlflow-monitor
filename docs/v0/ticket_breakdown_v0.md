@@ -57,7 +57,7 @@
 - Blocking vs non-blocking flags
 - Dependencies: D-001
 
-**D-004: Define contract/profile model and checker interface** (P0)
+**D-004: Define contract/profile model and checker interface** (P0) **DONE**
 
 - Canonical Contract/Profile domain model
 - Checker interface / protocol for comparability evaluation
@@ -103,7 +103,7 @@
 
 ### Workflow Orchestration
 
-**W-001: Build run state machine** (P0)
+**W-001: Build run state machine** (P0) **DONE**
 
 - `created → prepared → checked → analyzed → closed`
 - `failed` terminal state reachable from any stage
@@ -111,7 +111,7 @@
 - Transition history auditable
 - Dependencies: D-001
 
-**W-001a: Define synchronous SDK/CLI result contract** (P0)
+**W-001a: Define synchronous SDK/CLI result contract** (P0) **DONE**
 
 - Canonical return object for `monitor.run(...)` and CLI output envelope
 - Status, comparability, summary, findings, references, and identifiers
