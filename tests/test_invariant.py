@@ -7,6 +7,8 @@ from mlflow_monitor.domain import (
     Baseline,
     ComparabilityStatus,
     Contract,
+    ContractCheckReason,
+    ContractCheckResult,
     Diff,
     DiffReferenceKind,
     Finding,
@@ -18,6 +20,7 @@ from mlflow_monitor.domain import (
 from mlflow_monitor.errors import InvariantViolation
 from mlflow_monitor.invariant import (
     validate_baseline_immutability,
+    validate_contract_check_result,
     validate_finding_to_diff_evidence,
     validate_lkg_membership,
     validate_timeline_ownership,
@@ -307,3 +310,189 @@ class TestInvariantFindingToDiffEvidence:
             error.message
             == f"Diff diff_id {non_evidence_diff.diff_id} is not in Finding evidence {diff_ids}"
         )
+
+
+class TestInvariantContractCheckResult:
+    def test_contract_check_result_accepts_pass_without_reasons(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.PASS,
+            reasons=(),
+        )
+
+        validate_contract_check_result(result)
+
+    def test_contract_check_result_accepts_warn_with_environment_mismatch(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.WARN,
+            reasons=(
+                ContractCheckReason(
+                    code="environment_mismatch",
+                    message="Python version differs.",
+                    blocking=False,
+                ),
+            ),
+        )
+
+        validate_contract_check_result(result)
+
+    def test_contract_check_result_accepts_fail_with_blocking_reason(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.FAIL,
+            reasons=(
+                ContractCheckReason(
+                    code="schema_mismatch",
+                    message="Schema differs.",
+                    blocking=True,
+                ),
+            ),
+        )
+
+        validate_contract_check_result(result)
+
+    def test_contract_check_result_rejects_unknown_status(self) -> None:
+        result = ContractCheckResult(
+            status="unknown_status",  # type: ignore
+            reasons=(),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_status_unknown"
+        assert error.entity == "ContractCheckResult"
+        assert error.field == "status"
+
+    def test_contract_check_result_rejects_pass_with_reasons(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.PASS,
+            reasons=(
+                ContractCheckReason(
+                    code="environment_mismatch",
+                    message="Python version differs.",
+                    blocking=False,
+                ),
+            ),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_status_reason_mismatch"
+        assert error.entity == "ContractCheckResult"
+        assert error.field == "status"
+
+    def test_contract_check_result_rejects_warn_with_blocking_reason(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.WARN,
+            reasons=(
+                ContractCheckReason(
+                    code="schema_mismatch",
+                    message="Schema differs.",
+                    blocking=True,
+                ),
+            ),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_status_reason_mismatch"
+        assert error.entity == "ContractCheckResult"
+        assert error.field == "status"
+
+    def test_contract_check_result_rejects_warn_with_no_non_blocking_reason(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.WARN,
+            reasons=(),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_status_reason_mismatch"
+        assert error.entity == "ContractCheckResult"
+        assert error.field == "status"
+
+    def test_contract_check_result_rejects_fail_with_only_non_blocking_reasons(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.FAIL,
+            reasons=(
+                ContractCheckReason(
+                    code="environment_mismatch",
+                    message="Python version differs.",
+                    blocking=False,
+                ),
+            ),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_status_reason_mismatch"
+        assert error.entity == "ContractCheckResult"
+        assert error.field == "status"
+
+    def test_contract_check_result_rejects_unknown_reason_code(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.WARN,
+            reasons=(
+                ContractCheckReason(
+                    code="metric_mismatch",
+                    message="Metric definition differs.",
+                    blocking=False,
+                ),
+            ),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_reason_code_unknown"
+        assert error.entity == "ContractCheckReason"
+        assert error.field == "code"
+
+    def test_contract_check_result_rejects_environment_mismatch_with_blocking_flag(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.WARN,
+            reasons=(
+                ContractCheckReason(
+                    code="environment_mismatch",
+                    message="Python version differs.",
+                    blocking=True,
+                ),
+            ),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_reason_blocking_mismatch"
+        assert error.entity == "ContractCheckReason"
+        assert error.field == "blocking"
+
+    def test_contract_check_result_rejects_schema_mismatch_without_blocking_flag(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.FAIL,
+            reasons=(
+                ContractCheckReason(
+                    code="schema_mismatch",
+                    message="Schema differs.",
+                    blocking=False,
+                ),
+            ),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_reason_blocking_mismatch"
+        assert error.entity == "ContractCheckReason"
+        assert error.field == "blocking"

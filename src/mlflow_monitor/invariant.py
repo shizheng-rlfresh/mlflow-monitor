@@ -2,8 +2,26 @@
 
 from collections.abc import Sequence
 
-from mlflow_monitor.domain import LKG, Baseline, Diff, Finding, Run, Timeline
+from mlflow_monitor.domain import (
+    LKG,
+    Baseline,
+    ComparabilityStatus,
+    ContractCheckReason,
+    ContractCheckResult,
+    Diff,
+    Finding,
+    Run,
+    Timeline,
+)
 from mlflow_monitor.errors import InvariantViolation
+
+# the blocking mechanism
+_CONTRACT_REASON_BLOCKING_BY_CODE = {
+    "environment_mismatch": False,
+    "schema_mismatch": True,
+    "feature_mismatch": True,
+    "data_scope_mismatch": True,
+}
 
 
 def validate_timeline_ownership(
@@ -152,6 +170,119 @@ def validate_finding_to_diff_evidence(finding: Finding, diff: Diff) -> None:
         )
 
     return None
+
+
+def validate_contract_check_result(result: ContractCheckResult) -> None:
+    """Validate a contract-check result against the v0 reason taxonomy.
+
+    Args:
+        result: The contract-check result to validate.
+
+    Raises:
+        InvariantViolation: If the reason taxonomy or aggregate status is inconsistent.
+
+    Returns:
+        None if the contract-check result is valid.
+    """
+    for reason in result.reasons:
+        validate_contract_check_reason(reason)
+
+    _validate_contract_check_status(result)
+
+    return None
+
+
+def validate_contract_check_reason(reason: ContractCheckReason) -> None:
+    """Validate a single contract-check reason against the v0 taxonomy.
+
+    Args:
+        reason: The contract-check reason to validate.
+
+    Raises:
+        InvariantViolation: If the reason code is unknown or its blocking flag is invalid.
+
+    Returns:
+        None if the reason is valid.
+    """
+    expected_blocking = _CONTRACT_REASON_BLOCKING_BY_CODE.get(reason.code)
+
+    if expected_blocking is None:
+        raise InvariantViolation(
+            code="contract_check_reason_code_unknown",
+            message=f"Contract check reason code {reason.code!r} is not supported in v0.",
+            entity="ContractCheckReason",
+            field="code",
+        )
+
+    if reason.blocking != expected_blocking:
+        raise InvariantViolation(
+            code="contract_check_reason_blocking_mismatch",
+            message=(
+                f"Contract check reason {reason.code!r} must set blocking={expected_blocking}."
+            ),
+            entity="ContractCheckReason",
+            field="blocking",
+        )
+
+    return None
+
+
+def _validate_contract_check_status(result: ContractCheckResult) -> None:
+    """Validate that result status matches the blocking profile of its reasons.
+
+    Args:
+        result: The contract-check result to validate.
+
+    Raises:
+        InvariantViolation: If the status code and reasons do not align.
+
+    Returns:
+        None if the status code and reasons are aligned.
+    """
+    if result.status not in ComparabilityStatus:
+        raise InvariantViolation(
+            code="contract_check_status_unknown",
+            message=f"Comparability status {result.status!r} is not supported.",
+            entity="ContractCheckResult",
+            field="status",
+        )
+
+    has_reasons = bool(result.reasons)
+    has_blocking_reason = any(reason.blocking for reason in result.reasons)
+
+    if result.status is ComparabilityStatus.PASS and has_reasons:
+        raise InvariantViolation(
+            code="contract_check_status_reason_mismatch",
+            message="Comparability status 'pass' cannot include contract-check reasons.",
+            entity="ContractCheckResult",
+            field="status",
+        )
+
+    if result.status is ComparabilityStatus.WARN and has_blocking_reason:
+        raise InvariantViolation(
+            code="contract_check_status_reason_mismatch",
+            message="Comparability status 'warn' cannot include blocking contract-check reasons.",
+            entity="ContractCheckResult",
+            field="status",
+        )
+
+    if result.status is ComparabilityStatus.WARN and not has_reasons:
+        raise InvariantViolation(
+            code="contract_check_status_reason_mismatch",
+            message="Comparability status `warn` requires at least one non-blocking contract-check reason.",  # noqa: E501
+            entity="ContractCheckResult",
+            field="status",
+        )
+
+    if result.status is ComparabilityStatus.FAIL and not has_blocking_reason:
+        raise InvariantViolation(
+            code="contract_check_status_reason_mismatch",
+            message=(
+                "Comparability status 'fail' requires at least one blocking contract-check reason."
+            ),
+            entity="ContractCheckResult",
+            field="status",
+        )
 
 
 def _validate_baseline_ownership(timeline: Timeline, baseline: Baseline) -> None:
