@@ -80,6 +80,46 @@ def validate_baseline_immutability(
     return None
 
 
+def validate_lkg_membership(timeline: Timeline, lkg: LKG) -> None:
+    """Validate that the LKG record belongs to the same timeline.
+
+    Args:
+        timeline: The timeline record to validate against.
+        lkg: The LKG record to check membership of.
+
+    Raises:
+        InvariantViolation: If the LKG is found to not belong to the same timeline.
+
+    Returns:
+        None if the LKG is valid.
+    """
+    if lkg.timeline_id != timeline.timeline_id:
+        raise InvariantViolation(
+            code="lkg_membership_violation",
+            message=f"LKG {lkg} does not belong to Timeline {timeline}",
+            entity="LKG",
+            field="timeline_id",
+        )
+
+    if lkg.run_id not in timeline.run_ids:
+        raise InvariantViolation(
+            code="lkg_membership_violation",
+            message=f"LKG {lkg} does not belong to Timeline {timeline}",
+            entity="LKG",
+            field="run_id",
+        )
+
+    if lkg.run_id != timeline.active_lkg_run_id:
+        raise InvariantViolation(
+            code="lkg_membership_violation",
+            message=f"LKG {lkg} does not belong to Timeline {timeline}",
+            entity="LKG",
+            field="active_lkg_run_id",
+        )
+
+    return None
+
+
 def _validate_baseline_ownership(timeline: Timeline, baseline: Baseline) -> None:
     """Validate that the baseline record is owned by the same timeline.
 
@@ -95,7 +135,7 @@ def _validate_baseline_ownership(timeline: Timeline, baseline: Baseline) -> None
     """
     if baseline.timeline_id != timeline.timeline_id:
         raise InvariantViolation(
-            code="baseline_timeliine_mismatch",
+            code="baseline_timeline_mismatch",
             message=f"Baseline {baseline.timeline_id} does not match Timeline {timeline.timeline_id}",
             entity="Baseline",
             field="timeline_id",
@@ -139,7 +179,7 @@ def _validate_run_ownership(timeline: Timeline, run: Run) -> None:
     """
     if run.timeline_id != timeline.timeline_id:
         raise InvariantViolation(
-            code="run_timeliine_mismatch",
+            code="run_timeline_mismatch",
             message=f"Run {run.timeline_id} does not match Timeline {timeline.timeline_id}",
             entity="Run",
             field="timeline_id",
