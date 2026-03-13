@@ -1,9 +1,4 @@
-# i probably will write a few tests
-# 1. timeline ownership checks
-# 2. baseline immutability checks
-# 3. lkg in same timeline checks
-# finding-to-diff evidence checks
-
+"""Unit tests for invariants in mlflow_monitor."""
 
 import pytest
 

@@ -1,3 +1,5 @@
+"""Unit tests for domain models in mlflow_monitor."""
+
 from mlflow_monitor.domain import (
     LKG,
     Baseline,
@@ -16,6 +18,7 @@ from mlflow_monitor.domain import (
 
 
 def test_canonical_entities_can_be_constructed() -> None:
+    """Test that domain entities can be constructed with expected fields and types."""
     contract = Contract(
         contract_id="default",
         version="v0",
@@ -96,6 +99,7 @@ def test_canonical_entities_can_be_constructed() -> None:
 
 
 def test_status_vocabularies_are_fixed() -> None:
+    """Test that enum vocabularies have expected values."""
     assert {status.value for status in LifecycleStatus} == {
         "created",
         "prepared",
@@ -108,6 +112,7 @@ def test_status_vocabularies_are_fixed() -> None:
 
 
 def test_relationship_shapes_match_cast() -> None:
+    """Test that related entities can be associated with correct field types."""
     contract = Contract(
         contract_id="default",
         version="v0",
@@ -157,6 +162,7 @@ def test_relationship_shapes_match_cast() -> None:
 
 
 def test_finding_references_one_or_more_diffs() -> None:
+    """Test that a Finding can reference one or more Diff records."""
     finding = Finding(
         finding_id="finding-1",
         run_id="run-1",
@@ -171,6 +177,7 @@ def test_finding_references_one_or_more_diffs() -> None:
 
 
 def test_baseline_carries_snapshot_context() -> None:
+    """Test that Baseline can carry snapshot context for metrics and environment."""
     baseline = Baseline(
         timeline_id="timeline-1",
         source_run_id="train-run-1",
@@ -187,6 +194,7 @@ def test_baseline_carries_snapshot_context() -> None:
 
 
 def test_baseline_snapshot_mappings_are_immutable() -> None:
+    """Test that Baseline snapshot mappings are immutable after construction."""
     metric_snapshot = {"f1": 0.87}
     environment_context = {"python": "3.12"}
     baseline = Baseline(
