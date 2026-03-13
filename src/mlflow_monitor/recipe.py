@@ -5,6 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+_REQUIRED_TOP_LEVEL_SECTIONS = {
+    "identity",
+    "input_binding",
+    "contract_binding",
+    "metrics_slices",
+    "finding_policy",
+    "output_binding",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RecipeIdentity:
@@ -57,6 +66,10 @@ class RecipeV0Lite:
 
 def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
     """Parse a mapping into the canonical v0-lite recipe model."""
+    unknown_sections = sorted(set(raw.keys()) - _REQUIRED_TOP_LEVEL_SECTIONS)
+    if unknown_sections:
+        unknown = ", ".join(unknown_sections)
+        raise ValueError(f"Unknown/disallowed recipe section(s): {unknown}")
 
     return RecipeV0Lite(
         identity=RecipeIdentity(
