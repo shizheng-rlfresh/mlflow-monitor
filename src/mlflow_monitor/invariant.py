@@ -258,6 +258,14 @@ def _validate_contract_check_status(result: ContractCheckResult) -> None:
             field="status",
         )
 
+    if result.status is ComparabilityStatus.WARN and not has_reasons:
+        raise InvariantViolation(
+            code="contract_check_status_reason_mismatch",
+            message="Comparability status `warn` requires at least one non-blocking contract-check reason.",
+            entity="ContractCheckResult",
+            field="status",
+        )
+
     if result.status is ComparabilityStatus.FAIL and not has_blocking_reason:
         raise InvariantViolation(
             code="contract_check_status_reason_mismatch",

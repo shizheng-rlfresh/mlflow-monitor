@@ -389,6 +389,20 @@ class TestInvariantContractCheckResult:
         assert error.entity == "ContractCheckResult"
         assert error.field == "status"
 
+    def test_contract_check_result_rejects_warn_with_no_non_blocking_reason(self) -> None:
+        result = ContractCheckResult(
+            status=ComparabilityStatus.WARN,
+            reasons=(),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_status_reason_mismatch"
+        assert error.entity == "ContractCheckResult"
+        assert error.field == "status"
+
     def test_contract_check_result_rejects_fail_with_only_non_blocking_reasons(self) -> None:
         result = ContractCheckResult(
             status=ComparabilityStatus.FAIL,
