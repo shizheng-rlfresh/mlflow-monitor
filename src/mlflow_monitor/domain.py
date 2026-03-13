@@ -85,7 +85,11 @@ class ContractCheckResult:
 
 @dataclass(frozen=True, slots=True)
 class Contract:
-    """Versioned comparability contract bound to a timeline.
+    """Resolved versioned comparability contract bound to a timeline.
+
+    This is the effective contract attached to a run or timeline after any
+    recipe-layer selection has been resolved. It is not the recipe-facing
+    profile/binding mechanism itself.
 
     Attributes:
         contract_id: Unique identifier for the contract.
