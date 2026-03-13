@@ -36,6 +36,15 @@ Use descriptive test names. Add test docstrings only for non-obvious scenarios o
 Ruff enforces docstrings for runtime code under `src/mlflow_monitor/`.
 Tests under `tests/` do not require docstrings by default.
 
+## Commit discipline
+
+- Default to frequent checkpoint commits, not one large end-of-task commit.
+- Make a commit after each small, coherent, reviewable slice.
+- For behavior changes, prefer: test change, minimal implementation, relevant validation, commit.
+- Avoid mixing unrelated edits in the same commit.
+- Do not create WIP commits unless the user explicitly asks for them.
+- If a task is tiny, one commit is acceptable; otherwise split the work into multiple commits.
+
 ## Review guidelines
 
 - Don't log PII.
