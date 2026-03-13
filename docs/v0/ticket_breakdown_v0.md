@@ -27,7 +27,7 @@
 
 ---
 
-## Cycle M1: Core skeleton
+## Cycle M1: Core skeleton (See [tickets_m1_v0.md](tickets_m1_v0.md)) for details
 
 **Exit criteria:** runs can prepare, check, and persist status with recipe binding.
 
