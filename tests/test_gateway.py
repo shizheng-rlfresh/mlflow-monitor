@@ -107,6 +107,16 @@ def test_initialize_timeline_is_deterministic_and_stores_baseline_reference() ->
     assert timeline_state.baseline_source_run_id == "train-run-1"
 
 
+def test_initialize_timeline_rejects_empty_baseline_source_run_id() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(
+        GatewayNamespaceViolation,
+        match="baseline_source_run_id must be non-empty.",
+    ):
+        gateway.initialize_timeline("churn_model", "")
+
+
 def test_set_and_resolve_active_lkg_run_id() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
 

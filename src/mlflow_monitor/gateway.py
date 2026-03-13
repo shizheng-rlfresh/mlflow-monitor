@@ -166,6 +166,9 @@ class InMemoryMonitoringGateway:
         Returns:
             The existing or newly created timeline id for the subject.
         """
+        if not baseline_source_run_id:
+            raise GatewayNamespaceViolation(message="baseline_source_run_id must be non-empty.")
+
         self._validate_subject_id(subject_id)
         if subject_id in self._timeline_by_subject:
             return self._timeline_by_subject[subject_id].timeline_id
