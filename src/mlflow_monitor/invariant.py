@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 
-from mlflow_monitor.domain import LKG, Baseline, Run, Timeline
+from mlflow_monitor.domain import LKG, Baseline, Diff, Finding, Run, Timeline
 from mlflow_monitor.errors import InvariantViolation
 
 
@@ -73,7 +73,7 @@ def validate_baseline_immutability(
 
         raise InvariantViolation(
             code="baseline_immutability_violation",
-            message=f"Proposed Baseline {proposed_baseline} does not match existing Baseline {baseline}",
+            message=f"Proposed Baseline {proposed_baseline} does not match existing Baseline {baseline}",  # noqa: E501
             entity="Baseline",
             field=", ".join(fields) if fields else None,
         )
@@ -120,6 +120,40 @@ def validate_lkg_membership(timeline: Timeline, lkg: LKG) -> None:
     return None
 
 
+def validate_finding_to_diff_evidence(finding: Finding, diff: Diff) -> None:
+    """Validate that the provided diff record corresponds to one of the finding's evidence diff IDs.
+
+    Args:
+        finding: The finding record to validate.
+        diff: The diff record to check for evidence membership.
+
+    Raises:
+        InvariantViolation: If any evidence diff ID does not correspond to a provided diff.
+
+    Returns:
+        None if all evidence diff IDs are valid.
+    """
+    evidence_diff_ids = {evidence_diff_id for evidence_diff_id in finding.evidence_diff_ids}
+
+    if diff.diff_id not in evidence_diff_ids:
+        raise InvariantViolation(
+            code="finding_diff_evidence_violation",
+            message=f"Diff diff_id {diff.diff_id} is not in Finding evidence {evidence_diff_ids}",
+            entity="Diff",
+            field="diff_id",
+        )
+
+    if diff.run_id != finding.run_id:
+        raise InvariantViolation(
+            code="finding_diff_evidence_violation",
+            message=f"Diff run_id {diff.run_id} does not match Finding run_id {finding.run_id}",
+            entity="Diff",
+            field="run_id",
+        )
+
+    return None
+
+
 def _validate_baseline_ownership(timeline: Timeline, baseline: Baseline) -> None:
     """Validate that the baseline record is owned by the same timeline.
 
@@ -133,10 +167,12 @@ def _validate_baseline_ownership(timeline: Timeline, baseline: Baseline) -> None
     Returns:
         None if the baseline is valid.
     """
+    timeline_id = timeline.timeline_id
+
     if baseline.timeline_id != timeline.timeline_id:
         raise InvariantViolation(
             code="baseline_timeline_mismatch",
-            message=f"Baseline {baseline.timeline_id} does not match Timeline {timeline.timeline_id}",
+            message=f"Baseline {baseline.timeline_id} does not match Timeline {timeline_id}",
             entity="Baseline",
             field="timeline_id",
         )

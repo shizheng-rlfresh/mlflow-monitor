@@ -12,6 +12,10 @@ from mlflow_monitor.domain import (
     Baseline,
     ComparabilityStatus,
     Contract,
+    Diff,
+    DiffReferenceKind,
+    Finding,
+    FindingSeverity,
     LifecycleStatus,
     Run,
     Timeline,
@@ -19,6 +23,7 @@ from mlflow_monitor.domain import (
 from mlflow_monitor.errors import InvariantViolation
 from mlflow_monitor.invariant import (
     validate_baseline_immutability,
+    validate_finding_to_diff_evidence,
     validate_lkg_membership,
     validate_timeline_ownership,
 )
@@ -70,8 +75,30 @@ RUN = Run(
     lifecycle_status=LifecycleStatus.CLOSED,
     comparability_status=ComparabilityStatus.PASS,
     contract_check_result=None,
-    diff_ids=(),
-    finding_ids=(),
+    diff_ids=("diff_1",),
+    finding_ids=("finding_1",),
+)
+
+FINDING = Finding(
+    finding_id="finding-1",
+    run_id="run-2",
+    severity=FindingSeverity.HIGH,
+    category="data_drift",
+    summary="Significant data drift detected in feature 'age'",
+    evidence_diff_ids=(
+        "diff-1",
+        "diff-2",
+    ),
+    recommendation="Investigate recent changes",
+)
+
+DIFF = Diff(
+    diff_id="diff-1",
+    run_id="run-2",
+    reference_run_id="run-1",
+    reference_kind=DiffReferenceKind.BASELINE,
+    metric_deltas={"kl": -0.05},
+    metadata={"feature": "age"},
 )
 
 
@@ -187,7 +214,6 @@ class TestInvariantLKGMembership:
         """LKG with non-matching timeline_id or run_id should raise InvariantViolation."""
 
         different_timeline_lkg = LKG(timeline_id="timeline-2", run_id="run-1")
-        nonmember_lkg = LKG(timeline_id="timeline-1", run_id="run-2")
 
         with pytest.raises(InvariantViolation) as exc_info:
             validate_lkg_membership(TIMELINE, different_timeline_lkg)
@@ -227,3 +253,62 @@ class TestInvariantLKGMembership:
         assert error.field == "active_lkg_run_id"
         assert error.entity == "LKG"
         assert error.message == f"LKG {non_active_lkg} does not belong to Timeline {TIMELINE}"
+
+
+class TestInvariantFindingToDiffEvidence:
+    def test_finding_to_diff_evidence_valid(self) -> None:
+        """Finding with all evidence diff_ids present in the timeline should pass validation."""
+
+        validate_finding_to_diff_evidence(FINDING, DIFF)
+
+    def test_finding_to_diff_evidence_different_run_id_invalid(self) -> None:
+        """Diff with run_id different from Finding's run_id should raise InvariantViolation."""
+
+        mismatch_run_id_diff = Diff(
+            diff_id="diff-1",
+            run_id="run-3",
+            reference_run_id="run-3",
+            reference_kind=DiffReferenceKind.BASELINE,
+            metric_deltas={"kl": -0.05},
+            metadata={"feature": "age"},
+        )
+
+        run_id = FINDING.run_id
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_finding_to_diff_evidence(FINDING, mismatch_run_id_diff)
+
+        error = exc_info.value
+        assert error.code == "finding_diff_evidence_violation"
+        assert error.field == "run_id"
+        assert error.entity == "Diff"
+        assert (
+            error.message
+            == f"Diff run_id {mismatch_run_id_diff.run_id} does not match Finding run_id {run_id}"
+        )
+
+    def test_finding_to_diff_evidence_diff_id_not_in_evidence_invalid(self) -> None:
+        """Diff with diff_id not in Finding's evidence_diff_ids should raise InvariantViolation."""
+
+        non_evidence_diff = Diff(
+            diff_id="diff-3",  # diff_id not in FINDING.evidence_diff_ids to trigger violation
+            run_id="run-2",
+            reference_run_id="run-1",
+            reference_kind=DiffReferenceKind.BASELINE,
+            metric_deltas={"kl": -0.05},
+            metadata={"feature": "age"},
+        )
+
+        diff_ids = {diff_id for diff_id in FINDING.evidence_diff_ids}
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_finding_to_diff_evidence(FINDING, non_evidence_diff)
+
+        error = exc_info.value
+        assert error.code == "finding_diff_evidence_violation"
+        assert error.field == "diff_id"
+        assert error.entity == "Diff"
+        assert (
+            error.message
+            == f"Diff diff_id {non_evidence_diff.diff_id} is not in Finding evidence {diff_ids}"
+        )
