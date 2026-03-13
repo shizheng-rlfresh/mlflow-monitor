@@ -11,7 +11,6 @@ class LifecycleStatus(StrEnum):
     ANALYZED = "analyzed"
     CLOSED = "closed"
     FAILED = "failed"
-    PROMOTED = "promoted"
 
 
 class ComparabilityStatus(StrEnum):
