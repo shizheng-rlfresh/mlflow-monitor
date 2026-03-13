@@ -133,7 +133,7 @@ def validate_finding_to_diff_evidence(finding: Finding, diff: Diff) -> None:
     Returns:
         None if all evidence diff IDs are valid.
     """
-    evidence_diff_ids = {evidence_diff_id for evidence_diff_id in finding.evidence_diff_ids}
+    evidence_diff_ids = [evidence_diff_id for evidence_diff_id in finding.evidence_diff_ids]
 
     if diff.diff_id not in evidence_diff_ids:
         raise InvariantViolation(
