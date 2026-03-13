@@ -38,10 +38,11 @@ Tests under `tests/` do not require docstrings by default.
 
 ## Commit discipline
 
-- Default to frequent checkpoint commits, not one large end-of-task commit.
-- Make a commit after each small, coherent, reviewable slice.
-- For behavior changes, prefer: test change, minimal implementation, relevant validation, commit.
-- Avoid mixing unrelated edits in the same commit.
+- Commit very frequently by default.
+- Treat each completed function-level change as a checkpoint commit.
+- Do not wait for ticket completion to make the first commit.
+- Run the smallest relevant test/check for the changed function before committing when feasible.
+- Only group multiple function changes into one commit if they are tightly coupled and cannot be reviewed separately.
 - Do not create WIP commits unless the user explicitly asks for them.
 - If a task is tiny, one commit is acceptable; otherwise split the work into multiple commits.
 
