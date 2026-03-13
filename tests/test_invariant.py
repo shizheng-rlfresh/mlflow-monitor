@@ -349,6 +349,20 @@ class TestInvariantContractCheckResult:
 
         validate_contract_check_result(result)
 
+    def test_contract_check_result_rejects_unknown_status(self) -> None:
+        result = ContractCheckResult(
+            status="unknown_status",  # type: ignore
+            reasons=(),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_status_unknown"
+        assert error.entity == "ContractCheckResult"
+        assert error.field == "status"
+
     def test_contract_check_result_rejects_pass_with_reasons(self) -> None:
         result = ContractCheckResult(
             status=ComparabilityStatus.PASS,
