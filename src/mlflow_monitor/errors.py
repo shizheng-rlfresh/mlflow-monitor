@@ -56,14 +56,7 @@ class TrainingRunMutationViolation(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class RecipeValidationIssue:
-    """One machine-readable issue discovered during recipe validation.
-
-    Attributes:
-        code: Stable short code for issue category.
-        section: Top-level recipe section containing the issue.
-        message: Actionable human-readable issue description.
-        field: Optional section-relative field name.
-    """
+    """One machine-readable issue discovered during recipe validation."""
 
     code: str
     section: str
