@@ -345,9 +345,7 @@ def _collect_constraint_issues(recipe: RecipeV0Lite) -> list[RecipeValidationIss
                 code="invalid_constraint",
                 section="input_binding",
                 field="run_selector",
-                message=(
-                    "Field 'input_binding.run_selector' must contain a raw non-empty run ID."
-                ),
+                message=("Field 'input_binding.run_selector' must contain a raw non-empty run ID."),
             )
         )
     if run_selector == "latest" or ":" in run_selector:
