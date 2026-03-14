@@ -7,6 +7,7 @@ file-format parsing (for example JSON/YAML text decoding), which is deferred.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -174,11 +175,13 @@ def validate_recipe_v0_lite(
     try:
         parsed = parse_recipe_v0_lite(raw)
     except ValueError as exc:
+        section, field = _extract_error_location(str(exc))
         raise RecipeValidationError(
             issues=(
                 RecipeValidationIssue(
                     code="structural_error",
-                    section="recipe",
+                    section=section,
+                    field=field,
                     message=str(exc),
                 ),
             )
@@ -405,6 +408,26 @@ def _add_duplicate_issues(
             message=f"Field '{section}.{field}' must not contain duplicate entries.",
         )
     )
+
+
+def _extract_error_location(message: str) -> tuple[str, str | None]:
+    """Extract section/field location from parser error text when possible."""
+    field_match = re.search(r"Field '([a-z_]+)\.([a-z_]+)'", message)
+    if field_match:
+        return field_match.group(1), field_match.group(2)
+
+    missing_field_match = re.search(
+        r"Section '([a-z_]+)' missing required field '([a-z_]+)'",
+        message,
+    )
+    if missing_field_match:
+        return missing_field_match.group(1), missing_field_match.group(2)
+
+    section_match = re.search(r"Section '([a-z_]+)'", message)
+    if section_match:
+        return section_match.group(1), None
+
+    return "recipe", None
 
 
 def _parse_identity(section: Mapping[str, object]) -> RecipeIdentity:

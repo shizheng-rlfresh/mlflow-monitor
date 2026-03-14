@@ -243,3 +243,35 @@ def test_validate_recipe_v0_lite_rejects_duplicate_list_entries(
 
     with pytest.raises(RecipeValidationError, match=field_name):
         validate_recipe_v0_lite(raw, references=make_reference_catalog())
+
+
+def test_validate_recipe_v0_lite_reports_structured_issue_for_unknown_field() -> None:
+    raw = make_valid_recipe()
+    raw["input_binding"] = {
+        **raw["input_binding"],  # type: ignore[arg-type]
+        "required_metric": ["f1"],
+    }
+
+    with pytest.raises(RecipeValidationError) as exc_info:
+        validate_recipe_v0_lite(raw, references=make_reference_catalog())
+
+    issue = exc_info.value.issues[0]
+    assert issue.code == "unknown_field"
+    assert issue.section == "input_binding"
+    assert issue.field == "required_metric"
+
+
+def test_validate_recipe_v0_lite_normalizes_parser_error_to_section_field() -> None:
+    raw = make_valid_recipe()
+    raw["input_binding"] = {
+        **raw["input_binding"],  # type: ignore[arg-type]
+        "run_selector": "",
+    }
+
+    with pytest.raises(RecipeValidationError) as exc_info:
+        validate_recipe_v0_lite(raw, references=make_reference_catalog())
+
+    issue = exc_info.value.issues[0]
+    assert issue.code == "structural_error"
+    assert issue.section == "input_binding"
+    assert issue.field == "run_selector"
