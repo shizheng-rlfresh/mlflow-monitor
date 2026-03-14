@@ -22,6 +22,10 @@ _REQUIRED_TOP_LEVEL_SECTIONS = {
     "output_binding",
 }
 
+SYSTEM_DEFAULT_RECIPE_ID = "system_default"
+SYSTEM_DEFAULT_CONTRACT_ID = "default_permissive"
+SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN = "__RUNTIME_SOURCE_RUN_ID__"
+
 _ALLOWED_SECTION_FIELDS: dict[str, frozenset[str]] = {
     "identity": frozenset({"recipe_id", "version"}),
     "input_binding": frozenset(
@@ -197,6 +201,21 @@ def validate_recipe_v0_lite(
     return parsed
 
 
+def get_system_default_recipe_v0_lite() -> RecipeV0Lite:
+    """Return the built-in system default recipe for v0-lite."""
+    return parse_recipe_v0_lite(_build_system_default_recipe_raw())
+
+
+def resolve_recipe_v0_lite(
+    raw: Mapping[str, object] | None,
+    references: RecipeReferenceCatalog,
+) -> RecipeV0Lite:
+    """Resolve one recipe payload or fallback to the system default recipe."""
+    if raw is None:
+        return validate_recipe_v0_lite(_build_system_default_recipe_raw(), references)
+    return validate_recipe_v0_lite(raw, references)
+
+
 def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
     """Parse a mapping into the canonical v0-lite recipe model.
 
@@ -339,6 +358,8 @@ def _collect_constraint_issues(recipe: RecipeV0Lite) -> list[RecipeValidationIss
     issues: list[RecipeValidationIssue] = []
 
     run_selector = recipe.input_binding.run_selector
+    is_system_default_recipe = recipe.identity.recipe_id == SYSTEM_DEFAULT_RECIPE_ID
+
     if not run_selector.strip():
         issues.append(
             RecipeValidationIssue(
@@ -348,7 +369,21 @@ def _collect_constraint_issues(recipe: RecipeV0Lite) -> list[RecipeValidationIss
                 message=("Field 'input_binding.run_selector' must contain a raw non-empty run ID."),
             )
         )
-    if run_selector == "latest" or ":" in run_selector:
+    if run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN and not is_system_default_recipe:
+        issues.append(
+            RecipeValidationIssue(
+                code="invalid_constraint",
+                section="input_binding",
+                field="run_selector",
+                message=(
+                    "Field 'input_binding.run_selector' may use the reserved token "
+                    "only for recipe identity 'system_default'."
+                ),
+            )
+        )
+    if run_selector != SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN and (
+        run_selector == "latest" or ":" in run_selector
+    ):
         issues.append(
             RecipeValidationIssue(
                 code="invalid_constraint",
@@ -406,6 +441,18 @@ def _add_duplicate_issues(
             message=f"Field '{section}.{field}' must not contain duplicate entries.",
         )
     )
+
+
+def _build_system_default_recipe_raw() -> dict[str, object]:
+    """Build the canonical raw mapping for the built-in default recipe."""
+    return {
+        "identity": {"recipe_id": SYSTEM_DEFAULT_RECIPE_ID, "version": "v0"},
+        "input_binding": {"run_selector": SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN},
+        "contract_binding": {"contract_id": SYSTEM_DEFAULT_CONTRACT_ID},
+        "metrics_slices": {},
+        "finding_policy": {},
+        "output_binding": {},
+    }
 
 
 def _extract_error_location(message: str) -> tuple[str, str | None]:
