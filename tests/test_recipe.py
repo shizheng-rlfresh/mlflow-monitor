@@ -4,9 +4,14 @@ import pytest
 
 from mlflow_monitor.errors import RecipeValidationError
 from mlflow_monitor.recipe import (
+    SYSTEM_DEFAULT_CONTRACT_ID,
+    SYSTEM_DEFAULT_RECIPE_ID,
+    SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
     RecipeReferenceCatalog,
     RecipeV0Lite,
+    get_system_default_recipe_v0_lite,
     parse_recipe_v0_lite,
+    resolve_recipe_v0_lite,
     validate_recipe_v0_lite,
 )
 
@@ -35,6 +40,16 @@ def make_reference_catalog() -> RecipeReferenceCatalog:
 
     return RecipeReferenceCatalog(
         contract_ids=frozenset({"contract-default"}),
+        finding_policy_profiles=frozenset({"default_policy"}),
+        summary_modes=frozenset({"standard"}),
+    )
+
+
+def make_reference_catalog_with_system_default() -> RecipeReferenceCatalog:
+    """Create references that also include built-in system-default IDs."""
+
+    return RecipeReferenceCatalog(
+        contract_ids=frozenset({"contract-default", SYSTEM_DEFAULT_CONTRACT_ID}),
         finding_policy_profiles=frozenset({"default_policy"}),
         summary_modes=frozenset({"standard"}),
     )
@@ -275,3 +290,74 @@ def test_validate_recipe_v0_lite_normalizes_parser_error_to_section_field() -> N
     assert issue.code == "structural_error"
     assert issue.section == "input_binding"
     assert issue.field == "run_selector"
+
+
+def test_get_system_default_recipe_v0_lite_returns_expected_shape() -> None:
+    parsed = get_system_default_recipe_v0_lite()
+
+    assert parsed.identity.recipe_id == SYSTEM_DEFAULT_RECIPE_ID
+    assert parsed.identity.version == "v0"
+    assert parsed.input_binding.run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
+    assert parsed.input_binding.source_experiment is None
+    assert parsed.input_binding.required_metrics == ()
+    assert parsed.input_binding.required_artifacts == ()
+    assert parsed.input_binding.custom_reference_run_id is None
+    assert parsed.contract_binding.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
+    assert parsed.metrics_slices.metrics == ()
+    assert parsed.metrics_slices.slices == ()
+    assert parsed.finding_policy.profile is None
+    assert parsed.output_binding.summary_mode is None
+
+
+def test_get_system_default_recipe_v0_lite_is_deterministic() -> None:
+    parsed_once = get_system_default_recipe_v0_lite()
+    parsed_twice = get_system_default_recipe_v0_lite()
+
+    assert parsed_once == parsed_twice
+
+
+def test_resolve_recipe_v0_lite_without_raw_returns_system_default() -> None:
+    parsed = resolve_recipe_v0_lite(None, references=make_reference_catalog_with_system_default())
+
+    assert parsed.identity.recipe_id == SYSTEM_DEFAULT_RECIPE_ID
+    assert parsed.contract_binding.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
+    assert parsed.input_binding.run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
+
+
+def test_resolve_recipe_v0_lite_with_raw_uses_user_recipe() -> None:
+    raw = make_valid_recipe()
+
+    parsed = resolve_recipe_v0_lite(raw, references=make_reference_catalog())
+
+    assert parsed.identity.recipe_id == "default"
+    assert parsed.contract_binding.contract_id == "contract-default"
+    assert parsed.input_binding.run_selector == "train-run-123"
+
+
+def test_validate_recipe_v0_lite_allows_system_default_selector_token() -> None:
+    raw = {
+        "identity": {"recipe_id": SYSTEM_DEFAULT_RECIPE_ID, "version": "v0"},
+        "input_binding": {"run_selector": SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN},
+        "contract_binding": {"contract_id": SYSTEM_DEFAULT_CONTRACT_ID},
+        "metrics_slices": {},
+        "finding_policy": {},
+        "output_binding": {},
+    }
+
+    parsed = validate_recipe_v0_lite(
+        raw,
+        references=make_reference_catalog_with_system_default(),
+    )
+
+    assert parsed.input_binding.run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
+
+
+def test_validate_recipe_v0_lite_rejects_system_default_token_for_user_recipe() -> None:
+    raw = make_valid_recipe()
+    raw["input_binding"] = {
+        **raw["input_binding"],  # type: ignore[arg-type]
+        "run_selector": SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
+    }
+
+    with pytest.raises(RecipeValidationError, match="input_binding\\.run_selector"):
+        validate_recipe_v0_lite(raw, references=make_reference_catalog_with_system_default())
