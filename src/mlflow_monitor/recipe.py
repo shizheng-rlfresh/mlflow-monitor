@@ -7,8 +7,11 @@ file-format parsing (for example JSON/YAML text decoding), which is deferred.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+
+from mlflow_monitor.errors import RecipeValidationError, RecipeValidationIssue
 
 _REQUIRED_TOP_LEVEL_SECTIONS = {
     "identity",
@@ -18,6 +21,38 @@ _REQUIRED_TOP_LEVEL_SECTIONS = {
     "finding_policy",
     "output_binding",
 }
+
+_ALLOWED_SECTION_FIELDS: dict[str, frozenset[str]] = {
+    "identity": frozenset({"recipe_id", "version"}),
+    "input_binding": frozenset(
+        {
+            "run_selector",
+            "source_experiment",
+            "required_metrics",
+            "required_artifacts",
+            "custom_reference_run_id",
+        }
+    ),
+    "contract_binding": frozenset({"contract_id"}),
+    "metrics_slices": frozenset({"metrics", "slices"}),
+    "finding_policy": frozenset({"profile"}),
+    "output_binding": frozenset({"summary_mode"}),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class RecipeReferenceCatalog:
+    """Allowlisted external references used during recipe validation.
+
+    Attributes:
+        contract_ids: Valid contract IDs for recipe binding.
+        finding_policy_profiles: Valid finding policy profile IDs.
+        summary_modes: Valid output summary mode IDs.
+    """
+
+    contract_ids: frozenset[str]
+    finding_policy_profiles: frozenset[str]
+    summary_modes: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +156,47 @@ class RecipeV0Lite:
     output_binding: RecipeOutputBinding
 
 
+def validate_recipe_v0_lite(
+    raw: Mapping[str, object],
+    references: RecipeReferenceCatalog,
+) -> RecipeV0Lite:
+    """Validate and parse one v0-lite recipe payload.
+
+    Args:
+        raw: Raw recipe mapping containing v0-lite top-level sections.
+        references: Allowlisted reference IDs for recipe bindings.
+
+    Returns:
+        Parsed recipe runtime model when validation succeeds.
+
+    Raises:
+        RecipeValidationError: If one or more validation checks fail.
+    """
+    try:
+        parsed = parse_recipe_v0_lite(raw)
+    except ValueError as exc:
+        section, field = _extract_error_location(str(exc))
+        raise RecipeValidationError(
+            issues=(
+                RecipeValidationIssue(
+                    code="structural_error",
+                    section=section,
+                    field=field,
+                    message=str(exc),
+                ),
+            )
+        ) from exc
+
+    issues: list[RecipeValidationIssue] = []
+    issues.extend(_collect_unknown_nested_key_issues(raw))
+    issues.extend(_collect_reference_issues(parsed, references))
+    issues.extend(_collect_constraint_issues(parsed))
+
+    if issues:
+        raise RecipeValidationError(issues=tuple(issues))
+    return parsed
+
+
 def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
     """Parse a mapping into the canonical v0-lite recipe model.
 
@@ -185,6 +261,171 @@ def _require_section(raw: Mapping[str, object], section_name: str) -> Mapping[st
     if not isinstance(section, Mapping):
         raise ValueError(f"Section '{section_name}' must be a mapping.")
     return section
+
+
+def _collect_unknown_nested_key_issues(raw: Mapping[str, object]) -> list[RecipeValidationIssue]:
+    """Collect issues for unknown keys nested inside known top-level sections."""
+    issues: list[RecipeValidationIssue] = []
+
+    for section_name in sorted(_REQUIRED_TOP_LEVEL_SECTIONS):
+        section_raw = raw[section_name]
+        if not isinstance(section_raw, Mapping):
+            continue
+
+        allowed_fields = _ALLOWED_SECTION_FIELDS[section_name]
+        for field in sorted(section_raw.keys()):
+            if not isinstance(field, str):
+                continue
+            if field in allowed_fields:
+                continue
+            issues.append(
+                RecipeValidationIssue(
+                    code="unknown_field",
+                    section=section_name,
+                    field=field,
+                    message=f"Unknown/disallowed field '{section_name}.{field}'.",
+                )
+            )
+    return issues
+
+
+def _collect_reference_issues(
+    recipe: RecipeV0Lite,
+    references: RecipeReferenceCatalog,
+) -> list[RecipeValidationIssue]:
+    """Collect issues for unknown external references in a parsed recipe."""
+    issues: list[RecipeValidationIssue] = []
+
+    if recipe.contract_binding.contract_id not in references.contract_ids:
+        issues.append(
+            RecipeValidationIssue(
+                code="unknown_reference",
+                section="contract_binding",
+                field="contract_id",
+                message=(
+                    "Unknown reference 'contract_binding.contract_id': "
+                    f"{recipe.contract_binding.contract_id}."
+                ),
+            )
+        )
+
+    profile = recipe.finding_policy.profile
+    if profile is not None and profile not in references.finding_policy_profiles:
+        issues.append(
+            RecipeValidationIssue(
+                code="unknown_reference",
+                section="finding_policy",
+                field="profile",
+                message=f"Unknown reference 'finding_policy.profile': {profile}.",
+            )
+        )
+
+    summary_mode = recipe.output_binding.summary_mode
+    if summary_mode is not None and summary_mode not in references.summary_modes:
+        issues.append(
+            RecipeValidationIssue(
+                code="unknown_reference",
+                section="output_binding",
+                field="summary_mode",
+                message=f"Unknown reference 'output_binding.summary_mode': {summary_mode}.",
+            )
+        )
+
+    return issues
+
+
+def _collect_constraint_issues(recipe: RecipeV0Lite) -> list[RecipeValidationIssue]:
+    """Collect issues for v0 recipe constraints independent of external systems."""
+    issues: list[RecipeValidationIssue] = []
+
+    run_selector = recipe.input_binding.run_selector
+    if not run_selector.strip():
+        issues.append(
+            RecipeValidationIssue(
+                code="invalid_constraint",
+                section="input_binding",
+                field="run_selector",
+                message=("Field 'input_binding.run_selector' must contain a raw non-empty run ID."),
+            )
+        )
+    if run_selector == "latest" or ":" in run_selector:
+        issues.append(
+            RecipeValidationIssue(
+                code="invalid_constraint",
+                section="input_binding",
+                field="run_selector",
+                message=(
+                    "Field 'input_binding.run_selector' must be a raw run ID; "
+                    "selector modes like 'latest' and prefixed values are not allowed."
+                ),
+            )
+        )
+
+    _add_duplicate_issues(
+        issues=issues,
+        section="input_binding",
+        field="required_metrics",
+        values=recipe.input_binding.required_metrics,
+    )
+    _add_duplicate_issues(
+        issues=issues,
+        section="input_binding",
+        field="required_artifacts",
+        values=recipe.input_binding.required_artifacts,
+    )
+    _add_duplicate_issues(
+        issues=issues,
+        section="metrics_slices",
+        field="metrics",
+        values=recipe.metrics_slices.metrics,
+    )
+    _add_duplicate_issues(
+        issues=issues,
+        section="metrics_slices",
+        field="slices",
+        values=recipe.metrics_slices.slices,
+    )
+
+    return issues
+
+
+def _add_duplicate_issues(
+    issues: list[RecipeValidationIssue],
+    section: str,
+    field: str,
+    values: tuple[str, ...],
+) -> None:
+    """Append one issue if a tuple of strings contains duplicates."""
+    if len(values) == len(set(values)):
+        return
+    issues.append(
+        RecipeValidationIssue(
+            code="invalid_constraint",
+            section=section,
+            field=field,
+            message=f"Field '{section}.{field}' must not contain duplicate entries.",
+        )
+    )
+
+
+def _extract_error_location(message: str) -> tuple[str, str | None]:
+    """Extract section/field location from parser error text when possible."""
+    field_match = re.search(r"Field '([a-z_]+)\.([a-z_]+)'", message)
+    if field_match:
+        return field_match.group(1), field_match.group(2)
+
+    missing_field_match = re.search(
+        r"Section '([a-z_]+)' missing required field '([a-z_]+)'",
+        message,
+    )
+    if missing_field_match:
+        return missing_field_match.group(1), missing_field_match.group(2)
+
+    section_match = re.search(r"Section '([a-z_]+)'", message)
+    if section_match:
+        return section_match.group(1), None
+
+    return "recipe", None
 
 
 def _parse_identity(section: Mapping[str, object]) -> RecipeIdentity:
