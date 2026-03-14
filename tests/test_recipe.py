@@ -1,8 +1,14 @@
-"""Unit tests for the v0-lite recipe schema parser."""
+"""Unit tests for the v0-lite recipe parser and validator."""
 
 import pytest
 
-from mlflow_monitor.recipe import RecipeV0Lite, parse_recipe_v0_lite
+from mlflow_monitor.errors import RecipeValidationError
+from mlflow_monitor.recipe import (
+    RecipeReferenceCatalog,
+    RecipeV0Lite,
+    parse_recipe_v0_lite,
+    validate_recipe_v0_lite,
+)
 
 
 def make_valid_recipe() -> dict[str, object]:
@@ -22,6 +28,16 @@ def make_valid_recipe() -> dict[str, object]:
         "finding_policy": {"profile": "default_policy"},
         "output_binding": {"summary_mode": "standard"},
     }
+
+
+def make_reference_catalog() -> RecipeReferenceCatalog:
+    """Create a reference catalog with valid v0-lite IDs."""
+
+    return RecipeReferenceCatalog(
+        contract_ids=frozenset({"contract-default"}),
+        finding_policy_profiles=frozenset({"default_policy"}),
+        summary_modes=frozenset({"standard"}),
+    )
 
 
 def test_parse_recipe_v0_lite_parses_valid_recipe() -> None:
@@ -130,3 +146,27 @@ def test_parse_recipe_v0_lite_is_deterministic_for_same_input() -> None:
     parsed_twice = parse_recipe_v0_lite(raw)
 
     assert parsed_once == parsed_twice
+
+
+@pytest.mark.parametrize(
+    ("section_name", "bad_key"),
+    [
+        ("identity", "recipe_name"),
+        ("input_binding", "required_metric"),
+        ("contract_binding", "contract_name"),
+        ("metrics_slices", "slice"),
+        ("finding_policy", "severity_policy"),
+        ("output_binding", "summary"),
+    ],
+)
+def test_validate_recipe_v0_lite_rejects_unknown_nested_section_keys(
+    section_name: str,
+    bad_key: str,
+) -> None:
+    raw = make_valid_recipe()
+    section = dict(raw[section_name])  # type: ignore[index]
+    section[bad_key] = "unexpected"
+    raw[section_name] = section
+
+    with pytest.raises(RecipeValidationError, match=f"{section_name}\\.{bad_key}"):
+        validate_recipe_v0_lite(raw, references=make_reference_catalog())

@@ -52,3 +52,31 @@ class TrainingRunMutationViolation(ValueError):
     def __str__(self) -> str:
         """Return the error message when the exception is converted to a string."""
         return self.message
+
+
+@dataclass(frozen=True, slots=True)
+class RecipeValidationIssue:
+    """One machine-readable issue discovered during recipe validation.
+
+    Attributes:
+        code: Stable short code for issue category.
+        section: Top-level recipe section containing the issue.
+        message: Actionable human-readable issue description.
+        field: Optional section-relative field name.
+    """
+
+    code: str
+    section: str
+    message: str
+    field: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RecipeValidationError(ValueError):
+    """Raised when one or more recipe validation checks fail."""
+
+    issues: tuple[RecipeValidationIssue, ...]
+
+    def __str__(self) -> str:
+        """Return a deterministic joined message for all validation issues."""
+        return "; ".join(issue.message for issue in self.issues)

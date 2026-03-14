@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from mlflow_monitor.errors import RecipeValidationError, RecipeValidationIssue
+
 _REQUIRED_TOP_LEVEL_SECTIONS = {
     "identity",
     "input_binding",
@@ -18,6 +20,38 @@ _REQUIRED_TOP_LEVEL_SECTIONS = {
     "finding_policy",
     "output_binding",
 }
+
+_ALLOWED_SECTION_FIELDS: dict[str, frozenset[str]] = {
+    "identity": frozenset({"recipe_id", "version"}),
+    "input_binding": frozenset(
+        {
+            "run_selector",
+            "source_experiment",
+            "required_metrics",
+            "required_artifacts",
+            "custom_reference_run_id",
+        }
+    ),
+    "contract_binding": frozenset({"contract_id"}),
+    "metrics_slices": frozenset({"metrics", "slices"}),
+    "finding_policy": frozenset({"profile"}),
+    "output_binding": frozenset({"summary_mode"}),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class RecipeReferenceCatalog:
+    """Allowlisted external references used during recipe validation.
+
+    Attributes:
+        contract_ids: Valid contract IDs for recipe binding.
+        finding_policy_profiles: Valid finding policy profile IDs.
+        summary_modes: Valid output summary mode IDs.
+    """
+
+    contract_ids: frozenset[str]
+    finding_policy_profiles: frozenset[str]
+    summary_modes: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +155,31 @@ class RecipeV0Lite:
     output_binding: RecipeOutputBinding
 
 
+def validate_recipe_v0_lite(
+    raw: Mapping[str, object],
+    references: RecipeReferenceCatalog,
+) -> RecipeV0Lite:
+    """Validate and parse one v0-lite recipe payload.
+
+    Args:
+        raw: Raw recipe mapping containing v0-lite top-level sections.
+        references: Allowlisted reference IDs for recipe bindings.
+
+    Returns:
+        Parsed recipe runtime model when validation succeeds.
+
+    Raises:
+        RecipeValidationError: If one or more validation checks fail.
+    """
+    parsed = parse_recipe_v0_lite(raw)
+    issues: list[RecipeValidationIssue] = []
+    issues.extend(_collect_unknown_nested_key_issues(raw))
+
+    if issues:
+        raise RecipeValidationError(issues=tuple(issues))
+    return parsed
+
+
 def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
     """Parse a mapping into the canonical v0-lite recipe model.
 
@@ -185,6 +244,32 @@ def _require_section(raw: Mapping[str, object], section_name: str) -> Mapping[st
     if not isinstance(section, Mapping):
         raise ValueError(f"Section '{section_name}' must be a mapping.")
     return section
+
+
+def _collect_unknown_nested_key_issues(raw: Mapping[str, object]) -> list[RecipeValidationIssue]:
+    """Collect issues for unknown keys nested inside known top-level sections."""
+    issues: list[RecipeValidationIssue] = []
+
+    for section_name in sorted(_REQUIRED_TOP_LEVEL_SECTIONS):
+        section_raw = raw[section_name]
+        if not isinstance(section_raw, Mapping):
+            continue
+
+        allowed_fields = _ALLOWED_SECTION_FIELDS[section_name]
+        for field in sorted(section_raw.keys()):
+            if not isinstance(field, str):
+                continue
+            if field in allowed_fields:
+                continue
+            issues.append(
+                RecipeValidationIssue(
+                    code="unknown_field",
+                    section=section_name,
+                    field=field,
+                    message=f"Unknown/disallowed field '{section_name}.{field}'.",
+                )
+            )
+    return issues
 
 
 def _parse_identity(section: Mapping[str, object]) -> RecipeIdentity:
