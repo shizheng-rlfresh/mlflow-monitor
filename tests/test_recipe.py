@@ -17,7 +17,7 @@ def make_valid_recipe() -> dict[str, object]:
     return {
         "identity": {"recipe_id": "default", "version": "v0"},
         "input_binding": {
-            "run_selector": "latest",
+            "run_selector": "train-run-123",
             "source_experiment": "training/churn",
             "required_metrics": ["f1", "auc"],
             "required_artifacts": ["metrics.json"],
@@ -48,7 +48,7 @@ def test_parse_recipe_v0_lite_parses_valid_recipe() -> None:
     assert isinstance(parsed, RecipeV0Lite)
     assert parsed.identity.recipe_id == "default"
     assert parsed.identity.version == "v0"
-    assert parsed.input_binding.run_selector == "latest"
+    assert parsed.input_binding.run_selector == "train-run-123"
     assert parsed.input_binding.source_experiment == "training/churn"
     assert parsed.input_binding.required_metrics == ("f1", "auc")
     assert parsed.input_binding.required_artifacts == ("metrics.json",)
@@ -193,4 +193,53 @@ def test_validate_recipe_v0_lite_rejects_unknown_output_summary_mode() -> None:
     raw["output_binding"] = {"summary_mode": "mode-missing"}
 
     with pytest.raises(RecipeValidationError, match="output_binding\\.summary_mode"):
+        validate_recipe_v0_lite(raw, references=make_reference_catalog())
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        "",
+        "   ",
+        "latest",
+        "run_id:abc",
+    ],
+)
+def test_validate_recipe_v0_lite_rejects_invalid_run_selector(selector: str) -> None:
+    raw = make_valid_recipe()
+    raw["input_binding"] = {
+        **raw["input_binding"],  # type: ignore[arg-type]
+        "run_selector": selector,
+    }
+
+    with pytest.raises(RecipeValidationError, match="input_binding\\.run_selector"):
+        validate_recipe_v0_lite(raw, references=make_reference_catalog())
+
+
+@pytest.mark.parametrize(
+    ("field_name", "values"),
+    [
+        ("required_metrics", ["f1", "f1"]),
+        ("required_artifacts", ["metrics.json", "metrics.json"]),
+        ("metrics", ["f1", "f1"]),
+        ("slices", ["region", "region"]),
+    ],
+)
+def test_validate_recipe_v0_lite_rejects_duplicate_list_entries(
+    field_name: str,
+    values: list[str],
+) -> None:
+    raw = make_valid_recipe()
+    if field_name in {"required_metrics", "required_artifacts"}:
+        raw["input_binding"] = {
+            **raw["input_binding"],  # type: ignore[arg-type]
+            field_name: values,
+        }
+    else:
+        raw["metrics_slices"] = {
+            **raw["metrics_slices"],  # type: ignore[arg-type]
+            field_name: values,
+        }
+
+    with pytest.raises(RecipeValidationError, match=field_name):
         validate_recipe_v0_lite(raw, references=make_reference_catalog())

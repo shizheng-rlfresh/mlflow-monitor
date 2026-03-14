@@ -171,10 +171,23 @@ def validate_recipe_v0_lite(
     Raises:
         RecipeValidationError: If one or more validation checks fail.
     """
-    parsed = parse_recipe_v0_lite(raw)
+    try:
+        parsed = parse_recipe_v0_lite(raw)
+    except ValueError as exc:
+        raise RecipeValidationError(
+            issues=(
+                RecipeValidationIssue(
+                    code="structural_error",
+                    section="recipe",
+                    message=str(exc),
+                ),
+            )
+        ) from exc
+
     issues: list[RecipeValidationIssue] = []
     issues.extend(_collect_unknown_nested_key_issues(raw))
     issues.extend(_collect_reference_issues(parsed, references))
+    issues.extend(_collect_constraint_issues(parsed))
 
     if issues:
         raise RecipeValidationError(issues=tuple(issues))
@@ -316,6 +329,82 @@ def _collect_reference_issues(
         )
 
     return issues
+
+
+def _collect_constraint_issues(recipe: RecipeV0Lite) -> list[RecipeValidationIssue]:
+    """Collect issues for v0 recipe constraints independent of external systems."""
+    issues: list[RecipeValidationIssue] = []
+
+    run_selector = recipe.input_binding.run_selector
+    if not run_selector.strip():
+        issues.append(
+            RecipeValidationIssue(
+                code="invalid_constraint",
+                section="input_binding",
+                field="run_selector",
+                message=(
+                    "Field 'input_binding.run_selector' must contain a raw non-empty run ID."
+                ),
+            )
+        )
+    if run_selector == "latest" or ":" in run_selector:
+        issues.append(
+            RecipeValidationIssue(
+                code="invalid_constraint",
+                section="input_binding",
+                field="run_selector",
+                message=(
+                    "Field 'input_binding.run_selector' must be a raw run ID; "
+                    "selector modes like 'latest' and prefixed values are not allowed."
+                ),
+            )
+        )
+
+    _add_duplicate_issues(
+        issues=issues,
+        section="input_binding",
+        field="required_metrics",
+        values=recipe.input_binding.required_metrics,
+    )
+    _add_duplicate_issues(
+        issues=issues,
+        section="input_binding",
+        field="required_artifacts",
+        values=recipe.input_binding.required_artifacts,
+    )
+    _add_duplicate_issues(
+        issues=issues,
+        section="metrics_slices",
+        field="metrics",
+        values=recipe.metrics_slices.metrics,
+    )
+    _add_duplicate_issues(
+        issues=issues,
+        section="metrics_slices",
+        field="slices",
+        values=recipe.metrics_slices.slices,
+    )
+
+    return issues
+
+
+def _add_duplicate_issues(
+    issues: list[RecipeValidationIssue],
+    section: str,
+    field: str,
+    values: tuple[str, ...],
+) -> None:
+    """Append one issue if a tuple of strings contains duplicates."""
+    if len(values) == len(set(values)):
+        return
+    issues.append(
+        RecipeValidationIssue(
+            code="invalid_constraint",
+            section=section,
+            field=field,
+            message=f"Field '{section}.{field}' must not contain duplicate entries.",
+        )
+    )
 
 
 def _parse_identity(section: Mapping[str, object]) -> RecipeIdentity:
