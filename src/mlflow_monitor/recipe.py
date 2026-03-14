@@ -174,6 +174,7 @@ def validate_recipe_v0_lite(
     parsed = parse_recipe_v0_lite(raw)
     issues: list[RecipeValidationIssue] = []
     issues.extend(_collect_unknown_nested_key_issues(raw))
+    issues.extend(_collect_reference_issues(parsed, references))
 
     if issues:
         raise RecipeValidationError(issues=tuple(issues))
@@ -269,6 +270,51 @@ def _collect_unknown_nested_key_issues(raw: Mapping[str, object]) -> list[Recipe
                     message=f"Unknown/disallowed field '{section_name}.{field}'.",
                 )
             )
+    return issues
+
+
+def _collect_reference_issues(
+    recipe: RecipeV0Lite,
+    references: RecipeReferenceCatalog,
+) -> list[RecipeValidationIssue]:
+    """Collect issues for unknown external references in a parsed recipe."""
+    issues: list[RecipeValidationIssue] = []
+
+    if recipe.contract_binding.contract_id not in references.contract_ids:
+        issues.append(
+            RecipeValidationIssue(
+                code="unknown_reference",
+                section="contract_binding",
+                field="contract_id",
+                message=(
+                    "Unknown reference 'contract_binding.contract_id': "
+                    f"{recipe.contract_binding.contract_id}."
+                ),
+            )
+        )
+
+    profile = recipe.finding_policy.profile
+    if profile is not None and profile not in references.finding_policy_profiles:
+        issues.append(
+            RecipeValidationIssue(
+                code="unknown_reference",
+                section="finding_policy",
+                field="profile",
+                message=f"Unknown reference 'finding_policy.profile': {profile}.",
+            )
+        )
+
+    summary_mode = recipe.output_binding.summary_mode
+    if summary_mode is not None and summary_mode not in references.summary_modes:
+        issues.append(
+            RecipeValidationIssue(
+                code="unknown_reference",
+                section="output_binding",
+                field="summary_mode",
+                message=f"Unknown reference 'output_binding.summary_mode': {summary_mode}.",
+            )
+        )
+
     return issues
 
 

@@ -170,3 +170,27 @@ def test_validate_recipe_v0_lite_rejects_unknown_nested_section_keys(
 
     with pytest.raises(RecipeValidationError, match=f"{section_name}\\.{bad_key}"):
         validate_recipe_v0_lite(raw, references=make_reference_catalog())
+
+
+def test_validate_recipe_v0_lite_rejects_unknown_contract_reference() -> None:
+    raw = make_valid_recipe()
+    raw["contract_binding"] = {"contract_id": "contract-missing"}
+
+    with pytest.raises(RecipeValidationError, match="contract_binding\\.contract_id"):
+        validate_recipe_v0_lite(raw, references=make_reference_catalog())
+
+
+def test_validate_recipe_v0_lite_rejects_unknown_finding_policy_profile() -> None:
+    raw = make_valid_recipe()
+    raw["finding_policy"] = {"profile": "profile-missing"}
+
+    with pytest.raises(RecipeValidationError, match="finding_policy\\.profile"):
+        validate_recipe_v0_lite(raw, references=make_reference_catalog())
+
+
+def test_validate_recipe_v0_lite_rejects_unknown_output_summary_mode() -> None:
+    raw = make_valid_recipe()
+    raw["output_binding"] = {"summary_mode": "mode-missing"}
+
+    with pytest.raises(RecipeValidationError, match="output_binding\\.summary_mode"):
+        validate_recipe_v0_lite(raw, references=make_reference_catalog())
