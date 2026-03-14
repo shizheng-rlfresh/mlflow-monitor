@@ -24,7 +24,7 @@ _REQUIRED_TOP_LEVEL_SECTIONS = {
 
 SYSTEM_DEFAULT_RECIPE_ID = "system_default"
 SYSTEM_DEFAULT_CONTRACT_ID = "default_permissive"
-SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN = "__SOURCE_RUN_ID__"
+SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN = "__RUNTIME_SOURCE_RUN_ID__"
 
 _ALLOWED_SECTION_FIELDS: dict[str, frozenset[str]] = {
     "identity": frozenset({"recipe_id", "version"}),
