@@ -207,7 +207,9 @@ marimo/_lsp/
 __marimo__/
 
 # coding agents
-.codex/
+.codex/*
+!.codex/skills/
+!.codex/skills/**
 .claude/
 CLAUDE.md
 # *.md
