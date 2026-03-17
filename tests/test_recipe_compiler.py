@@ -10,7 +10,6 @@ from mlflow_monitor.recipe import (
 from mlflow_monitor.recipe_compiler import (
     CompiledRunPlan,
     compile_recipe_v0_lite,
-    resolve_and_compile_recipe_v0_lite,
 )
 
 
@@ -74,10 +73,11 @@ def test_compile_recipe_v0_lite_compiles_user_recipe_into_run_plan() -> None:
 
 
 def test_compile_recipe_v0_lite_compiles_system_default_recipe() -> None:
-    compiled = resolve_and_compile_recipe_v0_lite(
+    recipe = resolve_recipe_v0_lite(
         None,
         references=make_reference_catalog_with_system_default(),
     )
+    compiled = compile_recipe_v0_lite(recipe)
 
     assert compiled.identity.recipe_id == SYSTEM_DEFAULT_RECIPE_ID
     assert compiled.identity.recipe_version == "v0"
@@ -103,10 +103,9 @@ def test_compile_recipe_v0_lite_is_deterministic_for_same_resolved_recipe() -> N
 
 
 def test_resolve_and_compile_recipe_v0_lite_uses_user_recipe_when_provided() -> None:
-    compiled = resolve_and_compile_recipe_v0_lite(
-        make_valid_recipe(),
-        references=make_reference_catalog(),
-    )
+    recipe = resolve_recipe_v0_lite(make_valid_recipe(), references=make_reference_catalog())
+
+    compiled = compile_recipe_v0_lite(recipe)
 
     assert compiled.identity.recipe_id == "default"
     assert compiled.contract.contract_id == "contract-default"
