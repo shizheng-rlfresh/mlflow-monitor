@@ -5,6 +5,7 @@ import pytest
 from mlflow_monitor.domain import LifecycleStatus
 from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey, InMemoryMonitoringGateway
+from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 
 
 def test_reserve_sequence_index_is_monotonic_per_subject() -> None:
@@ -207,3 +208,125 @@ def test_training_mutation_raises_violation() -> None:
         match="Training runs are read-only in MLflow-Monitor",
     ):
         gateway.mutate_training_run("train-run-1", {"status": "modified"})
+
+
+def test_resolve_source_run_id_returns_matching_raw_run_id() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-1",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91},
+        artifacts=("metrics.json",),
+    )
+
+    resolved = gateway.resolve_source_run_id(
+        subject_id="churn_model",
+        source_experiment="training/churn",
+        run_selector="train-run-1",
+    )
+
+    assert resolved == "train-run-1"
+
+
+def test_resolve_source_run_id_uses_runtime_source_run_id_for_reserved_token() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-2",
+        source_experiment=None,
+        metrics={"f1": 0.88},
+        artifacts=("metrics.json",),
+    )
+
+    resolved = gateway.resolve_source_run_id(
+        subject_id="churn_model",
+        source_experiment=None,
+        run_selector=SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
+        runtime_source_run_id="train-run-2",
+    )
+
+    assert resolved == "train-run-2"
+
+
+def test_resolve_source_run_id_returns_none_for_missing_or_mismatched_run() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-1",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91},
+        artifacts=("metrics.json",),
+    )
+
+    assert (
+        gateway.resolve_source_run_id(
+            subject_id="churn_model",
+            source_experiment="training/other",
+            run_selector="train-run-1",
+        )
+        is None
+    )
+    assert (
+        gateway.resolve_source_run_id(
+            subject_id="fraud_model",
+            source_experiment="training/churn",
+            run_selector="train-run-1",
+        )
+        is None
+    )
+
+
+def test_missing_required_metrics_returns_missing_names_in_request_order() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-1",
+        source_experiment="training/churn",
+        metrics={"auc": 0.95},
+        artifacts=("metrics.json",),
+    )
+
+    missing = gateway.get_missing_source_run_metrics(
+        run_id="train-run-1",
+        required_metrics=("f1", "auc", "precision"),
+    )
+
+    assert missing == ("f1", "precision")
+
+
+def test_missing_required_artifacts_returns_missing_names_in_request_order() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-1",
+        source_experiment="training/churn",
+        metrics={"auc": 0.95},
+        artifacts=("metrics.json", "model.pkl"),
+    )
+
+    missing = gateway.get_missing_source_run_artifacts(
+        run_id="train-run-1",
+        required_artifacts=("schema.json", "metrics.json"),
+    )
+
+    assert missing == ("schema.json",)
+
+
+def test_resolve_timeline_run_id_requires_same_subject_timeline() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        run_id="run-1",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=0,
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="fraud_model",
+        run_id="run-foreign",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=0,
+    )
+
+    assert gateway.resolve_timeline_run_id("churn_model", "run-1") == "run-1"
+    assert gateway.resolve_timeline_run_id("churn_model", "run-foreign") is None
