@@ -249,6 +249,25 @@ def test_resolve_source_run_id_uses_runtime_source_run_id_for_reserved_token() -
     assert resolved == "train-run-2"
 
 
+def test_resolve_source_run_id_allows_omitted_source_experiment_filter() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-3",
+        source_experiment="training/churn",
+        metrics={"f1": 0.89},
+        artifacts=("metrics.json",),
+    )
+
+    resolved = gateway.resolve_source_run_id(
+        subject_id="churn_model",
+        source_experiment=None,
+        run_selector="train-run-3",
+    )
+
+    assert resolved == "train-run-3"
+
+
 def test_resolve_source_run_id_returns_none_for_missing_or_mismatched_run() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(

@@ -378,7 +378,7 @@ class InMemoryMonitoringGateway:
             return None
         if source_run.subject_id != subject_id:
             return None
-        if source_experiment != source_run.source_experiment:
+        if source_experiment is not None and source_experiment != source_run.source_experiment:
             return None
         return source_run.run_id
 
