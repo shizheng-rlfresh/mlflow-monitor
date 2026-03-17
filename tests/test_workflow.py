@@ -276,6 +276,32 @@ def test_prepare_run_context_succeeds_without_active_lkg() -> None:
     assert prepared.active_lkg_run_id is None
 
 
+def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
+    """Prepare should resolve a raw source run when source_experiment is omitted."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-123",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+    )
+
+    prepared = prepare_run_context(
+        run_id="run-1",
+        subject_id="churn_model",
+        compiled_plan=make_compiled_run_plan(
+            source_experiment=None,
+            custom_reference_run_id=None,
+        ),
+        resolved_contract=CONTRACT,
+        gateway=gateway,
+    )
+
+    assert prepared.source_run_id == "train-run-123"
+
+
 def test_prepare_run_context_preserves_omitted_custom_reference() -> None:
     """Prepare should keep an omitted custom reference as None."""
     gateway = make_gateway_with_timeline()
