@@ -108,7 +108,11 @@
 ### 5.1 Input Binding
 
   1. Source experiment name (which MLflow training experiment to read from).
-  2. Run selector: `latest` or explicit `run_id`.
+  2. Run selector:
+
+- current implemented behavior supports a raw source run ID for user-authored recipes
+- the built-in system default recipe uses a reserved runtime token that is resolved later by workflow/gateway logic
+- generic selector modes such as `latest` are not currently supported in v0 code
   3. Required metrics (optional — fails prepare if absent from source run).
   4. Required artifacts (optional — fails prepare if absent from source run).
   5. Optional evaluation window / slice selectors.

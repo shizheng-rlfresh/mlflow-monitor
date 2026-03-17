@@ -194,10 +194,13 @@ Reasoning:
 
 At prepare stage, the gateway resolves the source training run from MLflow:
 
-1. Reads `source_experiment` and `run_selector` from the compiled recipe.
-2. Resolves the concrete training run ID (latest matching run, or specific `run_id`).
-3. Validates that all `required_metrics` and `required_artifacts` from the recipe are present on that run.
-4. If any required input is missing: monitoring run transitions to `failed` with explicit missing-input reason. No partial analysis proceeds.
+1. Reads `source_experiment` and the compiled source-run selector from the compiled recipe.
+2. Interprets current selector semantics as:
+   - raw source run ID for user-authored recipes
+   - reserved system-default runtime token for the built-in default recipe
+3. Generic selector modes such as `latest` are not currently part of implemented v0 behavior.
+4. Validates that all `required_metrics` and `required_artifacts` from the recipe are present on that run.
+5. If any required input is missing: monitoring run transitions to `failed` with explicit missing-input reason. No partial analysis proceeds.
 
 ### 6.2 Input Availability Principle
 
