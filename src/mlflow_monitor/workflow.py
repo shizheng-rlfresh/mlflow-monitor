@@ -179,9 +179,7 @@ def prepare_run_context(
         if custom_reference_run_id is None:
             raise PrepareStageError(
                 code="prepare_custom_reference_not_found",
-                message=(
-                    "Custom reference run could not be resolved on the subject timeline."
-                ),
+                message=("Custom reference run could not be resolved on the subject timeline."),
                 details=(("subject_id", subject_id),),
             )
 
