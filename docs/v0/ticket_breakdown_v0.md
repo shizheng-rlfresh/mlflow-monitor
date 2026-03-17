@@ -64,6 +64,13 @@
 - Clear boundary between recipe binding and workflow execution
 - Dependencies: D-001
 
+**D-003a: define and implement `metric_mismatch` validation** (P1)
+Metric mismatch from D-003 is deferred: need explicit rule for whether mismatch means non-comparable, partially comparable, or missing evidence, depending on recipe/contract expectations.
+
+**D-004a: Concrete contract checker** (P1)
+
+D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. Baseline-side schema/feature/data-scope evidence will be finalized in W-003 when the real checker semantics and prepare-stage evidence resolution are implemented.”
+
 ### Recipe Pipeline
 
 **R-001: Define recipe schema (v0-lite)** (P0)
@@ -88,7 +95,7 @@
 - Make zero-config behavior explicit and testable
 - Dependencies: R-000, D-004
 
-**R-002: Build recipe validation pipeline** (P0)
+**R-002: Build recipe validation pipeline** (P0) **DONE**
 
 - Structural, referential, and constraint validation
 - Fails fast with specific, actionable error messages
@@ -100,6 +107,9 @@
 - Resolve defaults deterministically for same recipe/version
 - Output is the prepared input contract consumed by workflow
 - Dependencies: R-002, R-000a
+
+**R-001a: Support JSON and YAML in recipe** O (P2)
+R-001 recipe json and yaml is deferred
 
 ### Workflow Orchestration
 
@@ -143,7 +153,7 @@
 
 ### Persistence Gateway
 
-**P-001: Implement persistence gateway abstraction** (P0)
+**P-001: Implement persistence gateway abstraction** (P0) **DONE**
 
 - Central write/read API
 - Enforce configurable namespace prefix for all writes

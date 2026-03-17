@@ -55,7 +55,7 @@ Acceptance criteria:
 
 Dependencies: D-001
 
-**D-003: Implement contract check result schema and reason taxonomy** (P0) **DONE, deferred `metric_mismatch`; see Plane deferred ticket list**
+**D-003: Implement contract check result schema and reason taxonomy** (P0) **DONE**
 
 Goal:
 Define the canonical output of comparability checking before any real checker implementation exists.
@@ -116,7 +116,7 @@ Dependencies: D-001
 
 ### Recipe Pipeline
 
-**R-001: Define recipe schema (v0-lite)** (P0)
+**R-001: Define recipe schema (v0-lite)** (P0) **DONE**
 
 Goal:
 Define the minimal declarative recipe shape that workflow can validate and compile in M1.
@@ -147,7 +147,7 @@ Acceptance criteria:
 
 Dependencies: D-001, D-004
 
-**R-000: Ship system default recipe** (P0)
+**R-000: Ship system default recipe** (P0) **DONE**
 
 Goal:
 Provide a built-in zero-config recipe so users can run monitoring without authoring a custom recipe.
@@ -199,7 +199,7 @@ Acceptance criteria:
 
 Dependencies: R-000, D-004
 
-**R-002: Build recipe validation pipeline** (P0)
+**R-002: Build recipe validation pipeline** (P0) **DONE**
 
 Goal:
 Validate recipe structure and references before any workflow stage consumes them.
@@ -468,3 +468,15 @@ Acceptance criteria:
 - Deferred items are called out explicitly where needed to avoid design drift.
 
 Dependencies: none
+
+### other tickets for works deferred from the above tickets
+
+**R-001D: Support JSON and YAML in recipe** (P2)
+R-001 recipe json and yaml is deferred
+
+**D-003D: define and implement `metric_mismatch` validation** (P1)
+Metric mismatch from D-003 is deferred: need explicit rule for whether mismatch means non-comparable, partially comparable, or missing evidence, depending on recipe/contract expectations.
+
+**D-004D: Concrete contract checker** (P1)
+
+D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. Baseline-side schema/feature/data-scope evidence will be finalized in W-003 when the real checker semantics and prepare-stage evidence resolution are implemented.”
