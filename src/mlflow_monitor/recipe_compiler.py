@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 
 from mlflow_monitor.recipe import (
-    RecipeReferenceCatalog,
     RecipeV0Lite,
-    resolve_recipe_v0_lite,
 )
 
 
@@ -89,21 +86,3 @@ def compile_recipe_v0_lite(recipe: RecipeV0Lite) -> CompiledRunPlan:
             summary_mode=recipe.output_binding.summary_mode,
         ),
     )
-
-
-def resolve_and_compile_recipe_v0_lite(
-    raw: Mapping[str, object] | None,
-    references: RecipeReferenceCatalog,
-) -> CompiledRunPlan:
-    """Resolve a raw recipe payload and compile it into a run plan.
-
-    Args:
-        raw: Optional raw recipe payload. When omitted, the system default recipe
-            is resolved.
-        references: Allowlisted reference IDs used during recipe validation.
-
-    Returns:
-        Deterministic compiled run plan for downstream workflow consumption.
-    """
-    recipe = resolve_recipe_v0_lite(raw, references=references)
-    return compile_recipe_v0_lite(recipe)
