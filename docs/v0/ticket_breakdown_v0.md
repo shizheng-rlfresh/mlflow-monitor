@@ -64,10 +64,10 @@
 - Clear boundary between recipe binding and workflow execution
 - Dependencies: D-001
 
-**D-003a: define and implement `metric_mismatch` validation** (P1)
+**D-003D: define and implement `metric_mismatch` validation** (P1)
 Metric mismatch from D-003 is deferred: need explicit rule for whether mismatch means non-comparable, partially comparable, or missing evidence, depending on recipe/contract expectations.
 
-**D-004a: Concrete contract checker** (P1)
+**D-004D: Concrete contract checker** (P1)
 
 D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. Baseline-side schema/feature/data-scope evidence will be finalized in W-003 when the real checker semantics and prepare-stage evidence resolution are implemented.”
 
@@ -108,7 +108,7 @@ D-004 only introduces a provisional checker protocol and prepared-evidence conta
 - Output is the prepared input contract consumed by workflow
 - Dependencies: R-002, R-000a
 
-**R-001a: Support JSON and YAML in recipe** O (P2)
+**R-001D: Support JSON and YAML in recipe** O (P2)
 R-001 recipe json and yaml is deferred
 
 ### Workflow Orchestration
