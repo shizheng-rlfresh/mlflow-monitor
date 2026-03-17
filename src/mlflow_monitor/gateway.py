@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Protocol
 
 from mlflow_monitor.domain import LifecycleStatus
 from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
+from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,22 @@ class IdempotencyKey:
     recipe_version: str
 
 
+@dataclass(frozen=True, slots=True)
+class SourceRunRecord:
+    """Minimal source training run record used by the in-memory gateway."""
+
+    run_id: str
+    subject_id: str
+    source_experiment: str | None
+    metrics: Mapping[str, float]
+    artifacts: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        """Freeze nested source-run collections after defensive copies."""
+        object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))
+        object.__setattr__(self, "artifacts", tuple(self.artifacts))
+
+
 class MonitoringGateway(Protocol):
     """Protocol for gateway-mediated monitoring persistence operations."""
 
@@ -109,6 +126,40 @@ class MonitoringGateway(Protocol):
         """List timeline runs for a subject with visibility filtering."""
         ...
 
+    def get_timeline_state(self, subject_id: str) -> TimelineState | None:
+        """Return timeline state for a subject, if it exists."""
+        ...
+
+    def resolve_source_run_id(
+        self,
+        subject_id: str,
+        source_experiment: str | None,
+        run_selector: str,
+        runtime_source_run_id: str | None = None,
+    ) -> str | None:
+        """Resolve one concrete source training run id for prepare-stage use."""
+        ...
+
+    def get_missing_source_run_metrics(
+        self,
+        run_id: str,
+        required_metrics: Sequence[str],
+    ) -> tuple[str, ...]:
+        """Return required metrics that are absent from the source run."""
+        ...
+
+    def get_missing_source_run_artifacts(
+        self,
+        run_id: str,
+        required_artifacts: Sequence[str],
+    ) -> tuple[str, ...]:
+        """Return required artifacts that are absent from the source run."""
+        ...
+
+    def resolve_timeline_run_id(self, subject_id: str, run_id: str) -> str | None:
+        """Resolve one monitoring run id on the subject timeline."""
+        ...
+
 
 class InMemoryMonitoringGateway:
     """Deterministic in-memory gateway implementation for testing and local use."""
@@ -128,6 +179,7 @@ class InMemoryMonitoringGateway:
         self._idempotency_bindings: dict[IdempotencyKey, str] = {}
         self._active_lkg_by_subject: dict[str, str] = {}
         self._runs_by_subject: dict[str, dict[str, MonitoringRunRecord]] = {}
+        self._source_runs_by_id: dict[str, SourceRunRecord] = {}
 
     @property
     def config(self) -> GatewayConfig:
@@ -284,6 +336,90 @@ class InMemoryMonitoringGateway:
             for run in runs
             if run.lifecycle_status in {LifecycleStatus.FAILED, LifecycleStatus.CLOSED}
         )
+
+    def add_source_run(
+        self,
+        *,
+        subject_id: str,
+        run_id: str,
+        source_experiment: str | None,
+        metrics: Mapping[str, float],
+        artifacts: Sequence[str],
+    ) -> None:
+        """Register deterministic source-run state for tests and local use."""
+        self._validate_subject_id(subject_id)
+        self._source_runs_by_id[run_id] = SourceRunRecord(
+            run_id=run_id,
+            subject_id=subject_id,
+            source_experiment=source_experiment,
+            metrics=metrics,
+            artifacts=tuple(artifacts),
+        )
+
+    def resolve_source_run_id(
+        self,
+        subject_id: str,
+        source_experiment: str | None,
+        run_selector: str,
+        runtime_source_run_id: str | None = None,
+    ) -> str | None:
+        """Resolve one concrete source training run id for prepare-stage use."""
+        self._validate_subject_id(subject_id)
+        candidate_run_id = (
+            runtime_source_run_id
+            if run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
+            else run_selector
+        )
+        if not candidate_run_id:
+            return None
+
+        source_run = self._source_runs_by_id.get(candidate_run_id)
+        if source_run is None:
+            return None
+        if source_run.subject_id != subject_id:
+            return None
+        if source_experiment != source_run.source_experiment:
+            return None
+        return source_run.run_id
+
+    def get_missing_source_run_metrics(
+        self,
+        run_id: str,
+        required_metrics: Sequence[str],
+    ) -> tuple[str, ...]:
+        """Return required metrics that are absent from the source run."""
+        source_run = self._source_runs_by_id.get(run_id)
+        if source_run is None:
+            return tuple(dict.fromkeys(required_metrics))
+        return tuple(
+            metric_name
+            for metric_name in dict.fromkeys(required_metrics)
+            if metric_name not in source_run.metrics
+        )
+
+    def get_missing_source_run_artifacts(
+        self,
+        run_id: str,
+        required_artifacts: Sequence[str],
+    ) -> tuple[str, ...]:
+        """Return required artifacts that are absent from the source run."""
+        source_run = self._source_runs_by_id.get(run_id)
+        if source_run is None:
+            return tuple(dict.fromkeys(required_artifacts))
+        source_artifacts = set(source_run.artifacts)
+        return tuple(
+            artifact_name
+            for artifact_name in dict.fromkeys(required_artifacts)
+            if artifact_name not in source_artifacts
+        )
+
+    def resolve_timeline_run_id(self, subject_id: str, run_id: str) -> str | None:
+        """Resolve one monitoring run id on the subject timeline."""
+        self._validate_subject_id(subject_id)
+        subject_runs = self._runs_by_subject.get(subject_id, {})
+        if run_id not in subject_runs:
+            return None
+        return run_id
 
     def mutate_training_run(self, run_id: str, updates: Mapping[str, str]) -> None:
         """Reject any attempt to mutate training runs through the gateway.
