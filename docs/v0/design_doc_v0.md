@@ -236,7 +236,9 @@ The recipe system is designed to be as simple as possible. Users should not be d
 
 ### 6.2 Responsibilities (v0)
 
-1. **Input binding** — source experiment, run selector (`latest` or explicit `run_id`), optional required metrics and artifacts, optional evaluation window/slice selectors, optional custom reference run.
+1. **Input binding** — source experiment, source-run selector, optional required metrics and artifacts, optional evaluation window/slice selectors, optional custom reference run.
+
+Current implemented selector behavior supports explicit raw source run IDs for user-authored recipes plus the reserved runtime token used by the built-in system default recipe. Broader selector modes such as `latest` are not yet implemented in v0 code.
 2. **Contract binding** — contract profile reference and strictness policy.
 3. **Metric and slice binding** — metric set selection and slice dimensions.
 4. **Finding policy binding** — severity mapping, category mapping, recommendation rules.

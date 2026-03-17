@@ -329,7 +329,7 @@ Acceptance criteria:
 
 Dependencies: W-004, E-001, E-002, W-001a
 
-**W-002: Implement prepare stage** (P0)
+**W-002: Implement prepare stage** (P0) **DONE**
 
 Goal:
 Resolve all run inputs and references needed before contract checking begins.

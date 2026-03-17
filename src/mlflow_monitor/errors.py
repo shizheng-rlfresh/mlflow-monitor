@@ -55,6 +55,19 @@ class TrainingRunMutationViolation(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class PrepareStageError(ValueError):
+    """Raised when prepare-stage workflow resolution fails deterministically."""
+
+    code: str
+    message: str
+    details: tuple[tuple[str, str], ...] = ()
+
+    def __str__(self) -> str:
+        """Return the error message when the exception is converted to a string."""
+        return self.message
+
+
+@dataclass(frozen=True, slots=True)
 class RecipeValidationIssue:
     """One machine-readable issue discovered during recipe validation."""
 

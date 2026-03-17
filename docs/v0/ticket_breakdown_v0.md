@@ -128,7 +128,7 @@ R-001 recipe json and yaml is deferred
 - Error/result shape consistent across SDK and CLI
 - Dependencies: D-001, W-001
 
-**W-002: Implement prepare stage** (P0)
+**W-002: Implement prepare stage** (P0) **DONE**
 
 - Consume compiled recipe/run plan
 - Resolve timeline, baseline, previous run, LKG, custom reference, contract/profile, source training run
