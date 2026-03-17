@@ -101,7 +101,7 @@ D-004 only introduces a provisional checker protocol and prepared-evidence conta
 - Fails fast with specific, actionable error messages
 - Dependencies: R-001, R-000
 
-**R-003: Build recipe compilation pipeline** (P0)
+**R-003: Build recipe compilation pipeline** (P0) **DONE**
 
 - Normalize recipe to executable run plan
 - Resolve defaults deterministically for same recipe/version

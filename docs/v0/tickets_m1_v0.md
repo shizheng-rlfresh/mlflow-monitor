@@ -224,7 +224,7 @@ Acceptance criteria:
 
 Dependencies: R-001, R-000
 
-**R-003: Build recipe compilation pipeline** (P0)
+**R-003: Build recipe compilation pipeline** (P0) **DONE**
 
 Goal:
 Convert a validated recipe into the executable run-plan shape consumed by workflow prepare/check stages.
