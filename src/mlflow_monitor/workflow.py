@@ -47,7 +47,9 @@ _ALLOWED_TRANSITIONS = {
 class BaselineResolutionResult:
     """Result of baseline source run resolution for prepare-stage context."""
 
-    timeline_id: str | None
+    timeline_id: (
+        str | None
+    )  # might not be useful at all, but could be helpful for logging and error messages
     baseline_source_run_id: str
     requires_bootstrap: bool
 
@@ -212,6 +214,7 @@ def prepare_run_context(
             subject_id,
             baseline_resolution_result.baseline_source_run_id,
         )
+
         timeline_state = gateway.get_timeline_state(subject_id)
         if timeline_state is None:
             _id = subject_id
@@ -267,6 +270,12 @@ def prepare_run_context(
             message=(f"Timeline initialization did not materialize state for subject_id={_id}."),
             details=(("subject_id", subject_id),),
         )
+
+    # for logging purpoose
+    replace(
+        baseline_resolution_result,
+        timeline_id=timeline_state.timeline_id,
+    )
 
     timeline_runs = gateway.list_timeline_runs(subject_id, exclude_failed=True)
     previous_run_id = timeline_runs[-1].run_id if timeline_runs else None
