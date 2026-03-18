@@ -47,9 +47,6 @@ _ALLOWED_TRANSITIONS = {
 class BaselineResolutionResult:
     """Result of baseline source run resolution for prepare-stage context."""
 
-    timeline_id: (
-        str | None
-    )  # might not be useful at all, but could be helpful for logging and error messages
     baseline_source_run_id: str
     requires_bootstrap: bool
 
@@ -271,12 +268,6 @@ def prepare_run_context(
             details=(("subject_id", subject_id),),
         )
 
-    # for logging purpoose
-    replace(
-        baseline_resolution_result,
-        timeline_id=timeline_state.timeline_id,
-    )
-
     timeline_runs = gateway.list_timeline_runs(subject_id, exclude_failed=True)
     previous_run_id = timeline_runs[-1].run_id if timeline_runs else None
 
@@ -357,7 +348,6 @@ def _resolve_baseline_for_prepare(
                 )
 
         return BaselineResolutionResult(
-            timeline_id=timeline_state.timeline_id,
             baseline_source_run_id=timeline_state.baseline_source_run_id,
             requires_bootstrap=False,
         )
@@ -386,7 +376,6 @@ def _resolve_baseline_for_prepare(
             )
 
         return BaselineResolutionResult(
-            timeline_id=None,
             baseline_source_run_id=resolved_baseline_source_run_id,
             requires_bootstrap=True,
         )
