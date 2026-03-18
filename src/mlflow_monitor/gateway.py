@@ -1,4 +1,37 @@
-"""Persistence gateway abstractions for MLflow-Monitor v0."""
+"""Persistence gateway abstractions for MLflow-Monitor v0.
+
+This module separates three kinds of state used by workflow:
+
+1. Source training runs
+   Existing training-side runs that monitoring reads from during prepare.
+   In the in-memory gateway, tests seed these with `add_source_run()`.
+
+2. Timeline state
+   Per-subject monitoring configuration anchored by a pinned
+   `baseline_source_run_id`. This is absent before the first monitoring run
+   and is created by `initialize_timeline()`.
+
+3. Monitoring runs
+   Runs owned by the monitoring timeline itself. In the in-memory gateway,
+   tests seed or update these with `upsert_monitoring_run()`.
+
+Lifecycle sketch:
+
+- Before first monitoring run:
+  - source training run exists
+  - timeline state does not exist yet
+  - monitoring runs do not exist yet
+
+- First prepare:
+  - workflow resolves the source run through the gateway
+  - if timeline state is missing, workflow may initialize it with a caller-supplied baseline
+  - prepare then continues using the pinned timeline baseline
+
+- Later prepares:
+  - workflow reads existing timeline state
+  - baseline is resolved from timeline state, not from caller input
+  - previous/custom monitoring references are resolved from monitoring runs
+"""
 
 from __future__ import annotations
 

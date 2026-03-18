@@ -1,4 +1,16 @@
-"""Workflow lifecycle helpers for MLflow-Monitor v0."""
+"""Workflow lifecycle helpers for MLflow-Monitor v0.
+
+This module contains backend-agnostic workflow logic for two responsibilities:
+
+1. Lifecycle transitions for monitoring runs.
+2. Prepare-stage context resolution before contract checking begins.
+
+Prepare-stage resolution combines caller inputs (run identity, compiled plan,
+resolved contract, optional first-run baseline input) with gateway-resolved
+state (timeline, source run, prior monitoring runs, and optional references).
+The workflow layer decides what must be resolved for a run to proceed, while
+the gateway owns all persistence-specific mechanics.
+"""
 
 from __future__ import annotations
 
