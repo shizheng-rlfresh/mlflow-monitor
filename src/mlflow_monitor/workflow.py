@@ -189,7 +189,7 @@ def prepare_run_context(
 
     timeline_state = gateway.get_timeline_state(subject_id)
     if timeline_state is None:
-        if baseline_source_run_id is None or baseline_source_run_id == "":
+        if not baseline_source_run_id:
             raise PrepareStageError(
                 code="prepare_missing_timeline_with_no_baseline",
                 message=(
@@ -202,8 +202,27 @@ def prepare_run_context(
                 ),
             )
 
+        resolved_baseline_source_run_id = gateway.resolve_source_run_id(
+            subject_id=subject_id,
+            source_experiment=compiled_plan.input.source_experiment,
+            run_selector=baseline_source_run_id,
+        )
+        if resolved_baseline_source_run_id is None:
+            raise PrepareStageError(
+                code="prepare_invalid_bootstrap_baseline",
+                message=(
+                    "Baseline source run could not be resolved for "
+                    f"subject_id={subject_id} and "
+                    f"baseline_source_run_id={baseline_source_run_id!r}."
+                ),
+                details=(
+                    ("subject_id", subject_id),
+                    ("baseline_source_run_id", baseline_source_run_id),
+                ),
+            )
+
         # Bootstrap a new timeline with the provided baseline source run id
-        gateway.initialize_timeline(subject_id, baseline_source_run_id)
+        gateway.initialize_timeline(subject_id, resolved_baseline_source_run_id)
         timeline_state = gateway.get_timeline_state(subject_id)
 
     if (
