@@ -150,6 +150,8 @@ def prepare_run_context(
         baseline_source_run_id=baseline_source_run_id,
     )
 
+    # After resolving baseline and timeline,
+    # verify that the timeline state is materialized and consistent with the resolution result.
     timeline_state = gateway.get_timeline_state(subject_id)
     if timeline_state is None or (
         baseline_resolution_result.is_bootstrap
