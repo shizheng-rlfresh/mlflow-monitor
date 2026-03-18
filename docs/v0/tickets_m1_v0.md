@@ -371,6 +371,9 @@ Required deliverables:
 
 - Detection of “no existing timeline” during prepare.
 - Requirement that first run include `baseline_source_run_id`.
+- Subsequent runs can include `baseline_source_run_id`.
+  - if `baseline_source_run_id` equals to the existing timeline's baseline source run id, ignore it.
+  - disallow passing a different `baseline_source_run_id` from the existing one for the timeline.
 - Creation of the initial timeline/sentinel baseline state through the persistence gateway.
 - Rejection of later attempts to mutate the pinned baseline.
 
