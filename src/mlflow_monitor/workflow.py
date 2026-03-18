@@ -315,10 +315,7 @@ def _resolve_baseline_for_prepare(
         Baseline resolution result containing timeline and resolved baseline information.
     """
     if timeline_state is not None:
-        if (
-            baseline_source_run_id is None
-            or baseline_source_run_id == timeline_state.baseline_source_run_id
-        ):
+        if baseline_source_run_id is None:
             pass
         else:
             resolved_baseline_source_run_id = gateway.resolve_source_run_id(
