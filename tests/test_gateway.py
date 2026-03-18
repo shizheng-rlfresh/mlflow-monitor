@@ -4,7 +4,11 @@ import pytest
 
 from mlflow_monitor.domain import LifecycleStatus
 from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
-from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey, InMemoryMonitoringGateway
+from mlflow_monitor.gateway import (
+    GatewayConfig,
+    IdempotencyKey,
+    InMemoryMonitoringGateway,
+)
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 
 
@@ -98,12 +102,14 @@ def test_get_or_create_idempotent_run_id_uses_dataclass_value_equality() -> None
 def test_initialize_timeline_is_deterministic_and_stores_baseline_reference() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
 
-    first_timeline_id = gateway.initialize_timeline("churn_model", "train-run-1")
-    second_timeline_id = gateway.initialize_timeline("churn_model", "train-run-2")
+    first_timeline_result = gateway.initialize_timeline("churn_model", "train-run-1")
+    second_timeline_result = gateway.initialize_timeline("churn_model", "train-run-2")
     timeline_state = gateway.get_timeline_state("churn_model")
 
-    assert first_timeline_id == "timeline-churn_model"
-    assert second_timeline_id == first_timeline_id
+    assert first_timeline_result.timeline_id == "timeline-churn_model"
+    assert second_timeline_result.timeline_id == first_timeline_result.timeline_id
+    assert first_timeline_result.created is True
+    assert second_timeline_result.created is False
     assert timeline_state is not None
     assert timeline_state.baseline_source_run_id == "train-run-1"
 

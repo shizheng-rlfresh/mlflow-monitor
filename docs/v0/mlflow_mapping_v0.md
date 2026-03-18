@@ -202,6 +202,8 @@ At prepare stage, the gateway resolves the source training run from MLflow:
 4. Validates that all `required_metrics` and `required_artifacts` from the recipe are present on that run.
 5. If any required input is missing: monitoring run transitions to `failed` with explicit missing-input reason. No partial analysis proceeds.
 
+When prepare also receives an explicit `baseline_source_run_id` for timeline bootstrap or caller confirmation of an existing pinned baseline, the gateway validates that baseline reference separately from the monitored source run selector. The baseline must resolve to the same subject and satisfy the same compiled `source_experiment` filter before it can initialize or confirm timeline state.
+
 ### 6.2 Input Availability Principle
 
 MLflow-Monitor is only as good as what is already in MLflow. If the source training run does not have the required inputs, monitoring fails loudly at prepare — never silently or partially.
@@ -237,7 +239,7 @@ Idempotency key: `(subject_id, source_run_id, recipe_id, recipe_version)`.
 ### 8.1 Required Query Classes
 
 1. Timeline traversal: retrieve monitoring runs for a subject ordered by `sequence_index`.
-2. Resolve pinned baseline: read `baseline_source_run_id` from sentinel run in subject experiment.
+2. Resolve pinned baseline: read `baseline_source_run_id` from sentinel run in subject experiment. The pinned baseline was written only after satisfying the subject and `source_experiment` constraints enforced at prepare time.
 3. Resolve current active LKG: query for `lkg_status=active` in subject experiment.
 4. Retrieve run-level outputs by monitoring run id.
 5. Build anchor-window views from selected anchor run onward.

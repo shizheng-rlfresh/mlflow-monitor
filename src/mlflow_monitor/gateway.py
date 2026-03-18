@@ -1,4 +1,37 @@
-"""Persistence gateway abstractions for MLflow-Monitor v0."""
+"""Persistence gateway abstractions for MLflow-Monitor v0.
+
+This module separates three kinds of state used by workflow:
+
+1. Source training runs
+   Existing training-side runs that monitoring reads from during prepare.
+   In the in-memory gateway, tests seed these with `add_source_run()`.
+
+2. Timeline state
+   Per-subject monitoring configuration anchored by a pinned
+   `baseline_source_run_id`. This is absent before the first monitoring run
+   and is created by `initialize_timeline()`.
+
+3. Monitoring runs
+   Runs owned by the monitoring timeline itself. In the in-memory gateway,
+   tests seed or update these with `upsert_monitoring_run()`.
+
+Lifecycle sketch:
+
+- Before first monitoring run:
+  - source training run exists
+  - timeline state does not exist yet
+  - monitoring runs do not exist yet
+
+- First prepare:
+  - workflow resolves the source run through the gateway
+  - if timeline state is missing, workflow may initialize it with a caller-supplied baseline
+  - prepare then continues using the pinned timeline baseline
+
+- Later prepares:
+  - workflow reads existing timeline state
+  - baseline is resolved from timeline state, not from caller input
+  - previous/custom monitoring references are resolved from monitoring runs
+"""
 
 from __future__ import annotations
 
@@ -84,6 +117,14 @@ class SourceRunRecord:
         object.__setattr__(self, "artifacts", tuple(self.artifacts))
 
 
+@dataclass(frozen=True, slots=True)
+class TimelineInitializationResult:
+    """Result of timeline initialization attempt."""
+
+    timeline_id: str
+    created: bool
+
+
 class MonitoringGateway(Protocol):
     """Protocol for gateway-mediated monitoring persistence operations."""
 
@@ -95,8 +136,10 @@ class MonitoringGateway(Protocol):
         """Return existing run id for the key, or create and bind a new run id."""
         ...
 
-    def initialize_timeline(self, subject_id: str, baseline_source_run_id: str) -> str:
-        """Initialize timeline state once for a subject and return timeline id."""
+    def initialize_timeline(
+        self, subject_id: str, baseline_source_run_id: str
+    ) -> TimelineInitializationResult:
+        """Initialize timeline state once for a subject and return timeline initialiation status."""
         ...
 
     def reserve_sequence_index(self, subject_id: str) -> int:
@@ -208,7 +251,9 @@ class InMemoryMonitoringGateway:
         self._idempotency_bindings[key] = new_run_id
         return new_run_id
 
-    def initialize_timeline(self, subject_id: str, baseline_source_run_id: str) -> str:
+    def initialize_timeline(
+        self, subject_id: str, baseline_source_run_id: str
+    ) -> TimelineInitializationResult:
         """Initialize timeline state once for a subject and return timeline id.
 
         Args:
@@ -216,20 +261,26 @@ class InMemoryMonitoringGateway:
             baseline_source_run_id: Source training run id to pin as timeline baseline.
 
         Returns:
-            The existing or newly created timeline id for the subject.
+            Timeline initialization result containing the timeline id and status.
         """
         if not baseline_source_run_id:
             raise GatewayNamespaceViolation(message="baseline_source_run_id must be non-empty.")
 
         self._validate_subject_id(subject_id)
         if subject_id in self._timeline_by_subject:
-            return self._timeline_by_subject[subject_id].timeline_id
+            return TimelineInitializationResult(
+                timeline_id=self._timeline_by_subject[subject_id].timeline_id,
+                created=False,
+            )
         timeline_state = TimelineState(
             timeline_id=f"timeline-{subject_id}",
             baseline_source_run_id=baseline_source_run_id,
         )
         self._timeline_by_subject[subject_id] = timeline_state
-        return timeline_state.timeline_id
+        return TimelineInitializationResult(
+            timeline_id=timeline_state.timeline_id,
+            created=True,
+        )
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
         """Return timeline state for test and workflow read access.

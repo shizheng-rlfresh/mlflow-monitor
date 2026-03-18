@@ -371,6 +371,11 @@ Required deliverables:
 
 - Detection of “no existing timeline” during prepare.
 - Requirement that first run include `baseline_source_run_id`.
+- Validation that `baseline_source_run_id` resolves for the same subject and within the recipe's `source_experiment`.
+- Subsequent runs can include `baseline_source_run_id`.
+  - if `baseline_source_run_id` equals to the existing timeline's baseline source run id, ignore it.
+  - disallow passing a different `baseline_source_run_id` from the existing one for the timeline.
+  - reject caller-supplied baseline ids that do not resolve within the recipe's `source_experiment`, even when the run id exists elsewhere.
 - Creation of the initial timeline/sentinel baseline state through the persistence gateway.
 - Rejection of later attempts to mutate the pinned baseline.
 
@@ -382,6 +387,7 @@ Non-goals:
 Acceptance criteria:
 
 - First run without explicit baseline fails with an actionable error.
+- First run with explicit baseline fails if that baseline does not resolve for the same subject within the recipe's `source_experiment`.
 - First run with explicit baseline initializes baseline state once.
 - Later runs resolve baseline from timeline state instead of accepting a new one.
 
