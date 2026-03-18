@@ -150,23 +150,18 @@ def prepare_run_context(
         baseline_source_run_id=baseline_source_run_id,
     )
 
-    if baseline_resolution_result.is_bootstrap:
-        timeline_state = gateway.get_timeline_state(subject_id)
-        if (
-            timeline_state is None
-            or timeline_state.baseline_source_run_id
-            != baseline_resolution_result.baseline_source_run_id
-        ):
-            _id = subject_id
-            raise PrepareStageError(
-                code="prepare_timeline_initialization_failed",
-                message=(
-                    f"Timeline initialization did not materialize state for subject_id={_id}."
-                ),
-                details=(("subject_id", subject_id),),
-            )
-
-    assert timeline_state is not None  # timeline state must exist after successful bootstrap
+    timeline_state = gateway.get_timeline_state(subject_id)
+    if timeline_state is None or (
+        baseline_resolution_result.is_bootstrap
+        and timeline_state.baseline_source_run_id
+        != baseline_resolution_result.baseline_source_run_id
+    ):
+        _id = subject_id
+        raise PrepareStageError(
+            code="prepare_timeline_initialization_failed",
+            message=(f"Timeline initialization did not materialize state for subject_id={_id}."),
+            details=(("subject_id", subject_id),),
+        )
 
     source_run_id = gateway.resolve_source_run_id(
         subject_id=subject_id,
@@ -246,7 +241,7 @@ def prepare_run_context(
     )
 
 
-def resolve_baseline_for_prepare(
+def _resolve_baseline_for_prepare(
     subject_id: str,
     compiled_plan: CompiledRunPlan,
     gateway: MonitoringGateway,
@@ -254,6 +249,8 @@ def resolve_baseline_for_prepare(
     baseline_source_run_id: str | None = None,
 ) -> BaselineResolutionResult:
     """Resolve baseline source run for prepare when no timeline exists.
+
+    Handle races of timeline initialization and baseline bootstrapping.
 
     Args:
         subject_id: Stable monitored subject identifier.
