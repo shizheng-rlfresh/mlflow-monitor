@@ -121,10 +121,7 @@ def prepare_run_context(
     if timeline_state is None:
         raise PrepareStageError(
             code="prepare_missing_timeline",
-            message=(
-                f"No monitoring timeline exists for subject_id={subject_id}. "
-                "Bootstrap initialization belongs to W-002a."
-            ),
+            message=(f"No monitoring timeline exists for subject_id={subject_id}."),
             details=(("subject_id", subject_id),),
         )
 

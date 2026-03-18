@@ -393,7 +393,7 @@ def test_prepare_run_context_fails_deterministically_when_timeline_is_absent() -
         artifacts=("metrics.json",),
     )
 
-    with pytest.raises(PrepareStageError, match="Bootstrap initialization belongs to W-002a"):
+    with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
             run_id="run-1",
             subject_id="churn_model",
@@ -401,6 +401,11 @@ def test_prepare_run_context_fails_deterministically_when_timeline_is_absent() -
             resolved_contract=CONTRACT,
             gateway=gateway,
         )
+
+    error = exc_info.value
+    assert error.code == "prepare_missing_timeline"
+    assert error.details == (("subject_id", "churn_model"),)
+    assert error.message == "No monitoring timeline exists for subject_id=churn_model."
 
 
 def test_prepare_run_context_uses_runtime_source_run_id_for_reserved_selector() -> None:
