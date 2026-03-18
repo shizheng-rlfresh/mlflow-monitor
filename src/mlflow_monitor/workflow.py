@@ -238,13 +238,15 @@ def prepare_run_context(
             timeline_state.baseline_source_run_id
             != baseline_resolution_result.baseline_source_run_id
         ):
-            _provided_baseline = baseline_source_run_id
-            _existing_baseline = timeline_state.baseline_source_run_id
             _id = subject_id
+            _provided_baseline = baseline_source_run_id
+            _resolved_baseline = baseline_resolution_result.baseline_source_run_id
+            _existing_baseline = timeline_state.baseline_source_run_id
             raise PrepareStageError(
                 code="prepare_baseline_override_existing_timeline",
                 message=(
                     f"Provided baseline_source_run_id={_provided_baseline!r} "
+                    f"with resolved_baseline_source_run_id={_resolved_baseline!r} "
                     "does not match existing timeline "
                     f"baseline_source_run_id={_existing_baseline!r} for subject_id={_id}. "
                     "Overriding an existing timeline's baseline is not allowed."
@@ -333,6 +335,7 @@ def _resolve_baseline_for_prepare(
                     code="prepare_baseline_override_existing_timeline",
                     message=(
                         f"Provided baseline_source_run_id={_provided_baseline!r} "
+                        f"with resolved_baseline_source_run_id={resolved_baseline_source_run_id!r} "
                         "does not match existing timeline "
                         f"baseline_source_run_id={_existing_baseline!r} for subject_id={_id}. "
                         "Overriding an existing timeline's baseline is not allowed."

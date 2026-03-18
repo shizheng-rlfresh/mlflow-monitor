@@ -1181,7 +1181,9 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
         ("baseline_source_run_id", "train-run-other"),
     )
     assert error.message == (
-        "Provided baseline_source_run_id='train-run-other' does not match existing timeline "
+        "Provided baseline_source_run_id='train-run-other' "
+        "with resolved_baseline_source_run_id='train-run-other' "
+        "does not match existing timeline "
         "baseline_source_run_id='train-run-baseline' for subject_id=churn_model. "
         "Overriding an existing timeline's baseline is not allowed."
     )
