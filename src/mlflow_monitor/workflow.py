@@ -189,7 +189,7 @@ def prepare_run_context(
 
     timeline_state = gateway.get_timeline_state(subject_id)
     if timeline_state is None:
-        if baseline_source_run_id is None:
+        if baseline_source_run_id is None or baseline_source_run_id == "":
             raise PrepareStageError(
                 code="prepare_missing_timeline_with_no_baseline",
                 message=(
