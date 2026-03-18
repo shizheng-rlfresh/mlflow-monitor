@@ -15,7 +15,7 @@ from mlflow_monitor.errors import InvalidRunTransition, PrepareStageError
 from mlflow_monitor.gateway import (
     GatewayConfig,
     InMemoryMonitoringGateway,
-    TimelineInitialiationResult,
+    TimelineInitializationResult,
 )
 from mlflow_monitor.recipe import (
     SYSTEM_DEFAULT_CONTRACT_ID,
@@ -119,9 +119,9 @@ class BrokenInitializeTimelineGateway(InMemoryMonitoringGateway):
 
     def initialize_timeline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitialiationResult:
+    ) -> TimelineInitializationResult:
         """Pretend to initialize the timeline without storing timeline state."""
-        return TimelineInitialiationResult(
+        return TimelineInitializationResult(
             timeline_id=f"timeline-{subject_id}",
             created=True,
         )
@@ -142,14 +142,14 @@ class RaceWinningInitializeTimelineGateway(InMemoryMonitoringGateway):
 
     def initialize_timeline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitialiationResult:
+    ) -> TimelineInitializationResult:
         """Materialize timeline state as if another writer initialized first."""
         if self.get_timeline_state(subject_id) is None:
             self._timeline_by_subject[subject_id] = self._timeline_by_subject.get(
                 subject_id,
                 None,
             ) or self._build_competing_timeline_state(subject_id)
-        return TimelineInitialiationResult(
+        return TimelineInitializationResult(
             timeline_id=f"timeline-{subject_id}",
             created=False,
         )

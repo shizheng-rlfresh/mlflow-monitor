@@ -118,7 +118,7 @@ class SourceRunRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class TimelineInitialiationResult:
+class TimelineInitializationResult:
     """Result of timeline initialization attempt."""
 
     timeline_id: str
@@ -138,7 +138,7 @@ class MonitoringGateway(Protocol):
 
     def initialize_timeline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitialiationResult:
+    ) -> TimelineInitializationResult:
         """Initialize timeline state once for a subject and return timeline initialiation status."""
         ...
 
@@ -253,7 +253,7 @@ class InMemoryMonitoringGateway:
 
     def initialize_timeline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitialiationResult:
+    ) -> TimelineInitializationResult:
         """Initialize timeline state once for a subject and return timeline id.
 
         Args:
@@ -268,7 +268,7 @@ class InMemoryMonitoringGateway:
 
         self._validate_subject_id(subject_id)
         if subject_id in self._timeline_by_subject:
-            return TimelineInitialiationResult(
+            return TimelineInitializationResult(
                 timeline_id=self._timeline_by_subject[subject_id].timeline_id,
                 created=False,
             )
@@ -277,7 +277,7 @@ class InMemoryMonitoringGateway:
             baseline_source_run_id=baseline_source_run_id,
         )
         self._timeline_by_subject[subject_id] = timeline_state
-        return TimelineInitialiationResult(
+        return TimelineInitializationResult(
             timeline_id=timeline_state.timeline_id,
             created=True,
         )
