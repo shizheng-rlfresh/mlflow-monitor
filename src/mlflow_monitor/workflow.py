@@ -272,24 +272,35 @@ def _resolve_baseline_for_prepare(
     """
     if timeline_state is not None:
         if (
-            baseline_source_run_id is not None
-            and timeline_state.baseline_source_run_id != baseline_source_run_id
+            baseline_source_run_id is None
+            or baseline_source_run_id == timeline_state.baseline_source_run_id
         ):
-            _provided_baseline = baseline_source_run_id
-            _existing_baseline = timeline_state.baseline_source_run_id
-            raise PrepareStageError(
-                code="prepare_baseline_override_existing_timeline",
-                message=(
-                    f"Provided baseline_source_run_id={_provided_baseline!r} "
-                    "does not match existing timeline "
-                    f"baseline_source_run_id={_existing_baseline!r} for subject_id={subject_id}. "
-                    "Overriding an existing timeline's baseline is not allowed."
-                ),
-                details=(
-                    ("subject_id", subject_id),
-                    ("baseline_source_run_id", _provided_baseline),
-                ),
+            pass
+        else:
+            resolved_baseline_source_run_id = gateway.resolve_source_run_id(
+                subject_id=subject_id,
+                source_experiment=compiled_plan.input.source_experiment,
+                run_selector=timeline_state.baseline_source_run_id,
             )
+            if resolved_baseline_source_run_id == timeline_state.baseline_source_run_id:
+                pass
+            else:
+                _provided_baseline = baseline_source_run_id
+                _existing_baseline = timeline_state.baseline_source_run_id
+                raise PrepareStageError(
+                    code="prepare_baseline_override_existing_timeline",
+                    message=(
+                        f"Provided baseline_source_run_id={_provided_baseline!r} "
+                        "does not match existing timeline "
+                        f"baseline_source_run_id={_existing_baseline!r} for subject_id={subject_id}. "
+                        "Overriding an existing timeline's baseline is not allowed."
+                    ),
+                    details=(
+                        ("subject_id", subject_id),
+                        ("baseline_source_run_id", _provided_baseline),
+                    ),
+                )
+
         return BaselineResolutionResult(
             timeline_id=timeline_state.timeline_id,
             baseline_source_run_id=timeline_state.baseline_source_run_id,
