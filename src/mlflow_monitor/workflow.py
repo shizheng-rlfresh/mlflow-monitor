@@ -246,7 +246,7 @@ def prepare_run_context(
     )
 
 
-def _resolve_baseline_for_prepare(
+def resolve_baseline_for_prepare(
     subject_id: str,
     compiled_plan: CompiledRunPlan,
     gateway: MonitoringGateway,
@@ -334,12 +334,49 @@ def _resolve_baseline_for_prepare(
             timeline_init_result = gateway.initialize_timeline(
                 subject_id, resolved_baseline_source_run_id
             )
+            if timeline_init_result.created:
+                return BaselineResolutionResult(
+                    timeline_id=timeline_init_result.timeline_id,
+                    baseline_source_run_id=resolved_baseline_source_run_id,
+                    is_bootstrap=True,
+                )
 
-            return BaselineResolutionResult(
-                timeline_id=timeline_init_result.timeline_id,
-                baseline_source_run_id=resolved_baseline_source_run_id,
-                is_bootstrap=True,
-            )
+            timeline_state = gateway.get_timeline_state(subject_id)
+            if (
+                timeline_state is not None
+                and timeline_state.baseline_source_run_id == resolved_baseline_source_run_id
+            ):
+                return BaselineResolutionResult(
+                    timeline_id=timeline_state.timeline_id,
+                    baseline_source_run_id=resolved_baseline_source_run_id,
+                    is_bootstrap=False,
+                )
+            elif timeline_state is not None:
+                _id = subject_id
+                _provided_baseline = baseline_source_run_id
+                _existing_baseline = timeline_state.baseline_source_run_id
+                raise PrepareStageError(
+                    code="prepare_baseline_override_existing_timeline",
+                    message=(
+                        f"Provided baseline_source_run_id={_provided_baseline!r} "
+                        "does not match existing timeline "
+                        f"baseline_source_run_id={_existing_baseline!r} for subject_id={_id}. "
+                        "Overriding an existing timeline's baseline is not allowed."
+                    ),
+                    details=(
+                        ("subject_id", subject_id),
+                        ("baseline_source_run_id", _provided_baseline),
+                    ),
+                )
+            else:
+                _id = subject_id
+                raise PrepareStageError(
+                    code="prepare_timeline_initialization_failed",
+                    message=(
+                        f"Timeline initialization did not materialize state for subject_id={_id}."
+                    ),
+                    details=(("subject_id", subject_id),),
+                )
     else:
         raise PrepareStageError(
             code="prepare_missing_baseline_no_timeline",
