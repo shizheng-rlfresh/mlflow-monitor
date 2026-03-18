@@ -909,8 +909,8 @@ def test_prepare_run_context_allows_equivalent_baseline_alias_during_bootstrap()
     assert prepared.baseline_source_run_id == BASELINE.source_run_id
 
 
-def test_prepare_run_context_allows_equivalent_baseline_alias_on_existing_timeline() -> None:
-    """Existing timelines should accept caller baselines that resolve to the pinned run id."""
+def test_prepare_run_context_allows_equivalent_baseline_on_existing_timeline() -> None:
+    """Existing timelines should accept caller baselines that is equal to the same baseline."""
     gateway = AliasResolvingBaselineGateway(GatewayConfig())
     gateway.initialize_timeline("churn_model", BASELINE.source_run_id)
     gateway.add_source_run(
@@ -934,7 +934,7 @@ def test_prepare_run_context_allows_equivalent_baseline_alias_on_existing_timeli
         ),
         resolved_contract=CONTRACT,
         gateway=gateway,
-        baseline_source_run_id="baseline-alias",
+        baseline_source_run_id=BASELINE.source_run_id,
     )
 
     assert prepared.baseline_source_run_id == BASELINE.source_run_id

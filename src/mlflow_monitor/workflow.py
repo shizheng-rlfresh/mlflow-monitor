@@ -180,26 +180,7 @@ def prepare_run_context(
                 details=(("subject_id", subject_id),),
             )
     elif baseline_source_run_id is not None:
-        resolved_caller_baseline_source_run_id = gateway.resolve_source_run_id(
-            subject_id=subject_id,
-            source_experiment=compiled_plan.input.source_experiment,
-            run_selector=baseline_source_run_id,
-        )
-        if resolved_caller_baseline_source_run_id is None:
-            raise PrepareStageError(
-                code="prepare_invalid_bootstrap_baseline",
-                message=(
-                    "Baseline source run could not be resolved for "
-                    f"subject_id={subject_id} and "
-                    f"baseline_source_run_id={baseline_source_run_id!r}."
-                ),
-                details=(
-                    ("subject_id", subject_id),
-                    ("baseline_source_run_id", baseline_source_run_id),
-                ),
-            )
-
-        if timeline_state.baseline_source_run_id != resolved_caller_baseline_source_run_id:
+        if timeline_state.baseline_source_run_id != baseline_source_run_id:
             raise PrepareStageError(
                 code="prepare_baseline_override_forbidden",
                 message=(
