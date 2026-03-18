@@ -119,8 +119,9 @@ def prepare_run_context(
         gateway: Gateway used for timeline and source-run reads.
         runtime_source_run_id: Caller-supplied source run id used only when the
             compiled selector is the reserved runtime token.
-        baseline_source_run_id: Baseline source run id to use for first run on
-            a timeline when the compiled plan references the reserved baseline token.
+        baseline_source_run_id: Optional baseline source run id used to bootstrap
+            a missing timeline baseline, or to explicitly confirm/pin the baseline
+            for an existing timeline, regardless of the compiled run selector token.
 
     Raises:
         PrepareStageError: If required prepare-stage references or inputs are missing.
