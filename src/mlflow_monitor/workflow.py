@@ -157,10 +157,11 @@ def prepare_run_context(
             or timeline_state.baseline_source_run_id
             != baseline_resolution_result.baseline_source_run_id
         ):
+            _id = subject_id
             raise PrepareStageError(
                 code="prepare_timeline_initialization_failed",
                 message=(
-                    "Timeline initialization did not materialize state for subject_id=churn_model."
+                    f"Timeline initialization did not materialize state for subject_id={_id}."
                 ),
                 details=(("subject_id", subject_id),),
             )
