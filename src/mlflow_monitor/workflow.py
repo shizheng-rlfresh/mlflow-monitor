@@ -228,7 +228,7 @@ def _get_timeline(
     """Helper to get the current timeline run for a subject, if any."""
     timeline_state = gateway.get_timeline_state(subject_id)
     if timeline_state is None:
-        if baseline_source_run_id is None:
+        if baseline_source_run_id == "" or baseline_source_run_id is None:
             return None
         gateway.initialize_timeline(subject_id, baseline_source_run_id)
         return gateway.get_timeline_state(subject_id)
