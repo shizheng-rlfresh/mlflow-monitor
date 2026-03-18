@@ -60,7 +60,7 @@ class PrepareStageError(ValueError):
 
     code: str
     message: str
-    details: tuple[tuple[str, str], ...] = ()
+    details: tuple[tuple[str, str | None], ...] = ()
 
     def __str__(self) -> str:
         """Return the error message when the exception is converted to a string."""
