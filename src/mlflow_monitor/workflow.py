@@ -147,11 +147,21 @@ def prepare_run_context(
             ),
         )
 
-    if timeline_state is not None and baseline_source_run_id is not None:
-        Warning(
-            f"Timeline already exists for subject_id={subject_id}, "
-            "ignoring provided "
-            "baseline_source_run_id={baseline_source_run_id}."
+    if (
+        baseline_source_run_id is not None
+        and timeline_state.baseline_source_run_id != baseline_source_run_id
+    ):
+        raise PrepareStageError(
+            code="prepare_baseline_override_forbidden",
+            message=(
+                f"A monitoring timeline already exists for subject_id={subject_id} with "
+                f"baseline_source_run_id={timeline_state.baseline_source_run_id} "
+                "Overriding the baseline source run is not allowed."
+            ),
+            details=(
+                ("subject_id", subject_id),
+                ("baseline_source_run_id", baseline_source_run_id),
+            ),
         )
 
     source_run_id = gateway.resolve_source_run_id(
