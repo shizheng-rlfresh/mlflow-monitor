@@ -224,10 +224,18 @@ def prepare_run_context(
         # Bootstrap a new timeline with the provided baseline source run id
         gateway.initialize_timeline(subject_id, resolved_baseline_source_run_id)
         timeline_state = gateway.get_timeline_state(subject_id)
+        if timeline_state is None:
+            raise PrepareStageError(
+                code="prepare_timeline_initialization_failed",
+                message=(
+                    "Timeline initialization did not materialize state for "
+                    f"subject_id={subject_id}."
+                ),
+                details=(("subject_id", subject_id),),
+            )
 
     if (
-        timeline_state is not None
-        and baseline_source_run_id is not None
+        baseline_source_run_id is not None
         and timeline_state.baseline_source_run_id != baseline_source_run_id
     ):
         raise PrepareStageError(
