@@ -305,7 +305,7 @@ def _resolve_baseline_for_prepare(
                 code="prepare_invalid_bootstrap_baseline",
                 message=(
                     f"Baseline source run could not be resolved for subject_id={subject_id}, "
-                    f"compiled_plan.input.source_experiment={compiled_plan.input.source_experiment!r}, "
+                    f"compiled_plan.input.source_experiment={compiled_plan.input.source_experiment!r}, "  # noqa: E501
                     f"and baseline_source_run_id={baseline_source_run_id!r}."
                 ),
                 details=(
