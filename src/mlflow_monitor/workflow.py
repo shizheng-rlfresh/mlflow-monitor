@@ -280,7 +280,7 @@ def _resolve_baseline_for_prepare(
             resolved_baseline_source_run_id = gateway.resolve_source_run_id(
                 subject_id=subject_id,
                 source_experiment=compiled_plan.input.source_experiment,
-                run_selector=timeline_state.baseline_source_run_id,
+                run_selector=baseline_source_run_id,
             )
             if resolved_baseline_source_run_id == timeline_state.baseline_source_run_id:
                 pass

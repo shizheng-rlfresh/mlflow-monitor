@@ -804,7 +804,7 @@ def test_prepare_run_context_fails_when_timeline_init_does_not_materialize_state
     )
 
 
-def test_prepare_run_context_succeed_existing_timeline_with_correct_baseline_passed_in() -> None:
+def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_passed_in() -> None:
     """Prepare should resolve references and required source-run inputs."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     timeline_initialization_result = gateway.initialize_timeline(
@@ -843,7 +843,7 @@ def test_prepare_run_context_succeed_existing_timeline_with_correct_baseline_pas
     assert timeline_state.timeline_id == "timeline-churn_model"
 
 
-def test_prepare_run_context_succeed_with_existed_timeline_and_no_baseline() -> None:
+def test_prepare_run_context_succeeds_with_existed_timeline_and_no_baseline() -> None:
     """Baseline resolution should succeed by returning the existing pinned baseline."""
     gateway = make_gateway_with_timeline()
     timeline_state = gateway.get_timeline_state("churn_model")
@@ -867,7 +867,7 @@ def test_prepare_run_context_succeed_with_existed_timeline_and_no_baseline() -> 
     assert timeline_state.timeline_id == "timeline-churn_model"
 
 
-def test_prepare_run_context_succeed_with_created_timeline_matching_baseline() -> None:
+def test_prepare_run_context_succeeds_with_created_timeline_matching_baseline() -> None:
     """Prepare should succeed when provided baseline matches the existing timeline baseline."""
     gateway = make_gateway_with_timeline()
 
