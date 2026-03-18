@@ -12,7 +12,10 @@ from mlflow_monitor.domain import (
     Run,
 )
 from mlflow_monitor.errors import InvalidRunTransition, PrepareStageError
-from mlflow_monitor.gateway import GatewayConfig, InMemoryMonitoringGateway
+from mlflow_monitor.gateway import (
+    GatewayConfig,
+    InMemoryMonitoringGateway,
+)
 from mlflow_monitor.recipe import (
     SYSTEM_DEFAULT_CONTRACT_ID,
     SYSTEM_DEFAULT_RECIPE_ID,

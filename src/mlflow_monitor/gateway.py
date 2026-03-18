@@ -37,12 +37,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from types import MappingProxyType
 from typing import Protocol
 
 from mlflow_monitor.domain import LifecycleStatus
 from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
+
+
+class TimelineInitializationStatus(Enum):
+    """Status of timeline initialization attempt."""
+
+    CREATED = "CREATED"
+    EXISTED = "EXISTED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +125,14 @@ class SourceRunRecord:
         object.__setattr__(self, "artifacts", tuple(self.artifacts))
 
 
+@dataclass(frozen=True, slots=True)
+class TimelineInitialiationResult:
+    """Result of timeline initialization attempt."""
+
+    timeline_id: str
+    status: TimelineInitializationStatus
+
+
 class MonitoringGateway(Protocol):
     """Protocol for gateway-mediated monitoring persistence operations."""
 
@@ -128,8 +144,10 @@ class MonitoringGateway(Protocol):
         """Return existing run id for the key, or create and bind a new run id."""
         ...
 
-    def initialize_timeline(self, subject_id: str, baseline_source_run_id: str) -> str:
-        """Initialize timeline state once for a subject and return timeline id."""
+    def initialize_timeline(
+        self, subject_id: str, baseline_source_run_id: str
+    ) -> TimelineInitialiationResult:
+        """Initialize timeline state once for a subject and return timeline initialiation status."""
         ...
 
     def reserve_sequence_index(self, subject_id: str) -> int:
@@ -241,7 +259,9 @@ class InMemoryMonitoringGateway:
         self._idempotency_bindings[key] = new_run_id
         return new_run_id
 
-    def initialize_timeline(self, subject_id: str, baseline_source_run_id: str) -> str:
+    def initialize_timeline(
+        self, subject_id: str, baseline_source_run_id: str
+    ) -> TimelineInitialiationResult:
         """Initialize timeline state once for a subject and return timeline id.
 
         Args:
@@ -249,20 +269,26 @@ class InMemoryMonitoringGateway:
             baseline_source_run_id: Source training run id to pin as timeline baseline.
 
         Returns:
-            The existing or newly created timeline id for the subject.
+            Timeline initialization result containing the timeline id and status.
         """
         if not baseline_source_run_id:
             raise GatewayNamespaceViolation(message="baseline_source_run_id must be non-empty.")
 
         self._validate_subject_id(subject_id)
         if subject_id in self._timeline_by_subject:
-            return self._timeline_by_subject[subject_id].timeline_id
+            return TimelineInitialiationResult(
+                timeline_id=self._timeline_by_subject[subject_id].timeline_id,
+                status=TimelineInitializationStatus.EXISTED,
+            )
         timeline_state = TimelineState(
             timeline_id=f"timeline-{subject_id}",
             baseline_source_run_id=baseline_source_run_id,
         )
         self._timeline_by_subject[subject_id] = timeline_state
-        return timeline_state.timeline_id
+        return TimelineInitialiationResult(
+            timeline_id=timeline_state.timeline_id,
+            status=TimelineInitializationStatus.CREATED,
+        )
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
         """Return timeline state for test and workflow read access.
