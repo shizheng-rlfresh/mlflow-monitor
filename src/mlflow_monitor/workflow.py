@@ -304,11 +304,16 @@ def _resolve_baseline_for_prepare(
             raise PrepareStageError(
                 code="prepare_invalid_bootstrap_baseline",
                 message=(
-                    f"Baseline source run could not be resolved for subject_id={subject_id} "
+                    f"Baseline source run could not be resolved for subject_id={subject_id}, "
+                    f"compiled_plan.input.source_experiment={compiled_plan.input.source_experiment!r}, "
                     f"and baseline_source_run_id={baseline_source_run_id!r}."
                 ),
                 details=(
                     ("subject_id", subject_id),
+                    (
+                        "compiled_plan.input.source_experiment",
+                        compiled_plan.input.source_experiment,
+                    ),
                     ("baseline_source_run_id", baseline_source_run_id),
                 ),
             )

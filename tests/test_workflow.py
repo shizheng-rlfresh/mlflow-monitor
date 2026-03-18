@@ -560,6 +560,12 @@ def test_prepare_run_context_succeeds_for_first_run_with_baseline_passed_in() ->
         baseline_source_run_id=BASELINE.source_run_id,
     )
 
+    timeline_state = gateway.get_timeline_state("churn_model")
+
+    assert timeline_state is not None
+    assert timeline_state.baseline_source_run_id == "train-run-1"
+    assert timeline_state.timeline_id == "timeline-churn_model"
+
 
 def test_prepare_run_context_fails_for_first_run_with_no_baseline() -> None:
     """Prepare should fail without existing timeline and provided baseline."""
@@ -657,10 +663,12 @@ def test_prepare_run_context_fails_for_first_run_with_missing_baseline_run() -> 
     assert error.code == "prepare_invalid_bootstrap_baseline"
     assert error.details == (
         ("subject_id", "churn_model"),
+        ("compiled_plan.input.source_experiment", "training/churn"),
         ("baseline_source_run_id", "missing-baseline"),
     )
     assert error.message == (
-        "Baseline source run could not be resolved for subject_id=churn_model "
+        "Baseline source run could not be resolved for subject_id=churn_model, "
+        "compiled_plan.input.source_experiment='training/churn', "
         "and baseline_source_run_id='missing-baseline'."
     )
 
@@ -703,10 +711,60 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_subject_baseline()
     assert error.code == "prepare_invalid_bootstrap_baseline"
     assert error.details == (
         ("subject_id", "churn_model"),
+        ("compiled_plan.input.source_experiment", "training/churn"),
         ("baseline_source_run_id", "fraud-baseline"),
     )
     assert error.message == (
-        "Baseline source run could not be resolved for subject_id=churn_model "
+        "Baseline source run could not be resolved for subject_id=churn_model, "
+        "compiled_plan.input.source_experiment='training/churn', "
+        "and baseline_source_run_id='fraud-baseline'."
+    )
+
+
+def test_prepare_run_context_fails_for_first_run_with_foreign_experiment_baseline() -> None:
+    """Prepare should reject bootstrap baselines from another experiment."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id=BASELINE.source_run_id,
+        source_experiment="training/churn",
+        metrics=BASELINE.metric_snapshot,
+        artifacts=("metrics.json",),
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="fraud-baseline",
+        source_experiment="validation/fraudeval",
+        metrics=BASELINE.metric_snapshot,
+        artifacts=("metrics.json",),
+    )
+
+    with pytest.raises(PrepareStageError) as exc_info:
+        prepare_run_context(
+            run_id="run-1",
+            subject_id="churn_model",
+            compiled_plan=make_compiled_run_plan(
+                run_selector=BASELINE.source_run_id,
+                source_experiment="training/churn",
+                required_metrics=tuple(BASELINE.metric_snapshot.keys()),
+                required_artifacts=("metrics.json",),
+                custom_reference_run_id=None,
+            ),
+            resolved_contract=CONTRACT,
+            gateway=gateway,
+            baseline_source_run_id="fraud-baseline",
+        )
+
+    error = exc_info.value
+    assert error.code == "prepare_invalid_bootstrap_baseline"
+    assert error.details == (
+        ("subject_id", "churn_model"),
+        ("compiled_plan.input.source_experiment", "training/churn"),
+        ("baseline_source_run_id", "fraud-baseline"),
+    )
+    assert error.message == (
+        "Baseline source run could not be resolved for subject_id=churn_model, "
+        "compiled_plan.input.source_experiment='training/churn', "
         "and baseline_source_run_id='fraud-baseline'."
     )
 
@@ -890,40 +948,6 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
     )
 
 
-def test_prepare_run_context_succeed_with_no_timeline_and_valid_baseline() -> None:
-    """Prepare should succeed with no timeline and valid baseline."""
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
-
-    gateway.add_source_run(
-        subject_id="churn_model",
-        run_id="train-run-baseline",
-        source_experiment="training/churn",
-        metrics={"f1": 0.91, "auc": 0.95},
-        artifacts=("metrics.json",),
-    )
-
-    prepare_run_context(
-        run_id="run-1",
-        subject_id="churn_model",
-        compiled_plan=make_compiled_run_plan(
-            run_selector="train-run-baseline",
-            source_experiment="training/churn",
-            required_metrics=("f1", "auc"),
-            required_artifacts=("metrics.json",),
-            custom_reference_run_id=None,
-        ),
-        resolved_contract=CONTRACT,
-        gateway=gateway,
-        baseline_source_run_id="train-run-baseline",
-    )
-
-    timeline_state = gateway.get_timeline_state("churn_model")
-
-    assert timeline_state is not None
-    assert timeline_state.baseline_source_run_id == "train-run-baseline"
-    assert timeline_state.timeline_id == "timeline-churn_model"
-
-
 def test_prepare_run_context_fail_with_no_timeline_and_invalid_baseline() -> None:
     """Prepare should fail with no timeline and invalid baseline that cannot be resolved."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
@@ -948,9 +972,11 @@ def test_prepare_run_context_fail_with_no_timeline_and_invalid_baseline() -> Non
     assert error.code == "prepare_invalid_bootstrap_baseline"
     assert error.details == (
         ("subject_id", "churn_model"),
+        ("compiled_plan.input.source_experiment", "training/churn"),
         ("baseline_source_run_id", "train-run-baseline"),
     )
     assert error.message == (
-        "Baseline source run could not be resolved for subject_id=churn_model "
+        "Baseline source run could not be resolved for subject_id=churn_model, "
+        "compiled_plan.input.source_experiment='training/churn', "
         "and baseline_source_run_id='train-run-baseline'."
     )
