@@ -37,20 +37,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from enum import Enum
 from types import MappingProxyType
 from typing import Protocol
 
 from mlflow_monitor.domain import LifecycleStatus
 from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
-
-
-class TimelineInitializationStatus(Enum):
-    """Status of timeline initialization attempt."""
-
-    CREATED = "CREATED"
-    EXISTED = "EXISTED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +122,7 @@ class TimelineInitialiationResult:
     """Result of timeline initialization attempt."""
 
     timeline_id: str
-    status: TimelineInitializationStatus
+    created: bool
 
 
 class MonitoringGateway(Protocol):
@@ -278,7 +270,7 @@ class InMemoryMonitoringGateway:
         if subject_id in self._timeline_by_subject:
             return TimelineInitialiationResult(
                 timeline_id=self._timeline_by_subject[subject_id].timeline_id,
-                status=TimelineInitializationStatus.EXISTED,
+                created=False,
             )
         timeline_state = TimelineState(
             timeline_id=f"timeline-{subject_id}",
@@ -287,7 +279,7 @@ class InMemoryMonitoringGateway:
         self._timeline_by_subject[subject_id] = timeline_state
         return TimelineInitialiationResult(
             timeline_id=timeline_state.timeline_id,
-            status=TimelineInitializationStatus.CREATED,
+            created=True,
         )
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:

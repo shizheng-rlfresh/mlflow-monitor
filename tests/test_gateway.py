@@ -8,7 +8,6 @@ from mlflow_monitor.gateway import (
     GatewayConfig,
     IdempotencyKey,
     InMemoryMonitoringGateway,
-    TimelineInitializationStatus,
 )
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 
@@ -109,8 +108,8 @@ def test_initialize_timeline_is_deterministic_and_stores_baseline_reference() ->
 
     assert first_timeline_result.timeline_id == "timeline-churn_model"
     assert second_timeline_result.timeline_id == first_timeline_result.timeline_id
-    assert first_timeline_result.status == TimelineInitializationStatus.CREATED
-    assert second_timeline_result.status == TimelineInitializationStatus.EXISTED
+    assert first_timeline_result.created is True
+    assert second_timeline_result.created is False
     assert timeline_state is not None
     assert timeline_state.baseline_source_run_id == "train-run-1"
 
