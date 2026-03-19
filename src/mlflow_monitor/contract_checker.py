@@ -110,7 +110,7 @@ class DefaultContractChecker:
 
         reasons: list[ContractCheckReason] = []
 
-        if contract.execution_contract_ref:
+        if contract.execution_contract_ref is not None:
             if baseline_evidence.environment != current_evidence.environment:
                 reasons.append(
                     ContractCheckReason(
@@ -122,7 +122,7 @@ class DefaultContractChecker:
                     ),
                 )
 
-        if contract.schema_contract_ref:
+        if contract.schema_contract_ref is not None:
             if baseline_evidence.schema != current_evidence.schema:
                 reasons.append(
                     ContractCheckReason(
@@ -136,7 +136,7 @@ class DefaultContractChecker:
                     ),
                 )
 
-        if contract.feature_contract_ref:
+        if contract.feature_contract_ref is not None:
             if baseline_evidence.features != current_evidence.features:
                 reasons.append(
                     ContractCheckReason(
@@ -150,7 +150,7 @@ class DefaultContractChecker:
                     ),
                 )
 
-        if contract.data_scope_contract_ref:
+        if contract.data_scope_contract_ref is not None:
             if baseline_evidence.data_scope != current_evidence.data_scope:
                 reasons.append(
                     ContractCheckReason(
@@ -164,7 +164,7 @@ class DefaultContractChecker:
                     ),
                 )
 
-        if contract.metric_contract_ref:
+        if contract.metric_contract_ref is not None:
             pass  # Metric checks are not implemented in this default checker
 
         has_reasons = bool(reasons)
