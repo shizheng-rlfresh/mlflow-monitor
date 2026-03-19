@@ -327,7 +327,7 @@ class TestInvariantContractCheckResult:
             reasons=(
                 ContractCheckReason(
                     code="environment_mismatch",
-                    message="Python version differs.",
+                    message="Execution environment does not match the baseline.",
                     blocking=False,
                 ),
             ),
@@ -341,7 +341,7 @@ class TestInvariantContractCheckResult:
             reasons=(
                 ContractCheckReason(
                     code="schema_mismatch",
-                    message="Schema differs.",
+                    message="Data schema does not match the baseline.",
                     blocking=True,
                 ),
             ),
@@ -369,7 +369,7 @@ class TestInvariantContractCheckResult:
             reasons=(
                 ContractCheckReason(
                     code="environment_mismatch",
-                    message="Python version differs.",
+                    message="Execution environment does not match the baseline.",
                     blocking=False,
                 ),
             ),
@@ -389,7 +389,7 @@ class TestInvariantContractCheckResult:
             reasons=(
                 ContractCheckReason(
                     code="schema_mismatch",
-                    message="Schema differs.",
+                    message="Data schema does not match the baseline.",
                     blocking=True,
                 ),
             ),
@@ -423,7 +423,7 @@ class TestInvariantContractCheckResult:
             reasons=(
                 ContractCheckReason(
                     code="environment_mismatch",
-                    message="Python version differs.",
+                    message="Execution environment does not match the baseline.",
                     blocking=False,
                 ),
             ),

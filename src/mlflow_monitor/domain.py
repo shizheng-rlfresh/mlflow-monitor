@@ -55,6 +55,25 @@ class FindingSeverity(StrEnum):
     CRITICAL = "critical"
 
 
+class ContractCheckReasonCode(StrEnum):
+    """Canonical reason codes for contract check results."""
+
+    ENV_MISMATCH = "environment_mismatch"
+    SCHEMA_MISMATCH = "schema_mismatch"
+    FEAT_MISMATCH = "feature_mismatch"
+    DATA_SCOPE_MISMATCH = "data_scope_mismatch"
+
+
+CONTRACT_CHECK_REASON_CODE_BLOCKING = MappingProxyType(
+    {
+        ContractCheckReasonCode.ENV_MISMATCH: False,
+        ContractCheckReasonCode.SCHEMA_MISMATCH: True,
+        ContractCheckReasonCode.FEAT_MISMATCH: True,
+        ContractCheckReasonCode.DATA_SCOPE_MISMATCH: True,
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class ContractCheckReason:
     """Machine-readable reason emitted by a contract check.
