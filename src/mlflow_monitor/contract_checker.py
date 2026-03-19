@@ -100,10 +100,32 @@ class DefaultContractChecker:
         reasons: list[ContractCheckReason] = []
 
         if contract.schema_contract_ref:
-            pass
+            if baseline_evidence.schema != current_evidence.schema:
+                reasons.append(
+                    ContractCheckReason(
+                        code=ContractCheckReasonCode.SCHEMA_MISMATCH,
+                        message=CONTRACT_CHECK_REASON_MESSAGE[
+                            ContractCheckReasonCode.SCHEMA_MISMATCH
+                        ],
+                        blocking=CONTRACT_CHECK_REASON_CODE_BLOCKING[
+                            ContractCheckReasonCode.SCHEMA_MISMATCH
+                        ],
+                    ),
+                )
 
         if contract.feature_contract_ref:
-            pass
+            if baseline_evidence.features != current_evidence.features:
+                reasons.append(
+                    ContractCheckReason(
+                        code=ContractCheckReasonCode.FEAT_MISMATCH,
+                        message=CONTRACT_CHECK_REASON_MESSAGE[
+                            ContractCheckReasonCode.FEAT_MISMATCH
+                        ],
+                        blocking=CONTRACT_CHECK_REASON_CODE_BLOCKING[
+                            ContractCheckReasonCode.FEAT_MISMATCH
+                        ],
+                    ),
+                )
 
         if contract.metric_contract_ref:
             pass

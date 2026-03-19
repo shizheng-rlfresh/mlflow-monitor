@@ -230,7 +230,52 @@ def test_default_contract_checker_fails_for_schema_mismatch() -> None:
     assert result.reasons == (
         ContractCheckReason(
             code="schema_mismatch",
-            message="Schema does not match the baseline.",
+            message="Data schema does not match the baseline.",
+            blocking=True,
+        ),
+    )
+
+
+def test_default_contract_checker_fails_for_feature_mismatch() -> None:
+    """Concrete checker should fail when feature checking is enabled and features differ."""
+    contract = Contract(
+        contract_id="feature_exact",
+        version="v0",
+        schema_contract_ref=None,
+        feature_contract_ref="builtin:feature_exact",
+        metric_contract_ref=None,
+        data_scope_contract_ref=None,
+        execution_contract_ref=None,
+    )
+    context = ContractEvaluationContext(
+        subject_id="churn_model",
+        source_run_id="train-run-2",
+        baseline_source_run_id="train-run-1",
+        baseline_evidence=ContractEvidence(
+            metrics={"f1": 0.87},
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-01",
+        ),
+        current_evidence=ContractEvidence(
+            metrics={"f1": 0.85},
+            environment={"python": "3.12"},
+            features=("age", "income", "tenure"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-10",
+        ),
+    )
+
+    checker = DefaultContractChecker()
+
+    result = checker.check(contract, context)
+
+    assert result.status is ComparabilityStatus.FAIL
+    assert result.reasons == (
+        ContractCheckReason(
+            code="feature_mismatch",
+            message="Feature set does not match the baseline.",
             blocking=True,
         ),
     )
