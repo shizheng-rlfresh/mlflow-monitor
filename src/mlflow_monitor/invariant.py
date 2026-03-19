@@ -2,12 +2,13 @@
 
 from collections.abc import Sequence
 
+from mlflow_monitor.contract_checker import CONTRACT_CHECK_REASON_MESSAGE
 from mlflow_monitor.domain import (
+    CONTRACT_CHECK_REASON_CODE_BLOCKING,
     LKG,
     Baseline,
     ComparabilityStatus,
     ContractCheckReason,
-    ContractCheckReasonBlocking,
     ContractCheckReasonCode,
     ContractCheckResult,
     Diff,
@@ -198,9 +199,7 @@ def validate_contract_check_reason(reason: ContractCheckReason) -> None:
     Returns:
         None if the reason is valid.
     """
-    reason_code = reason.code
-
-    if reason_code not in ContractCheckReasonCode:
+    if reason.code not in ContractCheckReasonCode:
         raise InvariantViolation(
             code="contract_check_reason_code_unknown",
             message=f"Contract check reason code {reason.code!r} is not supported in v0.",  # noqa: E501
@@ -208,15 +207,8 @@ def validate_contract_check_reason(reason: ContractCheckReason) -> None:
             field="code",
         )
 
-    expected_blocking = reason_code in ContractCheckReasonBlocking
-
-    if expected_blocking is None:
-        raise InvariantViolation(
-            code="contract_check_reason_code_unknown",
-            message=f"Contract check reason code {reason.code!r} is not supported in v0.",
-            entity="ContractCheckReason",
-            field="code",
-        )
+    reason_code = ContractCheckReasonCode(reason.code)
+    expected_blocking = CONTRACT_CHECK_REASON_CODE_BLOCKING[reason_code]
 
     if reason.blocking != expected_blocking:
         raise InvariantViolation(
@@ -226,6 +218,17 @@ def validate_contract_check_reason(reason: ContractCheckReason) -> None:
             ),
             entity="ContractCheckReason",
             field="blocking",
+        )
+
+    if reason.message != CONTRACT_CHECK_REASON_MESSAGE[reason_code]:
+        raise InvariantViolation(
+            code="contract_check_reason_message_mismatch",
+            message=(
+                f"Contract check reason {reason.code!r} must have message="
+                f"{CONTRACT_CHECK_REASON_MESSAGE[reason_code]!r}."
+            ),
+            entity="ContractCheckReason",
+            field="message",
         )
 
     return None

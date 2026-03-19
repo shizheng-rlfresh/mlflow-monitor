@@ -4,18 +4,32 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Protocol
 
 from mlflow_monitor.domain import (
+    CONTRACT_CHECK_REASON_CODE_BLOCKING,
     ComparabilityStatus,
     Contract,
     ContractCheckReason,
+    ContractCheckReasonCode,
     ContractCheckResult,
+)
+
+CONTRACT_CHECK_REASON_MESSAGE = MappingProxyType(
+    {
+        ContractCheckReasonCode.ENV_MISMATCH: "Execution environment does not match the baseline.",
+        ContractCheckReasonCode.SCHEMA_MISMATCH: "Data schema does not match the baseline.",
+        ContractCheckReasonCode.FEAT_MISMATCH: "Feature set does not match the baseline.",
+        ContractCheckReasonCode.DATA_SCOPE_MISMATCH: "Data scope does not match the baseline.",
+    },
 )
 
 
 @dataclass(frozen=True, slots=True)
 class ContractEvidence:
+    """Resolved evidence snapshot required for contract evaluation."""
+
     metrics: Mapping[str, float]
     environment: Mapping[str, str]
     features: tuple[str, ...]
@@ -80,7 +94,10 @@ class DefaultContractChecker:
         context: ContractEvaluationContext,
     ) -> ContractCheckResult:
 
-        reasons: tuple[ContractCheckReason, ...] = ()
+        baseline_evidence = context.baseline_evidence
+        current_evidence = context.current_evidence
+
+        reasons: list[ContractCheckReason] = []
 
         if contract.schema_contract_ref:
             pass
@@ -95,7 +112,16 @@ class DefaultContractChecker:
             pass
 
         if contract.execution_contract_ref:
-            pass
+            if baseline_evidence.environment != current_evidence.environment:
+                reasons.append(
+                    ContractCheckReason(
+                        code=ContractCheckReasonCode.ENV_MISMATCH,
+                        message=CONTRACT_CHECK_REASON_MESSAGE[ContractCheckReasonCode.ENV_MISMATCH],
+                        blocking=CONTRACT_CHECK_REASON_CODE_BLOCKING[
+                            ContractCheckReasonCode.ENV_MISMATCH
+                        ],
+                    ),
+                )
 
         has_reasons = bool(reasons)
         has_blocking_reason = any(reason.blocking for reason in reasons)
@@ -109,13 +135,13 @@ class DefaultContractChecker:
         if has_blocking_reason:
             return ContractCheckResult(
                 status=ComparabilityStatus.FAIL,
-                reasons=reasons,
+                reasons=tuple(reasons),
             )
 
         if has_reasons:
             return ContractCheckResult(
                 status=ComparabilityStatus.WARN,
-                reasons=reasons,
+                reasons=tuple(reasons),
             )
 
         return ContractCheckResult(

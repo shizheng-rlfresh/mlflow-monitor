@@ -64,18 +64,14 @@ class ContractCheckReasonCode(StrEnum):
     DATA_SCOPE_MISMATCH = "data_scope_mismatch"
 
 
-class ContractCheckReasonBlocking(StrEnum):
-    """Indicates blocking contract check reason codes."""
-
-    SCHEMA_MISMATCH = "schema_mismatch"
-    FEAT_MISMATCH = "feature_mismatch"
-    DATA_SCOPE_MISMATCH = "data_scope_mismatch"
-
-
-class ContractCheckNonBlocking(StrEnum):
-    """Indicates non-blocking contract check reason codes."""
-
-    ENV_MISMATCH = "environment_mismatch"
+CONTRACT_CHECK_REASON_CODE_BLOCKING = MappingProxyType(
+    {
+        ContractCheckReasonCode.ENV_MISMATCH: False,
+        ContractCheckReasonCode.SCHEMA_MISMATCH: True,
+        ContractCheckReasonCode.FEAT_MISMATCH: True,
+        ContractCheckReasonCode.DATA_SCOPE_MISMATCH: True,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
