@@ -36,6 +36,13 @@ class ContractEvidence:
     schema: Mapping[str, str]
     data_scope: str | None
 
+    def __post_init__(self) -> None:
+        """Freeze nested mutable structures to ensure overall immutability."""
+        object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))
+        object.__setattr__(self, "environment", MappingProxyType(dict(self.environment)))
+        object.__setattr__(self, "schema", MappingProxyType(dict(self.schema)))
+        object.__setattr__(self, "features", tuple(self.features))
+
 
 @dataclass(frozen=True, slots=True)
 class ContractEvaluationContext:
