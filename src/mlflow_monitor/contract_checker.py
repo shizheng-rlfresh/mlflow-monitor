@@ -178,12 +178,6 @@ class DefaultContractChecker:
         has_reasons = bool(reasons)
         has_blocking_reason = any(reason.blocking for reason in reasons)
 
-        if not reasons:
-            return ContractCheckResult(
-                status=ComparabilityStatus.PASS,
-                reasons=(),
-            )
-
         if has_blocking_reason:
             return ContractCheckResult(
                 status=ComparabilityStatus.FAIL,
