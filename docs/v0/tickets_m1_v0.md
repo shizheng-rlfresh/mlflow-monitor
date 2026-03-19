@@ -487,6 +487,32 @@ Metric mismatch from D-003 is deferred: need explicit rule for whether mismatch 
 
 D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. Baseline-side schema/feature/data-scope evidence will be finalized in W-003 when the real checker semantics and prepare-stage evidence resolution are implemented.”
 
+**D-004DD: Support richer contract-check reason messages** (P2)
+
+Goal:
+Allow the concrete contract checker to emit more specific human-readable mismatch messages while preserving canonical reason `code`, `blocking`, and comparability-status behavior.
+
+Required deliverables:
+
+- Relax invariant validation so valid reason codes are not forced to use one exact message string.
+- Keep canonical validation for reason code and blocking semantics.
+- Allow the built-in checker to emit more specific human-readable mismatch messages when useful.
+- Clarify in docs that `message` is descriptive text, not part of the canonical taxonomy.
+
+Non-goals:
+
+- No new reason codes.
+- No change to pass/warn/fail aggregation rules.
+- No `metric_mismatch` support.
+
+Acceptance criteria:
+
+- Valid reasons with custom non-empty messages pass invariants.
+- Built-in checker can emit richer messages without breaking validation.
+- Existing taxonomy semantics remain unchanged.
+
+Dependencies: D-004D, D-003
+
 **D-004E: Design contract model and binding resolution for v0** (P1)
 
 Goal:
