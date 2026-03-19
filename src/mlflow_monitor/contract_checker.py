@@ -104,6 +104,7 @@ class DefaultContractChecker:
 
         This implementation performs basic equality checks between the baseline and
         current evidence for each contract aspect. It categorizes any mismatches
+        into machine-readable reason codes attached to the result.
 
         Args:
             contract: The resolved comparability contract for the run.
