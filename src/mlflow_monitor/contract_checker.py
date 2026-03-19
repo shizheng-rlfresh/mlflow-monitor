@@ -201,7 +201,7 @@ class DefaultContractChecker:
         )
 
 
-def _make_contract_evaluation_context(
+def make_contract_evaluation_context(
     *,
     subject_id: str,
     source_run_id: str,
