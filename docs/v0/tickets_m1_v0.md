@@ -486,3 +486,72 @@ Metric mismatch from D-003 is deferred: need explicit rule for whether mismatch 
 **D-004D: Concrete contract checker** (P1)
 
 D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. Baseline-side schema/feature/data-scope evidence will be finalized in W-003 when the real checker semantics and prepare-stage evidence resolution are implemented.”
+
+**D-004E: Design contract model and binding resolution for v0** (P1)
+
+Goal:
+Close the current architectural gap between recipe-side contract selection and runtime `Contract` consumption by defining the v0 contract model and the binding-resolution path.
+
+Required deliverables:
+
+- Clear definition of what `Contract` means in runtime code for v0.
+  - `Contract` is the resolved effective comparability policy attached to a run and timeline.
+  - `Contract` is not the recipe-facing profile/binding object.
+  - `Contract` is not runtime evidence and not a check result.
+- Clear definition of the recipe-facing contract binding concept.
+  - Recipe selects a contract binding identifier.
+  - Contract binding is an authoring-time selection surface, not the runtime policy object itself.
+- Explicit architecture for contract binding resolution.
+  - Define the step that maps recipe-selected contract binding into a resolved runtime `Contract`.
+  - Define whether this resolution occurs between recipe compilation and workflow prepare, or another explicitly chosen boundary.
+- v0 failure behavior for contract binding.
+  - Unknown contract binding fails explicitly.
+  - System default recipe resolves to a concrete default permissive contract.
+  - Mismatch between compiled contract binding identity and resolved runtime contract identity is handled deterministically.
+- Terminology cleanup where needed so docs consistently distinguish:
+  - contract binding / profile / policy selection
+  - resolved runtime `Contract`
+
+Non-goals:
+
+- No concrete contract checker implementation in this ticket.
+- No check-stage workflow orchestration in this ticket.
+- No external plugin system or full user-extensible contract-definition framework unless explicitly chosen by the design.
+- No `metric_mismatch` behavior.
+
+Acceptance criteria:
+
+- The docs define one concrete v0 path from recipe contract binding to resolved runtime `Contract`.
+- The docs clearly distinguish recipe-time selection from runtime contract execution semantics.
+- The docs specify default and failure behavior for contract binding resolution.
+- The design is decision-complete enough that a follow-up implementation ticket can build the resolver without re-deciding architecture or terminology.
+
+Dependencies: D-004, R-003
+
+**D-004F: Implement contract binding resolution for v0** (P1)
+
+Goal:
+Implement the v0 bridge from recipe-selected contract binding to the runtime `Contract` consumed by workflow prepare/check.
+
+Required deliverables:
+
+- Resolve recipe-selected contract binding into runtime `Contract`.
+- Provide system default permissive contract resolution.
+- Fail explicitly for unknown contract bindings.
+- Keep workflow consuming resolved `Contract` rather than raw recipe binding.
+
+Non-goals:
+
+- No concrete contract checker implementation in this ticket.
+- No check-stage workflow orchestration in this ticket.
+- No external plugin system or full user-extensible contract-definition framework unless explicitly chosen by D-004E.
+- No `metric_mismatch` behavior.
+
+Acceptance criteria:
+
+- Known contract bindings resolve deterministically to runtime `Contract` values.
+- The system default recipe resolves to a concrete default permissive contract.
+- Unknown contract bindings fail explicitly with actionable errors.
+- Workflow continues to consume resolved `Contract` rather than recipe binding objects.
+
+Dependencies: D-004E, D-004, R-003

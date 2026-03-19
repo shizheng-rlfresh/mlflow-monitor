@@ -71,6 +71,22 @@ Metric mismatch from D-003 is deferred: need explicit rule for whether mismatch 
 
 D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. Baseline-side schema/feature/data-scope evidence will be finalized in W-003 when the real checker semantics and prepare-stage evidence resolution are implemented.”
 
+**D-004E: Design contract model and binding resolution for v0** (P1)
+
+- Define what the runtime `Contract` represents in v0
+- Define the recipe-facing contract binding concept and terminology
+- Define the resolution bridge from recipe-selected contract binding to runtime `Contract`
+- Decide where contract binding belongs architecturally and how unknown bindings fail
+- Dependencies: D-004, R-003
+
+**D-004F: Implement contract binding resolution for v0** (P1)
+
+- Resolve recipe-selected contract binding into runtime `Contract`
+- Provide system default permissive contract resolution
+- Fail explicitly for unknown contract bindings
+- Keep workflow consuming resolved `Contract` rather than raw recipe binding
+- Dependencies: D-004E, D-004, R-003
+
 ### Recipe Pipeline
 
 **R-001: Define recipe schema (v0-lite)** (P0)
