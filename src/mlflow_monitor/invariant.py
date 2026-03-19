@@ -202,7 +202,7 @@ def validate_contract_check_reason(reason: ContractCheckReason) -> None:
     if reason.code not in ContractCheckReasonCode:
         raise InvariantViolation(
             code="contract_check_reason_code_unknown",
-            message=f"Contract check reason code {reason.code!r} is not supported in v0.",  # noqa: E501
+            message=f"Contract check reason code {reason.code!r} is not supported in v0.",
             entity="ContractCheckReason",
             field="code",
         )
