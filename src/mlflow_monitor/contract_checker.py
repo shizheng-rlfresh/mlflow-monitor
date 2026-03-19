@@ -93,11 +93,34 @@ class DefaultContractChecker:
         contract: Contract,
         context: ContractEvaluationContext,
     ) -> ContractCheckResult:
+        """Evaluate the contract using simple rule-based checks on the evidence.
 
+        This implementation performs basic equality checks between the baseline and
+        current evidence for each contract aspect. It categorizes any mismatches
+
+        Args:
+            contract: The resolved comparability contract for the run.
+            context: Prepared platform-agnostic evidence for evaluation.
+
+        Returns:
+            The aggregate comparability verdict and machine-readable reasons.
+        """
         baseline_evidence = context.baseline_evidence
         current_evidence = context.current_evidence
 
         reasons: list[ContractCheckReason] = []
+
+        if contract.execution_contract_ref:
+            if baseline_evidence.environment != current_evidence.environment:
+                reasons.append(
+                    ContractCheckReason(
+                        code=ContractCheckReasonCode.ENV_MISMATCH,
+                        message=CONTRACT_CHECK_REASON_MESSAGE[ContractCheckReasonCode.ENV_MISMATCH],
+                        blocking=CONTRACT_CHECK_REASON_CODE_BLOCKING[
+                            ContractCheckReasonCode.ENV_MISMATCH
+                        ],
+                    ),
+                )
 
         if contract.schema_contract_ref:
             if baseline_evidence.schema != current_evidence.schema:
@@ -127,23 +150,22 @@ class DefaultContractChecker:
                     ),
                 )
 
-        if contract.metric_contract_ref:
-            pass
-
         if contract.data_scope_contract_ref:
-            pass
-
-        if contract.execution_contract_ref:
-            if baseline_evidence.environment != current_evidence.environment:
+            if baseline_evidence.data_scope != current_evidence.data_scope:
                 reasons.append(
                     ContractCheckReason(
-                        code=ContractCheckReasonCode.ENV_MISMATCH,
-                        message=CONTRACT_CHECK_REASON_MESSAGE[ContractCheckReasonCode.ENV_MISMATCH],
+                        code=ContractCheckReasonCode.DATA_SCOPE_MISMATCH,
+                        message=CONTRACT_CHECK_REASON_MESSAGE[
+                            ContractCheckReasonCode.DATA_SCOPE_MISMATCH
+                        ],
                         blocking=CONTRACT_CHECK_REASON_CODE_BLOCKING[
-                            ContractCheckReasonCode.ENV_MISMATCH
+                            ContractCheckReasonCode.DATA_SCOPE_MISMATCH
                         ],
                     ),
                 )
+
+        if contract.metric_contract_ref:
+            pass  # Metric checks are not implemented in this default checker
 
         has_reasons = bool(reasons)
         has_blocking_reason = any(reason.blocking for reason in reasons)
@@ -168,7 +190,7 @@ class DefaultContractChecker:
 
         return ContractCheckResult(
             status=ComparabilityStatus.PASS,
-            reasons=reasons,
+            reasons=tuple(reasons),
         )
 
 

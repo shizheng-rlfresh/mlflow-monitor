@@ -279,3 +279,137 @@ def test_default_contract_checker_fails_for_feature_mismatch() -> None:
             blocking=True,
         ),
     )
+
+
+def test_default_contract_checker_fails_for_data_scope_mismatch() -> None:
+    """Concrete checker should fail when data-scope checking is enabled and scope differs."""
+    contract = Contract(
+        contract_id="data_scope_exact",
+        version="v0",
+        schema_contract_ref=None,
+        feature_contract_ref=None,
+        metric_contract_ref=None,
+        data_scope_contract_ref="builtin:data_scope_exact",
+        execution_contract_ref=None,
+    )
+    context = ContractEvaluationContext(
+        subject_id="churn_model",
+        source_run_id="train-run-2",
+        baseline_source_run_id="train-run-1",
+        baseline_evidence=ContractEvidence(
+            metrics={"f1": 0.87},
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-01",
+        ),
+        current_evidence=ContractEvidence(
+            metrics={"f1": 0.85},
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-10",
+        ),
+    )
+
+    checker = DefaultContractChecker()
+
+    result = checker.check(contract, context)
+
+    assert result.status is ComparabilityStatus.FAIL
+    assert result.reasons == (
+        ContractCheckReason(
+            code="data_scope_mismatch",
+            message="Data scope does not match the baseline.",
+            blocking=True,
+        ),
+    )
+
+
+def test_default_contract_checker_fails_when_blocking_and_warning_reasons_coexist() -> None:
+    """Concrete checker should fail when any blocking reason exists."""
+    contract = Contract(
+        contract_id="env_and_schema_exact",
+        version="v0",
+        schema_contract_ref="builtin:schema_exact",
+        feature_contract_ref=None,
+        metric_contract_ref=None,
+        data_scope_contract_ref=None,
+        execution_contract_ref="builtin:env_repro",
+    )
+    context = ContractEvaluationContext(
+        subject_id="churn_model",
+        source_run_id="train-run-2",
+        baseline_source_run_id="train-run-1",
+        baseline_evidence=ContractEvidence(
+            metrics={"f1": 0.87},
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-01",
+        ),
+        current_evidence=ContractEvidence(
+            metrics={"f1": 0.85},
+            environment={"python": "3.11"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "double"},
+            data_scope="validation:2026-03-10",
+        ),
+    )
+
+    checker = DefaultContractChecker()
+
+    result = checker.check(contract, context)
+
+    assert result.status is ComparabilityStatus.FAIL
+    assert result.reasons == (
+        ContractCheckReason(
+            code="environment_mismatch",
+            message="Execution environment does not match the baseline.",
+            blocking=False,
+        ),
+        ContractCheckReason(
+            code="schema_mismatch",
+            message="Data schema does not match the baseline.",
+            blocking=True,
+        ),
+    )
+
+
+def test_default_contract_checker_ignores_metric_differences_for_deferred_metric_check() -> None:
+    """Concrete checker should not emit metric mismatch reasons in D-004D."""
+    contract = Contract(
+        contract_id="metric_exact_deferred",
+        version="v0",
+        schema_contract_ref=None,
+        feature_contract_ref=None,
+        metric_contract_ref="builtin:metric_exact",
+        data_scope_contract_ref=None,
+        execution_contract_ref=None,
+    )
+    context = ContractEvaluationContext(
+        subject_id="churn_model",
+        source_run_id="train-run-2",
+        baseline_source_run_id="train-run-1",
+        baseline_evidence=ContractEvidence(
+            metrics={"f1": 0.87},
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-01",
+        ),
+        current_evidence=ContractEvidence(
+            metrics={"f1": 0.55},
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-10",
+        ),
+    )
+
+    checker = DefaultContractChecker()
+
+    result = checker.check(contract, context)
+
+    assert result.status is ComparabilityStatus.PASS
+    assert result.reasons == ()
