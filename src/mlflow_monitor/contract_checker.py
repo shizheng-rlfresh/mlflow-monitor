@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Protocol
 
-from mlflow_monitor.domain import Baseline, Contract, ContractCheckResult
+from mlflow_monitor.domain import (
+    ComparabilityStatus,
+    Contract,
+    ContractCheckReason,
+    ContractCheckResult,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ContractEvidence:
+    metrics: Mapping[str, float]
+    environment: Mapping[str, str]
+    features: tuple[str, ...]
+    schema: Mapping[str, str]
+    data_scope: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,45 +33,16 @@ class ContractEvaluationContext:
     Attributes:
         subject_id: Stable monitored subject identifier for the run.
         source_run_id: Source training run ID being evaluated.
-        baseline: Pinned baseline snapshot for the timeline.
-        current_metrics: Metrics observed on the source run being checked.
-        current_environment: Execution environment fingerprint for the source run.
-        current_features: Feature names resolved for the source run.
-        current_schema: Resolved schema view for the source run.
-        current_data_scope: Human-readable scope descriptor for the source run data.
+        baseline_source_run_id: Source run ID from which the baseline was derived.
+        baseline_evidence: Resolved evidence snapshot for the baseline.
+        current_evidence: Resolved evidence snapshot for the current run.
     """
 
     subject_id: str
     source_run_id: str
-    baseline: Baseline
-    current_metrics: Mapping[str, float]
-    current_environment: Mapping[str, str]
-    current_features: tuple[str, ...]
-    current_schema: Mapping[str, str]
-    current_data_scope: str | None
-
-    def __post_init__(self) -> None:
-        """Freeze mapping and sequence inputs after defensive copies."""
-        object.__setattr__(
-            self,
-            "current_metrics",
-            MappingProxyType(dict(self.current_metrics)),
-        )
-        object.__setattr__(
-            self,
-            "current_environment",
-            MappingProxyType(dict(self.current_environment)),
-        )
-        object.__setattr__(
-            self,
-            "current_features",
-            tuple(self.current_features),
-        )
-        object.__setattr__(
-            self,
-            "current_schema",
-            MappingProxyType(dict(self.current_schema)),
-        )
+    baseline_source_run_id: str
+    baseline_evidence: ContractEvidence
+    current_evidence: ContractEvidence
 
 
 class ContractChecker(Protocol):
@@ -81,28 +65,81 @@ class ContractChecker(Protocol):
         ...
 
 
-def make_contract_evaluation_context(
+class DefaultContractChecker:
+    """Default contract checker implementation using simple rule-based logic.
+
+    This is a reference implementation and not intended for production use. Real
+    implementations should be registered via entry points and can leverage any
+    internal or external logic, including MLflow client APIs, to evaluate the
+    contract.
+    """
+
+    def check(
+        self,
+        contract: Contract,
+        context: ContractEvaluationContext,
+    ) -> ContractCheckResult:
+
+        reasons: tuple[ContractCheckReason, ...] = ()
+
+        if contract.schema_contract_ref:
+            pass
+
+        if contract.feature_contract_ref:
+            pass
+
+        if contract.metric_contract_ref:
+            pass
+
+        if contract.data_scope_contract_ref:
+            pass
+
+        if contract.execution_contract_ref:
+            pass
+
+        has_reasons = bool(reasons)
+        has_blocking_reason = any(reason.blocking for reason in reasons)
+
+        if not reasons:
+            return ContractCheckResult(
+                status=ComparabilityStatus.PASS,
+                reasons=(),
+            )
+
+        if has_blocking_reason:
+            return ContractCheckResult(
+                status=ComparabilityStatus.FAIL,
+                reasons=reasons,
+            )
+
+        if has_reasons:
+            return ContractCheckResult(
+                status=ComparabilityStatus.WARN,
+                reasons=reasons,
+            )
+
+        return ContractCheckResult(
+            status=ComparabilityStatus.PASS,
+            reasons=reasons,
+        )
+
+
+def _make_contract_evaluation_context(
     *,
     subject_id: str,
     source_run_id: str,
-    baseline: Baseline,
-    current_metrics: Mapping[str, float],
-    current_environment: Mapping[str, str],
-    current_features: Sequence[str],
-    current_schema: Mapping[str, str],
-    current_data_scope: str | None,
+    baseline_source_run_id: str,
+    baseline_context: ContractEvidence,
+    current_context: ContractEvidence,
 ) -> ContractEvaluationContext:
     """Build a normalized contract evaluation context from resolved evidence.
 
     Args:
         subject_id: Stable monitored subject identifier for the run.
         source_run_id: Source training run ID being evaluated.
-        baseline: Pinned baseline snapshot for the timeline.
-        current_metrics: Metrics observed on the source run being checked.
-        current_environment: Execution environment fingerprint for the source run.
-        current_features: Feature names resolved for the source run.
-        current_schema: Resolved schema view for the source run.
-        current_data_scope: Human-readable scope descriptor for the source run data.
+        baseline_source_run_id: Source run ID from which the baseline was derived.
+        baseline_context: Resolved evidence snapshot for the baseline.
+        current_context: Resolved evidence snapshot for the current run.
 
     Returns:
         A normalized, immutable contract evaluation context.
@@ -110,10 +147,7 @@ def make_contract_evaluation_context(
     return ContractEvaluationContext(
         subject_id=subject_id,
         source_run_id=source_run_id,
-        baseline=baseline,
-        current_metrics=current_metrics,
-        current_environment=current_environment,
-        current_features=tuple(current_features),
-        current_schema=current_schema,
-        current_data_scope=current_data_scope,
+        baseline_source_run_id=baseline_source_run_id,
+        baseline_evidence=baseline_context,
+        current_evidence=current_context,
     )

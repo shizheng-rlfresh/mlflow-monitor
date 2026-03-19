@@ -7,6 +7,8 @@ from mlflow_monitor.domain import (
     Baseline,
     ComparabilityStatus,
     ContractCheckReason,
+    ContractCheckReasonBlocking,
+    ContractCheckReasonCode,
     ContractCheckResult,
     Diff,
     Finding,
@@ -14,14 +16,6 @@ from mlflow_monitor.domain import (
     Timeline,
 )
 from mlflow_monitor.errors import InvariantViolation
-
-# the blocking mechanism
-_CONTRACT_REASON_BLOCKING_BY_CODE = {
-    "environment_mismatch": False,
-    "schema_mismatch": True,
-    "feature_mismatch": True,
-    "data_scope_mismatch": True,
-}
 
 
 def validate_timeline_ownership(
@@ -204,7 +198,17 @@ def validate_contract_check_reason(reason: ContractCheckReason) -> None:
     Returns:
         None if the reason is valid.
     """
-    expected_blocking = _CONTRACT_REASON_BLOCKING_BY_CODE.get(reason.code)
+    reason_code = reason.code
+
+    if reason_code not in ContractCheckReasonCode:
+        raise InvariantViolation(
+            code="contract_check_reason_code_unknown",
+            message=f"Contract check reason code {reason.code!r} is not supported in v0.",  # noqa: E501
+            entity="ContractCheckReason",
+            field="code",
+        )
+
+    expected_blocking = reason_code in ContractCheckReasonBlocking
 
     if expected_blocking is None:
         raise InvariantViolation(

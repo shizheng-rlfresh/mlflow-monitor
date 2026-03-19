@@ -2,7 +2,12 @@
 
 from dataclasses import dataclass
 
-from mlflow_monitor.contract_checker import ContractChecker, ContractEvaluationContext
+from mlflow_monitor.contract_checker import (
+    ContractChecker,
+    ContractEvaluationContext,
+    ContractEvidence,
+    DefaultContractChecker,
+)
 from mlflow_monitor.domain import (
     Baseline,
     ComparabilityStatus,
@@ -32,15 +37,28 @@ BASELINE = Baseline(
     environment_context={"python": "3.12"},
 )
 
+BASELINE_EVIDENCE = ContractEvidence(
+    metrics={"f1": 0.87},
+    environment={"python": "3.12"},
+    features=("age", "income"),
+    schema={"age": "int", "income": "float"},
+    data_scope="validation:2026-03-01",
+)
+
+CURRENT_EVIDENCE = ContractEvidence(
+    metrics={"f1": 0.85},
+    environment={"python": "3.12"},
+    features=("age", "income"),
+    schema={"age": "int", "income": "float"},
+    data_scope="validation:2026-03-10",
+)
+
 CONTEXT = ContractEvaluationContext(
     subject_id="churn_model",
     source_run_id="train-run-2",
-    baseline=BASELINE,
-    current_metrics={"f1": 0.85},
-    current_environment={"python": "3.12"},
-    current_features=("age", "income"),
-    current_schema={"age": "int", "income": "float"},
-    current_data_scope="validation:2026-03-10",
+    baseline_source_run_id="train-run-1",
+    baseline_evidence=BASELINE_EVIDENCE,
+    current_evidence=CURRENT_EVIDENCE,
 )
 
 
@@ -84,9 +102,90 @@ def test_contract_evaluation_context_is_platform_agnostic() -> None:
     """Evaluation context should carry resolved evidence, not MLflow objects."""
     assert CONTEXT.subject_id == "churn_model"
     assert CONTEXT.source_run_id == "train-run-2"
-    assert CONTEXT.baseline is BASELINE
-    assert CONTEXT.current_metrics == {"f1": 0.85}
-    assert CONTEXT.current_environment == {"python": "3.12"}
-    assert CONTEXT.current_features == ("age", "income")
-    assert CONTEXT.current_schema == {"age": "int", "income": "float"}
-    assert CONTEXT.current_data_scope == "validation:2026-03-10"
+    assert CONTEXT.baseline_source_run_id == "train-run-1"
+    assert CONTEXT.baseline_evidence is BASELINE_EVIDENCE
+    assert CONTEXT.current_evidence is CURRENT_EVIDENCE
+
+
+def test_default_contract_checker_returns_pass_when_no_checks_are_enabled() -> None:
+    """Concrete checker should pass when the contract enables no checks."""
+    contract = Contract(
+        contract_id="default_permissive",
+        version="v0",
+        schema_contract_ref=None,
+        feature_contract_ref=None,
+        metric_contract_ref=None,
+        data_scope_contract_ref=None,
+        execution_contract_ref=None,
+    )
+    context = ContractEvaluationContext(
+        subject_id="churn_model",
+        source_run_id="train-run-2",
+        baseline_source_run_id="train-run-1",
+        baseline_evidence=ContractEvidence(
+            metrics={"f1": 0.87},
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-01",
+        ),
+        current_evidence=ContractEvidence(
+            metrics={"f1": 0.85},
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-10",
+        ),
+    )
+
+    checker = DefaultContractChecker()
+
+    result = checker.check(contract, context)
+
+    assert result.status is ComparabilityStatus.PASS
+    assert result.reasons == ()
+
+
+def test_default_contract_checker_warns_for_execution_environment_mismatch() -> None:
+    """Concrete checker should warn when execution checking is enabled and env differs."""
+    contract = Contract(
+        contract_id="env_repro",
+        version="v0",
+        schema_contract_ref=None,
+        feature_contract_ref=None,
+        metric_contract_ref=None,
+        data_scope_contract_ref=None,
+        execution_contract_ref="builtin:env_repro",
+    )
+    context = ContractEvaluationContext(
+        subject_id="churn_model",
+        source_run_id="train-run-2",
+        baseline_source_run_id="train-run-1",
+        baseline_evidence=ContractEvidence(
+            metrics={"f1": 0.87},
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-01",
+        ),
+        current_evidence=ContractEvidence(
+            metrics={"f1": 0.85},
+            environment={"python": "3.11"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-10",
+        ),
+    )
+
+    checker = DefaultContractChecker()
+
+    result = checker.check(contract, context)
+
+    assert result.status is ComparabilityStatus.WARN
+    assert result.reasons == (
+        ContractCheckReason(
+            code="environment_mismatch",
+            message="Execution environment does not match the baseline.",
+            blocking=False,
+        ),
+    )
