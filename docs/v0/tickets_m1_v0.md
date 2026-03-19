@@ -362,7 +362,7 @@ Acceptance criteria:
 
 Dependencies: W-001, D-001, D-004, R-003
 
-**W-002a: Implement first-run baseline bootstrap rule** (P0)
+**W-002a: Implement first-run baseline bootstrap rule** (P0) **DONE**
 
 Goal:
 Enforce the v0 bootstrap rule that the first run on a new timeline must pin an explicit baseline.
@@ -483,7 +483,7 @@ R-001 recipe json and yaml is deferred
 **D-003D: define and implement `metric_mismatch` validation** (P1)
 Metric mismatch from D-003 is deferred: need explicit rule for whether mismatch means non-comparable, partially comparable, or missing evidence, depending on recipe/contract expectations.
 
-**D-004D: Concrete contract checker** (P1)
+**D-004D: Concrete contract checker** (P1) **DONE**
 
 D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. Baseline-side schema/feature/data-scope evidence will be finalized in W-003 when the real checker semantics and prepare-stage evidence resolution are implemented.”
 
