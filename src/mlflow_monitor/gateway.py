@@ -370,6 +370,10 @@ class InMemoryMonitoringGateway:
             sequence_index: Monotonic per-subject sequence index for ordering.
             contract_check_result: Optional contract check result to persist for the run.
 
+        Raises:
+            GatewayConsistencyViolation: If the upsert would override immutable and non empty fields
+                                         of an existing monitoring run.
+
         Returns:
             None
         """
@@ -416,6 +420,10 @@ class InMemoryMonitoringGateway:
         Args:
             subject_id: Monitored subject identifier.
             run_id: Monitoring run identifier.
+
+        Raises:
+            GatewayNamespaceViolation: If the subject_id is invalid or does not match the expected
+                                       monitoring namespace semantics.
 
         Returns:
             The monitoring run record for the given subject and run id, or None if not found.
@@ -470,7 +478,26 @@ class InMemoryMonitoringGateway:
         schema: Mapping[str, str],
         data_scope: str | None,
     ) -> None:
-        """Register deterministic source-run state for tests and local use."""
+        """Register deterministic source-run state for tests and local use.
+
+        Args:
+            subject_id: Monitored subject identifier.
+            run_id: Source training run identifier.
+            source_experiment: Optional source experiment name for filtering.
+            metrics: Mapping of metric names to values for the source run.
+            artifacts: Sequence of artifact names logged in the source run.
+            environment: Mapping of environment variable names to values for the source run.
+            features: Sequence of feature names used in the source run.
+            schema: Mapping of schema field names to types for the source run.
+            data_scope: Optional string describing the data scope of the source run.
+
+        Raises:
+            GatewayNamespaceViolation: If the subject_id is invalid or does not match the expected
+                                        monitoring namespace semantics.
+
+        Returns:
+            None
+        """
         self._validate_subject_id(subject_id)
         self._source_runs_by_id[run_id] = SourceRunRecord(
             run_id=run_id,
@@ -491,7 +518,22 @@ class InMemoryMonitoringGateway:
         run_selector: str,
         runtime_source_run_id: str | None = None,
     ) -> str | None:
-        """Resolve one concrete source training run id for prepare-stage use."""
+        """Resolve one concrete source training run id for prepare-stage use.
+
+        Args:
+            subject_id: Monitored subject identifier.
+            source_experiment: Optional source experiment name to filter candidate runs.
+            run_selector: Run selector string, either a concrete run id or a system token.
+            runtime_source_run_id: Optional source run id from runtime context, used if the selector
+                                    is the system default token.
+
+        Raises:
+            GatewayNamespaceViolation: If the subject_id is invalid or does not match the expected
+                                        monitoring namespace semantics.
+
+        Returns:
+            The resolved source run id if a matching run is found, or None if not found.
+        """
         self._validate_subject_id(subject_id)
         candidate_run_id = (
             runtime_source_run_id
@@ -515,7 +557,15 @@ class InMemoryMonitoringGateway:
         run_id: str,
         required_metrics: Sequence[str],
     ) -> tuple[str, ...]:
-        """Return required metrics that are absent from the source run."""
+        """Return required metrics that are absent from the source run.
+
+        Args:
+            run_id: Identifier of the source training run.
+            required_metrics: Sequence of metric names required by the monitoring contract.
+
+        Returns:
+            Tuple of metric names that are required but not present in the source run.
+        """
         source_run = self._source_runs_by_id.get(run_id)
         if source_run is None:
             return tuple(dict.fromkeys(required_metrics))
@@ -530,7 +580,15 @@ class InMemoryMonitoringGateway:
         run_id: str,
         required_artifacts: Sequence[str],
     ) -> tuple[str, ...]:
-        """Return required artifacts that are absent from the source run."""
+        """Return required artifacts that are absent from the source run.
+
+        Args:
+            run_id: Identifier of the source training run.
+            required_artifacts: Sequence of artifact names required by the monitoring contract.
+
+        Returns:
+            Tuple of artifact names that are required but not present in the source run.
+        """
         source_run = self._source_runs_by_id.get(run_id)
         if source_run is None:
             return tuple(dict.fromkeys(required_artifacts))
@@ -542,7 +600,20 @@ class InMemoryMonitoringGateway:
         )
 
     def resolve_timeline_run_id(self, subject_id: str, run_id: str) -> str | None:
-        """Resolve one monitoring run id on the subject timeline."""
+        """Resolve one monitoring run id on the subject timeline.
+
+        Args:
+            subject_id: Monitored subject identifier.
+            run_id: Candidate monitoring run identifier to resolve.
+
+        Raises:
+            GatewayNamespaceViolation: If the subject_id is invalid or does not match the expected
+                                        monitoring namespace semantics.
+
+        Returns:
+            The resolved monitoring run id if it exists on the subject timeline,
+            or None if not found.
+        """
         self._validate_subject_id(subject_id)
         subject_runs = self._runs_by_subject.get(subject_id, {})
         if run_id not in subject_runs:
@@ -646,10 +717,13 @@ class InMemoryMonitoringGateway:
             )
 
     def _validate_monitoring_namespace(self, subject_id: str) -> None:
-        """Validate monitoring namespace semantics for write operations.
+        """Validate monitoring namespace semantics for write and read operations.
 
         Args:
             subject_id: Monitored subject identifier to validate.
+
+        Raises:
+            GatewayNamespaceViolation: If the subject_id is invalid or does not match the expected
 
         Returns:
             None
@@ -670,7 +744,20 @@ class InMemoryMonitoringGateway:
         sequence_index: int,
         contract_check_result: ContractCheckResult | None,
     ) -> None:
-        """Validate that an existing monitoring run is updated consistently."""
+        """Validate that an existing monitoring run is updated consistently.
+
+        Args:
+            monitoring_run: The existing monitoring run record being updated.
+            sequence_index: The new sequence index being written for the run.
+            contract_check_result: The new contract check result being written for the run.
+
+        Raises:
+            GatewayConsistencyViolation: If the upsert would override immutable and non empty fields
+                                         of the existing monitoring run.
+
+        Returns:
+            None
+        """
         details: tuple[tuple[str, str | int | None], ...] = ()
 
         if monitoring_run.sequence_index != sequence_index:
@@ -704,7 +791,19 @@ class InMemoryMonitoringGateway:
         comparability_status: ComparabilityStatus | None,
         contract_check_result: ContractCheckResult | None,
     ) -> None:
-        """Persist an update to an existing monitoring run without mutating immutable fields."""
+        """Persist an update to an existing monitoring run without mutating immutable fields.
+
+        Args:
+            monitoring_run: The existing monitoring run record being updated.
+            subject_id: Monitored subject identifier.
+            run_id: Monitoring run identifier.
+            lifecycle_status: Current lifecycle status of the run.
+            comparability_status: Optional comparability status to persist for the run.
+            contract_check_result: Optional contract check result to persist for the run.
+
+        Returns:
+            None
+        """
         effective_comparability_status = (
             monitoring_run.comparability_status
             if comparability_status is None
