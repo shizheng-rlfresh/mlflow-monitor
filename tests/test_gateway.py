@@ -2,6 +2,7 @@
 
 import pytest
 
+from mlflow_monitor.contract_checker import ContractEvidence
 from mlflow_monitor.domain import LifecycleStatus
 from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
 from mlflow_monitor.gateway import (
@@ -224,6 +225,10 @@ def test_resolve_source_run_id_returns_matching_raw_run_id() -> None:
         source_experiment="training/churn",
         metrics={"f1": 0.91},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     resolved = gateway.resolve_source_run_id(
@@ -243,6 +248,10 @@ def test_resolve_source_run_id_uses_runtime_source_run_id_for_reserved_token() -
         source_experiment=None,
         metrics={"f1": 0.88},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     resolved = gateway.resolve_source_run_id(
@@ -263,6 +272,10 @@ def test_resolve_source_run_id_allows_omitted_source_experiment_filter() -> None
         source_experiment="training/churn",
         metrics={"f1": 0.89},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     resolved = gateway.resolve_source_run_id(
@@ -282,6 +295,10 @@ def test_resolve_source_run_id_returns_none_for_missing_or_mismatched_run() -> N
         source_experiment="training/churn",
         metrics={"f1": 0.91},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     assert (
@@ -310,6 +327,10 @@ def test_missing_required_metrics_returns_missing_names_in_request_order() -> No
         source_experiment="training/churn",
         metrics={"auc": 0.95},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     missing = gateway.get_missing_source_run_metrics(
@@ -328,6 +349,10 @@ def test_missing_required_artifacts_returns_missing_names_in_request_order() -> 
         source_experiment="training/churn",
         metrics={"auc": 0.95},
         artifacts=("metrics.json", "model.pkl"),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     missing = gateway.get_missing_source_run_artifacts(
@@ -355,3 +380,28 @@ def test_resolve_timeline_run_id_requires_same_subject_timeline() -> None:
 
     assert gateway.resolve_timeline_run_id("churn_model", "run-1") == "run-1"
     assert gateway.resolve_timeline_run_id("churn_model", "run-foreign") is None
+
+
+def test_get_source_run_contract_evidence_returns_expected_snapshot() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-1",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+
+    evidence = gateway.get_source_run_contract_evidence("train-run-1")
+
+    assert evidence == ContractEvidence(
+        metrics={"f1": 0.91},
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )

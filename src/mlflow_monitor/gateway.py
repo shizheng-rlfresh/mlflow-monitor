@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Protocol
 
+from mlflow_monitor.contract_checker import ContractEvidence
 from mlflow_monitor.domain import LifecycleStatus
 from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
@@ -110,11 +111,18 @@ class SourceRunRecord:
     source_experiment: str | None
     metrics: Mapping[str, float]
     artifacts: tuple[str, ...]
+    environment: Mapping[str, str]
+    features: tuple[str, ...]
+    schema: Mapping[str, str]
+    data_scope: str | None
 
     def __post_init__(self) -> None:
         """Freeze nested source-run collections after defensive copies."""
         object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))
         object.__setattr__(self, "artifacts", tuple(self.artifacts))
+        object.__setattr__(self, "environment", MappingProxyType(dict(self.environment)))
+        object.__setattr__(self, "features", tuple(self.features))
+        object.__setattr__(self, "schema", MappingProxyType(dict(self.schema)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,6 +404,10 @@ class InMemoryMonitoringGateway:
         source_experiment: str | None,
         metrics: Mapping[str, float],
         artifacts: Sequence[str],
+        environment: Mapping[str, str],
+        features: Sequence[str],
+        schema: Mapping[str, str],
+        data_scope: str | None,
     ) -> None:
         """Register deterministic source-run state for tests and local use."""
         self._validate_subject_id(subject_id)
@@ -405,6 +417,10 @@ class InMemoryMonitoringGateway:
             source_experiment=source_experiment,
             metrics=metrics,
             artifacts=tuple(artifacts),
+            environment=environment,
+            features=tuple(features),
+            schema=schema,
+            data_scope=data_scope,
         )
 
     def resolve_source_run_id(
@@ -518,6 +534,26 @@ class InMemoryMonitoringGateway:
             if key.subject_id == subject_id
         }
         return MappingProxyType(bindings)
+
+    def get_source_run_contract_evidence(self, run_id: str) -> ContractEvidence | None:
+        """Return contract evidence for a source run, or None if the run is not found.
+
+        Args:
+            run_id: Identifier of the source training run.
+
+        Returns:
+            ContractEvidence containing the source run's metrics, environment, features, schema, and data scope; or None if the run is not found.
+        """
+        source_run = self._source_runs_by_id.get(run_id)
+        if source_run is None:
+            return None
+        return ContractEvidence(
+            metrics=source_run.metrics,
+            environment=source_run.environment,
+            features=source_run.features,
+            schema=source_run.schema,
+            data_scope=source_run.data_scope,
+        )
 
     def _validate_namespace_prefix(self, prefix: str) -> None:
         """Validate namespace prefix can safely compose a monitoring namespace.

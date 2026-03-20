@@ -110,6 +110,10 @@ def make_gateway_with_timeline() -> InMemoryMonitoringGateway:
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json", "model.pkl"),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
     return gateway
 
@@ -334,6 +338,10 @@ def test_prepare_run_context_succeeds_without_previous_run() -> None:
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     prepared = prepare_run_context(
@@ -372,6 +380,10 @@ def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     prepared = prepare_run_context(
@@ -428,6 +440,10 @@ def test_prepare_run_context_fails_when_required_metric_is_missing() -> None:
         source_experiment="training/churn",
         metrics={"auc": 0.95},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError, match="missing required metric"):
@@ -453,6 +469,10 @@ def test_prepare_run_context_fails_when_required_artifact_is_missing() -> None:
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("model.pkl",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError, match="missing required artifact"):
@@ -478,6 +498,10 @@ def test_prepare_run_context_uses_runtime_source_run_id_for_reserved_selector() 
         source_experiment=None,
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     prepared = prepare_run_context(
@@ -516,6 +540,10 @@ def test_prepare_run_context_fails_when_custom_reference_is_missing() -> None:
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError, match="Custom reference run could not be resolved"):
@@ -580,6 +608,10 @@ def test_prepare_run_context_succeeds_for_first_run_with_baseline_passed_in() ->
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     prepare_run_context(
@@ -678,6 +710,10 @@ def test_prepare_run_context_fails_for_first_run_with_missing_baseline_run() -> 
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError) as exc_info:
@@ -719,6 +755,10 @@ def test_prepare_run_context_does_not_persist_timeline_when_source_run_resolutio
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError) as exc_info:
@@ -750,6 +790,10 @@ def test_prepare_run_context_does_not_persist_timeline_when_metric_validation_fa
         source_experiment="training/churn",
         metrics={"auc": 0.95},
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError) as exc_info:
@@ -781,6 +825,10 @@ def test_prepare_run_context_does_not_persist_timeline_when_artifact_validation_
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("model.pkl",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError) as exc_info:
@@ -812,6 +860,10 @@ def test_prepare_run_context_does_not_persist_timeline_when_custom_reference_is_
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError) as exc_info:
@@ -843,6 +895,10 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_subject_baseline()
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
     gateway.add_source_run(
         subject_id="fraud_model",
@@ -850,6 +906,10 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_subject_baseline()
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError) as exc_info:
@@ -891,6 +951,10 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_experiment_baselin
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
     gateway.add_source_run(
         subject_id="churn_model",
@@ -898,6 +962,10 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_experiment_baselin
         source_experiment="validation/fraudeval",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError) as exc_info:
@@ -939,6 +1007,10 @@ def test_prepare_run_context_fails_when_timeline_init_does_not_materialize_state
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError) as exc_info:
@@ -977,6 +1049,10 @@ def test_prepare_run_context_succeeds_when_competing_bootstrap_pins_same_baselin
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     prepared = prepare_run_context(
@@ -1010,6 +1086,10 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
     gateway.add_source_run(
         subject_id="churn_model",
@@ -1017,6 +1097,10 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     with pytest.raises(PrepareStageError) as exc_info:
@@ -1056,6 +1140,10 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
+        environment=BASELINE.environment_context,
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     prepare_run_context(
@@ -1116,6 +1204,10 @@ def test_prepare_run_context_succeeds_with_created_timeline_matching_baseline() 
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     timeline_state = gateway.get_timeline_state("churn_model")
@@ -1151,6 +1243,10 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
     )
 
     timeline_state = gateway.get_timeline_state("churn_model")
