@@ -64,6 +64,7 @@ Prefer the cleaner ticket-oriented style used in this repo:
 
 Rules:
 1. Include the ticket id when known.
+2. Infer ticket id, e.g., `MM-11` from branch name, e.g., `MM-11/xxx`
 2. Keep the subject short and factual.
 3. Use imperative/lowercase style.
 4. Mention tests in the title only for test-only commits.
