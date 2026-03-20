@@ -16,8 +16,8 @@ from mlflow_monitor.builtins.builtin_contract import (
 )
 from mlflow_monitor.builtins.builtin_recipes import (
     SYSTEM_DEFAULT_RECIPE_ID,
-    SYSTEM_DEFAULT_RECIPE_RAW,
     SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
+    build_system_default_recipe_raw,
 )
 from mlflow_monitor.errors import RecipeValidationError, RecipeValidationIssue
 
@@ -210,7 +210,7 @@ def validate_recipe_v0_lite(
 
 def get_system_default_recipe_v0_lite() -> RecipeV0Lite:
     """Return the built-in system default recipe for v0-lite."""
-    return parse_recipe_v0_lite(SYSTEM_DEFAULT_RECIPE_RAW)
+    return parse_recipe_v0_lite(build_system_default_recipe_raw())
 
 
 def resolve_recipe_v0_lite(
@@ -219,7 +219,7 @@ def resolve_recipe_v0_lite(
 ) -> RecipeV0Lite:
     """Resolve one recipe payload or fallback to the system default recipe."""
     if raw is None:
-        return validate_recipe_v0_lite(SYSTEM_DEFAULT_RECIPE_RAW, references)
+        return validate_recipe_v0_lite(build_system_default_recipe_raw(), references)
     return validate_recipe_v0_lite(raw, references)
 
 

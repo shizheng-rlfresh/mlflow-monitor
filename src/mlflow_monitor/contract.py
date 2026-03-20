@@ -18,7 +18,18 @@ from mlflow_monitor.errors import ContractResolutionError
 
 
 def _require_string(raw: Mapping[str, object], field: str) -> str:
-    """Return one required string field from a raw contract mapping."""
+    """Return one required string field from a raw contract mapping.
+
+    Args:
+        raw: Raw mapping defining one built-in contract.
+        field: The required field name to extract from the raw mapping.
+
+    Returns:
+        The string value of the required field.
+
+    Raises:
+        ContractResolutionError: If the field is missing or not a string.
+    """
     value = raw.get(field)
     if not isinstance(value, str):
         raise ContractResolutionError(
@@ -30,7 +41,18 @@ def _require_string(raw: Mapping[str, object], field: str) -> str:
 
 
 def _optional_string(raw: Mapping[str, object], field: str) -> str | None:
-    """Return one optional string field from a raw contract mapping."""
+    """Return one optional string field from a raw contract mapping.
+
+    Args:
+        raw: Raw mapping defining one built-in contract.
+        field: The optional field name to extract from the raw mapping.
+
+    Returns:
+        The string value of the optional field, or None if the field is missing.
+
+    Raises:
+        ContractResolutionError: If the field is not a string or null.
+    """
     value = raw.get(field)
     if value is None:
         return None
