@@ -41,7 +41,7 @@ from types import MappingProxyType
 from typing import Protocol
 
 from mlflow_monitor.contract_checker import ContractEvidence
-from mlflow_monitor.domain import LifecycleStatus
+from mlflow_monitor.domain import ComparabilityStatus, ContractCheckResult, LifecycleStatus
 from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 
@@ -65,11 +65,15 @@ class MonitoringRunRecord:
         run_id: Monitoring run identifier.
         sequence_index: Monotonic per-subject sequence index.
         lifecycle_status: Current lifecycle status.
+        comparability_status: Optional comparability status for the run.
+        contract_check_result: Optional contract check result for the run.
     """
 
     run_id: str
     sequence_index: int
     lifecycle_status: LifecycleStatus
+    comparability_status: ComparabilityStatus | None = None
+    contract_check_result: ContractCheckResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,6 +347,8 @@ class InMemoryMonitoringGateway:
         run_id: str,
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
+        comparability_status: ComparabilityStatus | None = None,
+        contract_check_result: ContractCheckResult | None = None,
     ) -> None:
         """Persist minimal monitoring run metadata for a subject.
 
@@ -351,18 +357,38 @@ class InMemoryMonitoringGateway:
             run_id: Monitoring run identifier.
             lifecycle_status: Current lifecycle status of the run.
             sequence_index: Monotonic per-subject sequence index for ordering.
+            comparability_status: Optional comparability status to persist for the run.
+            contract_check_result: Optional contract check result to persist for the run.
 
         Returns:
             None
         """
         self._validate_subject_id(subject_id)
         self._validate_monitoring_namespace(subject_id)
+
         subject_runs = self._runs_by_subject.setdefault(subject_id, {})
         subject_runs[run_id] = MonitoringRunRecord(
             run_id=run_id,
             sequence_index=sequence_index,
             lifecycle_status=lifecycle_status,
+            comparability_status=comparability_status,
+            contract_check_result=contract_check_result,
         )
+
+    def get_monitoring_run(self, subject_id: str, run_id: str) -> MonitoringRunRecord | None:
+        """Return the monitoring run record for a given subject and run id, if it exists.
+
+        Args:
+            subject_id: Monitored subject identifier.
+            run_id: Monitoring run identifier.
+
+        Returns:
+            The monitoring run record for the given subject and run id, or None if not found.
+        """
+        self._validate_subject_id(subject_id)
+        self._validate_monitoring_namespace(subject_id)
+        subject_runs = self._runs_by_subject.get(subject_id, {})
+        return subject_runs.get(run_id)
 
     def list_timeline_runs(
         self,
@@ -542,7 +568,8 @@ class InMemoryMonitoringGateway:
             run_id: Identifier of the source training run.
 
         Returns:
-            ContractEvidence containing the source run's metrics, environment, features, schema, and data scope; or None if the run is not found.
+            ContractEvidence containing the source run's metrics, environment, features, schema,
+            and data scope; or None if the run is not found.
         """
         source_run = self._source_runs_by_id.get(run_id)
         if source_run is None:

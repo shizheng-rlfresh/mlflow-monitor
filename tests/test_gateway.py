@@ -3,7 +3,12 @@
 import pytest
 
 from mlflow_monitor.contract_checker import ContractEvidence
-from mlflow_monitor.domain import LifecycleStatus
+from mlflow_monitor.domain import (
+    ComparabilityStatus,
+    ContractCheckReason,
+    ContractCheckResult,
+    LifecycleStatus,
+)
 from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
 from mlflow_monitor.gateway import (
     GatewayConfig,
@@ -405,3 +410,32 @@ def test_get_source_run_contract_evidence_returns_expected_snapshot() -> None:
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
     )
+
+
+def test_upsert_monitoring_run_stores_contract_check_outputs() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    result = ContractCheckResult(
+        status=ComparabilityStatus.WARN,
+        reasons=(
+            ContractCheckReason(
+                code="environment_mismatch",
+                message="Execution environment does not match the baseline.",
+                blocking=False,
+            ),
+        ),
+    )
+
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        run_id="run-1",
+        lifecycle_status=LifecycleStatus.CHECKED,
+        sequence_index=0,
+        comparability_status=ComparabilityStatus.WARN,
+        contract_check_result=result,
+    )
+
+    stored = gateway.get_monitoring_run("churn_model", "run-1")
+
+    assert stored is not None
+    assert stored.comparability_status is ComparabilityStatus.WARN
+    assert stored.contract_check_result == result
