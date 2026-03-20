@@ -9,7 +9,11 @@ from mlflow_monitor.domain import (
     ContractCheckResult,
     LifecycleStatus,
 )
-from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
+from mlflow_monitor.errors import (
+    GatewayConsistencyViolation,
+    GatewayNamespaceViolation,
+    TrainingRunMutationViolation,
+)
 from mlflow_monitor.gateway import (
     GatewayConfig,
     IdempotencyKey,
@@ -439,3 +443,39 @@ def test_upsert_monitoring_run_stores_contract_check_outputs() -> None:
     assert stored is not None
     assert stored.comparability_status is ComparabilityStatus.WARN
     assert stored.contract_check_result == result
+
+
+def test_upsert_monitoring_run_rejects_mismatched_comparability_status() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    result = ContractCheckResult(
+        status=ComparabilityStatus.FAIL,
+        reasons=(
+            ContractCheckReason(
+                code="schema_mismatch",
+                message="Data schema does not match the baseline.",
+                blocking=True,
+            ),
+        ),
+    )
+
+    with pytest.raises(GatewayConsistencyViolation) as exc:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            run_id="run-1",
+            lifecycle_status=LifecycleStatus.CHECKED,
+            sequence_index=0,
+            comparability_status=ComparabilityStatus.WARN,
+            contract_check_result=result,
+        )
+
+    error = exc.value
+    assert error.code == "comparability_result_status_mismatch"
+    assert error.details == (
+        ("comparability_status", ComparabilityStatus.WARN),
+        ("contract_check_result.status", ComparabilityStatus.FAIL),
+    )
+    assert error.message == (
+        "Comparability status and contract check result status must be consistent; "
+        f"got comparability_status={ComparabilityStatus.WARN} "
+        f"and contract_check_result.status={ComparabilityStatus.FAIL}"
+    )

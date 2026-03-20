@@ -44,6 +44,19 @@ class GatewayNamespaceViolation(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class GatewayConsistencyViolation(ValueError):
+    """Raised when a gateway operation violates consistency constraints."""
+
+    code: str
+    message: str
+    details: tuple[tuple[str, str | None], ...] = ()
+
+    def __str__(self) -> str:
+        """Return the error message when the exception is converted to a string."""
+        return self.message
+
+
+@dataclass(frozen=True, slots=True)
 class TrainingRunMutationViolation(ValueError):
     """Raised when code attempts to mutate source training run data."""
 

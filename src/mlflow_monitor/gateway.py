@@ -42,7 +42,11 @@ from typing import Protocol
 
 from mlflow_monitor.contract_checker import ContractEvidence
 from mlflow_monitor.domain import ComparabilityStatus, ContractCheckResult, LifecycleStatus
-from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
+from mlflow_monitor.errors import (
+    GatewayConsistencyViolation,
+    GatewayNamespaceViolation,
+    TrainingRunMutationViolation,
+)
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 
 
@@ -365,6 +369,9 @@ class InMemoryMonitoringGateway:
         """
         self._validate_subject_id(subject_id)
         self._validate_monitoring_namespace(subject_id)
+        self._validate_comparability_check_result_status(
+            comparability_status, contract_check_result
+        )
 
         subject_runs = self._runs_by_subject.setdefault(subject_id, {})
         subject_runs[run_id] = MonitoringRunRecord(
@@ -628,3 +635,29 @@ class InMemoryMonitoringGateway:
                     f"'{expected_prefix}*'; got {namespace!r}."
                 )
             )
+
+    def _validate_comparability_check_result_status(
+        self, status: ComparabilityStatus | None = None, result: ContractCheckResult | None = None
+    ) -> None:
+        """Validate that the comparability status is a known value."""
+        if status is None or result is None:
+            return
+
+        if (
+            status not in ComparabilityStatus
+            or result.status not in ComparabilityStatus
+            or status != result.status
+        ):
+            raise GatewayConsistencyViolation(
+                code="comparability_result_status_mismatch",
+                message=(
+                    "Comparability status and contract check result status must be consistent; "
+                    f"got comparability_status={status} "
+                    f"and contract_check_result.status={result.status}"
+                ),
+                details=(
+                    ("comparability_status", status),
+                    ("contract_check_result.status", result.status),
+                ),
+            )
+        return
