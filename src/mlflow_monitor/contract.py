@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from mlflow_monitor.builtins.builtin_contract import (
+from mlflow_monitor.builtins import (
     SYSTEM_DEFAULT_CONTRACT_ID,
     SYSTEM_DEFAULT_PERMISSIVE_CONTRACT_RAW,
 )

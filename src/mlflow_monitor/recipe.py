@@ -11,7 +11,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from mlflow_monitor.builtins.builtin_recipes import (
+from mlflow_monitor.builtins import (
     SYSTEM_DEFAULT_RECIPE_ID,
     SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
     build_system_default_recipe_raw,
