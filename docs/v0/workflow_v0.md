@@ -12,6 +12,11 @@
 
   This is the canonical behavioral spec for v0 execution.
 
+  Implementation status note:
+
+  1. M1 implements the create/prepare/check slice plus stage-aligned persistence for run/check state.
+  2. Analyze, close, and promotion remain specified here as target v0 behavior, but land in later cycles.
+
 ## 2. Workflow Design Goals
 
   1. Deterministic: same inputs and context should produce same decision path.
@@ -216,6 +221,12 @@
 
   1. Durable run record.
   2. Durable analysis artifacts.
+
+  M1 implementation note:
+
+  1. M1 persistence is an incremental subset of this full persist stage.
+  2. M1 requires prepare-stage lineage/state writes and check-stage comparability/reason writes.
+  3. Full analyze/close persistence remains later-cycle work.
 
 ### 5.6 Stage F: Optional LKG Decision
 

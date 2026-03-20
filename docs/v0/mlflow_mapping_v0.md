@@ -210,6 +210,15 @@ MLflow-Monitor is only as good as what is already in MLflow. If the source train
 
 ## 7. Write Path Strategy (Execution-Time Persistence)
 
+Implementation status note:
+
+For M1, only the initial stage-aligned write subset is required:
+
+1. prepare-stage lineage/state writes
+2. check-stage comparability and reason writes
+
+Analyze-stage artifacts, close-stage completion writes, and promotion updates remain part of the broader v0 target mapping.
+
 ### 7.1 Stage-Aligned Writes
 
 Writes to `mlflow_monitor/{subject_id}` reflect workflow stages:
