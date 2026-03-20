@@ -245,7 +245,7 @@ The recipe system is designed to be as simple as possible. Users should not be d
 1. **Input binding** — source experiment, source-run selector, optional required metrics and artifacts, optional evaluation window/slice selectors, optional custom reference run.
 
 Current implemented selector behavior supports explicit raw source run IDs for user-authored recipes plus the reserved runtime token used by the built-in system default recipe. Broader selector modes such as `latest` are not yet implemented in v0 code.
-2. **Contract binding** — contract profile reference and strictness policy.
+2. **Contract binding** — contract binding identifier selected at recipe authoring time. In v0 this is an internal selection surface, not the runtime `Contract` object itself. After recipe validation and compilation, `contract.py` resolves the selected binding identifier into the effective runtime `Contract` consumed by workflow prepare/check. Unknown bindings fail explicitly, and any mismatch between the compiled binding identity and the resolved runtime contract identity fails deterministically instead of being silently tolerated.
 3. **Metric and slice binding** — metric set selection and slice dimensions.
 4. **Finding policy binding** — severity mapping, category mapping, recommendation rules.
 5. **Output binding** — summary/report options and sink behavior.
@@ -256,19 +256,21 @@ MLflow-Monitor ships with a system default recipe:
 
 - Requires no user configuration.
 - Reads whatever metrics, params, and tags MLflow already has on the source run.
-- No required metrics, no required artifacts, no contract gates.
+- No required metrics, no required artifacts, and binds to the built-in default permissive contract.
 - Applies default finding policy and standard summary output.
 
 Zero-config here refers to recipe configuration, not timeline bootstrap. On the first monitoring run for a subject, the caller must still provide an explicit `baseline_source_run_id` so the system can initialize the timeline sentinel without hidden inference.
 
 Resolution rule: if the user specifies a recipe, use it. Otherwise, use the system default. Every run always references exactly one recipe version — the invariant holds unconditionally.
 
+Design note on future extensibility: later versions may introduce richer recipe intent or policy/profile concepts that constrain which runtime contracts are valid. M1 does not model that layer. In v0, contract handling is binding resolution only: validated recipe -> compiled plan with `contract_id` -> `contract.py` resolution -> workflow consumption of the resolved runtime `Contract`.
+
 ### 6.4 Recipe Lifecycle
 
 1. **Author** — user defines recipe in declarative form with stable ID and version.
-2. **Validate** — structural validation (required sections), referential validation (contract/policy refs resolvable), constraint validation (v0 invariants not violated). Validation errors are specific and actionable — they tell the user exactly what is wrong and how to fix it.
-3. **Compile** — normalize into executable run plan, resolve defaults, freeze effective plan snapshot.
-4. **Bind** — run references exact recipe ID + version. Compiled plan attached to run context.
+2. **Validate** — structural validation (required sections), referential validation (contract binding / policy refs resolvable), constraint validation (v0 invariants not violated). Validation errors are specific and actionable — they tell the user exactly what is wrong and how to fix it.
+3. **Compile** — normalize into executable run plan, resolve defaults, freeze effective plan snapshot, and carry the selected `contract_id` forward as recipe intent.
+4. **Bind** — run references exact recipe ID + version. Compiled plan attaches to run context, and `contract.py` resolves the compiled contract binding into the runtime `Contract` used by prepare/check.
 5. **Execute** — workflow consumes compiled plan deterministically. Recipe cannot mutate stage order or skip required checks.
 6. **Audit** — run output is always traceable to recipe version. Any run can be traced back to the exact recipe configuration that produced it.
 
