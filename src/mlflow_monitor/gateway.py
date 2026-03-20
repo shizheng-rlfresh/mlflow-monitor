@@ -174,7 +174,6 @@ class MonitoringGateway(Protocol):
         run_id: str,
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
-        comparability_status: ComparabilityStatus | None = None,
         contract_check_result: ContractCheckResult | None = None,
     ) -> None:
         """Persist minimal monitoring run metadata for a subject."""
