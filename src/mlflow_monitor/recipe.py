@@ -11,7 +11,17 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from mlflow_monitor.builtins.builtin_contract import (
+    SYSTEM_DEFAULT_CONTRACT_ID as _SYSTEM_DEFAULT_CONTRACT_ID,
+)
+from mlflow_monitor.builtins.builtin_recipes import (
+    SYSTEM_DEFAULT_RECIPE_ID,
+    SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
+    build_system_default_recipe_raw,
+)
 from mlflow_monitor.errors import RecipeValidationError, RecipeValidationIssue
+
+SYSTEM_DEFAULT_CONTRACT_ID = _SYSTEM_DEFAULT_CONTRACT_ID
 
 _REQUIRED_TOP_LEVEL_SECTIONS = {
     "identity",
@@ -22,9 +32,6 @@ _REQUIRED_TOP_LEVEL_SECTIONS = {
     "output_binding",
 }
 
-SYSTEM_DEFAULT_RECIPE_ID = "system_default"
-SYSTEM_DEFAULT_CONTRACT_ID = "default_permissive"
-SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN = "__RUNTIME_SOURCE_RUN_ID__"
 
 _ALLOWED_SECTION_FIELDS: dict[str, frozenset[str]] = {
     "identity": frozenset({"recipe_id", "version"}),
@@ -203,7 +210,7 @@ def validate_recipe_v0_lite(
 
 def get_system_default_recipe_v0_lite() -> RecipeV0Lite:
     """Return the built-in system default recipe for v0-lite."""
-    return parse_recipe_v0_lite(_build_system_default_recipe_raw())
+    return parse_recipe_v0_lite(build_system_default_recipe_raw())
 
 
 def resolve_recipe_v0_lite(
@@ -212,7 +219,7 @@ def resolve_recipe_v0_lite(
 ) -> RecipeV0Lite:
     """Resolve one recipe payload or fallback to the system default recipe."""
     if raw is None:
-        return validate_recipe_v0_lite(_build_system_default_recipe_raw(), references)
+        return validate_recipe_v0_lite(build_system_default_recipe_raw(), references)
     return validate_recipe_v0_lite(raw, references)
 
 
@@ -441,18 +448,6 @@ def _add_duplicate_issues(
             message=f"Field '{section}.{field}' must not contain duplicate entries.",
         )
     )
-
-
-def _build_system_default_recipe_raw() -> dict[str, object]:
-    """Build the canonical raw mapping for the built-in default recipe."""
-    return {
-        "identity": {"recipe_id": SYSTEM_DEFAULT_RECIPE_ID, "version": "v0"},
-        "input_binding": {"run_selector": SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN},
-        "contract_binding": {"contract_id": SYSTEM_DEFAULT_CONTRACT_ID},
-        "metrics_slices": {},
-        "finding_policy": {},
-        "output_binding": {},
-    }
 
 
 def _extract_error_location(message: str) -> tuple[str, str | None]:

@@ -1,4 +1,8 @@
-"""Workflow-facing contract checker boundary for MLflow-Monitor v0."""
+"""Workflow-facing contract evaluation boundary for MLflow-Monitor v0.
+
+This module owns contract evaluation only. Built-in runtime contract
+definitions and binding resolution live in ``contract.py``.
+"""
 
 from __future__ import annotations
 

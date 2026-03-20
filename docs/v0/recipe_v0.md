@@ -33,7 +33,7 @@
   Recipe answers:
 
   1. Which data scope do we evaluate?
-  2. Which contract profile do we enforce?
+  2. Which contract binding do we select in v0?
   3. Which metrics/slices do we compute?
   4. Which finding policies do we apply?
   5. Which outputs/sinks do we emit?
@@ -51,7 +51,7 @@
   1. If user specifies a recipe → use that recipe.
   2. If user specifies nothing → use the system default recipe.
 
-  The default recipe provides sensible baseline analysis using whatever MLflow already has logged — no required metrics, no required artifacts, no contract gates.
+  The default recipe provides sensible baseline analysis using whatever MLflow already has logged — no required metrics, no required artifacts, and a built-in default permissive contract binding.
 
 ## 3. Input Layer Model
 
@@ -130,13 +130,15 @@
 
 ### 5.2 Contract Binding
 
-  1. Contract profile reference.
-  2. Contract mode options allowed in v0 (strictness policy envelope).
+  1. Contract binding identifier.
+  2. In v0, this identifier is an authoring-time selection surface, not the runtime `Contract` object itself.
+  3. After recipe validation and compilation, `contract.py` resolves the selected binding identifier into the effective runtime `Contract` consumed by workflow prepare/check.
+  4. Unknown contract bindings fail explicitly during resolution, and a mismatch between the compiled binding identity and the resolved runtime contract identity fails deterministically.
 
   Reasoning:
 
   1. Comparability rules are use-case dependent.
-  2. Contract profile should be resolved before run check stage.
+  2. Contract binding should resolve before run check stage so workflow consumes a runtime `Contract`, not recipe authoring metadata.
 
 ### 5.3 Metric and Slice Binding
 
@@ -192,8 +194,8 @@
 
   1. `contract_binding`
 
-- contract profile ref
-- compatibility policy options
+- contract binding identifier
+- no separate contract policy/profile object in v0
 
   1. `metrics_and_slices`
 
@@ -335,7 +337,7 @@
 
   Examples:
 
-  1. Unknown contract profile.
+  1. Unknown contract binding.
   2. Unknown metric/finding policy reference.
 
   Behavior:
@@ -369,7 +371,7 @@
 ### 11.1 What Workflow Expects from Recipe
 
   1. Resolved input spec.
-  2. Resolved contract binding.
+  2. A compiled contract binding identifier that can be resolved into the runtime `Contract`.
   3. Resolved metrics/slices spec.
   4. Resolved finding policy.
   5. Resolved output options.
@@ -442,7 +444,7 @@
   2. Run executes full workflow.
   3. Outputs include recipe version trace.
 
-  Scenario 2: Recipe references missing contract profile
+  Scenario 2: Recipe references missing contract binding
 
   1. Validation fails.
   2. Run does not enter workflow execution.
@@ -461,7 +463,7 @@
 ## 17. Open Questions
 
   1. Exact recipe schema format and file conventions.
-  2. Whether recipe policy references are inline or registry-based in v0.
+  2. Whether future recipe intent should include richer contract policy/profile concepts beyond the v0 binding-identifier model.
   3. Minimal default finding policy package for first release.
   4. How strict v0 should be on warning-level recipe validation.
 
