@@ -479,3 +479,221 @@ def test_upsert_monitoring_run_rejects_mismatched_comparability_status() -> None
         f"got comparability_status={ComparabilityStatus.WARN} "
         f"and contract_check_result.status={ComparabilityStatus.FAIL}"
     )
+
+
+def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_status_changes() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    result = ContractCheckResult(
+        status=ComparabilityStatus.FAIL,
+        reasons=(
+            ContractCheckReason(
+                code="schema_mismatch",
+                message="Data schema does not match the baseline.",
+                blocking=True,
+            ),
+        ),
+    )
+
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        run_id="run-1",
+        lifecycle_status=LifecycleStatus.CHECKED,
+        sequence_index=0,
+        comparability_status=ComparabilityStatus.FAIL,
+        contract_check_result=result,
+    )
+
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        run_id="run-1",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=0,
+    )
+
+    stored = gateway.get_monitoring_run("churn_model", "run-1")
+
+    assert stored is not None
+    assert stored.lifecycle_status is LifecycleStatus.CLOSED
+    assert stored.comparability_status is ComparabilityStatus.FAIL
+    assert stored.contract_check_result == result
+
+
+def test_upsert_monitoring_run_rejects_changed_sequence_index() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        run_id="run-1",
+        lifecycle_status=LifecycleStatus.CREATED,
+        sequence_index=0,
+    )
+
+    with pytest.raises(GatewayConsistencyViolation) as exc:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            run_id="run-1",
+            lifecycle_status=LifecycleStatus.CREATED,
+            sequence_index=1,
+        )
+
+    error = exc.value
+    assert error.code == "monitoring_run_upsert_field_override"
+    assert error.details == (("sequence_index", 1),)
+
+
+def test_upsert_monitoring_run_reports_all_immutable_field_overrides() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    original_result = ContractCheckResult(
+        status=ComparabilityStatus.FAIL,
+        reasons=(
+            ContractCheckReason(
+                code="schema_mismatch",
+                message="Data schema does not match the baseline.",
+                blocking=True,
+            ),
+        ),
+    )
+    replacement_result = ContractCheckResult(
+        status=ComparabilityStatus.WARN,
+        reasons=(
+            ContractCheckReason(
+                code="feature_mismatch",
+                message="Feature set does not match the baseline.",
+                blocking=True,
+            ),
+        ),
+    )
+
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        run_id="run-1",
+        lifecycle_status=LifecycleStatus.CHECKED,
+        sequence_index=0,
+        comparability_status=ComparabilityStatus.FAIL,
+        contract_check_result=original_result,
+    )
+
+    with pytest.raises(GatewayConsistencyViolation) as exc:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            run_id="run-1",
+            lifecycle_status=LifecycleStatus.CLOSED,
+            sequence_index=1,
+            comparability_status=ComparabilityStatus.WARN,
+            contract_check_result=replacement_result,
+        )
+
+    error = exc.value
+    assert error.code == "monitoring_run_upsert_field_override"
+    assert error.details == (
+        ("sequence_index", 1),
+        ("comparability_status", ComparabilityStatus.WARN),
+        ("contract_check_result", str(replacement_result)),
+    )
+
+
+def test_upsert_monitoring_run_rejects_changed_contract_check_result_after_initial_write() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    original_result = ContractCheckResult(
+        status=ComparabilityStatus.FAIL,
+        reasons=(
+            ContractCheckReason(
+                code="schema_mismatch",
+                message="Data schema does not match the baseline.",
+                blocking=True,
+            ),
+        ),
+    )
+    replacement_result = ContractCheckResult(
+        status=ComparabilityStatus.FAIL,
+        reasons=(
+            ContractCheckReason(
+                code="feature_mismatch",
+                message="Feature set does not match the baseline.",
+                blocking=True,
+            ),
+        ),
+    )
+
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        run_id="run-1",
+        lifecycle_status=LifecycleStatus.CHECKED,
+        sequence_index=0,
+        comparability_status=ComparabilityStatus.FAIL,
+        contract_check_result=original_result,
+    )
+
+    with pytest.raises(GatewayConsistencyViolation) as exc:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            run_id="run-1",
+            lifecycle_status=LifecycleStatus.CHECKED,
+            sequence_index=0,
+            comparability_status=ComparabilityStatus.FAIL,
+            contract_check_result=replacement_result,
+        )
+
+    error = exc.value
+    assert error.code == "monitoring_run_upsert_field_override"
+    assert error.details == (("contract_check_result", str(replacement_result)),)
+
+
+def test_upsert_monitoring_run_rejects_comparability_status_without_result() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayConsistencyViolation) as exc:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            run_id="run-1",
+            lifecycle_status=LifecycleStatus.CHECKED,
+            sequence_index=0,
+            comparability_status=ComparabilityStatus.WARN,
+            contract_check_result=None,
+        )
+
+    error = exc.value
+    assert error.code == "comparability_result_status_mismatch"
+    assert error.details == (
+        ("comparability_status", ComparabilityStatus.WARN),
+        ("contract_check_result", None),
+    )
+    assert error.message == (
+        "Contract check result must be provided if comparability status is provided; "
+        f"got comparability_status={ComparabilityStatus.WARN!r} and contract_check_result=None."
+    )
+
+
+def test_upsert_monitoring_run_rejects_result_without_comparability_status() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    result = ContractCheckResult(
+        status=ComparabilityStatus.WARN,
+        reasons=(
+            ContractCheckReason(
+                code="environment_mismatch",
+                message="Execution environment does not match the baseline.",
+                blocking=False,
+            ),
+        ),
+    )
+
+    with pytest.raises(GatewayConsistencyViolation) as exc:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            run_id="run-2",
+            lifecycle_status=LifecycleStatus.CHECKED,
+            sequence_index=1,
+            comparability_status=None,
+            contract_check_result=result,
+        )
+
+    error = exc.value
+    assert error.code == "comparability_result_status_mismatch"
+    assert error.details == (
+        ("comparability_status", None),
+        ("contract_check_result", ComparabilityStatus.WARN),
+    )
+    assert error.message == (
+        "Comparability status must be provided if contract check result is provided; "
+        f"got comparability_status=None and contract_check_result={ComparabilityStatus.WARN!r}."
+    )

@@ -174,8 +174,13 @@ class MonitoringGateway(Protocol):
         run_id: str,
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
+        comparability_status: ComparabilityStatus | None = None,
+        contract_check_result: ContractCheckResult | None = None,
     ) -> None:
         """Persist minimal monitoring run metadata for a subject."""
+
+    def get_monitoring_run(self, subject_id: str, run_id: str) -> MonitoringRunRecord | None:
+        """Return the monitoring run record for a given subject and run id, if it exists."""
 
     def list_timeline_runs(
         self,
@@ -217,6 +222,10 @@ class MonitoringGateway(Protocol):
 
     def resolve_timeline_run_id(self, subject_id: str, run_id: str) -> str | None:
         """Resolve one monitoring run id on the subject timeline."""
+        ...
+
+    def get_source_run_contract_evidence(self, run_id: str) -> ContractEvidence | None:
+        """Return contract evidence for a source run, or None if the run is not found."""
         ...
 
 
@@ -369,18 +378,40 @@ class InMemoryMonitoringGateway:
         """
         self._validate_subject_id(subject_id)
         self._validate_monitoring_namespace(subject_id)
-        self._validate_comparability_check_result_status(
+        self._validate_comparability_check_result_status_consistency(
             comparability_status, contract_check_result
         )
 
         subject_runs = self._runs_by_subject.setdefault(subject_id, {})
-        subject_runs[run_id] = MonitoringRunRecord(
-            run_id=run_id,
-            sequence_index=sequence_index,
-            lifecycle_status=lifecycle_status,
-            comparability_status=comparability_status,
-            contract_check_result=contract_check_result,
+        monitoring_run = subject_runs.get(run_id)
+
+        if monitoring_run is None:
+            subject_runs[run_id] = MonitoringRunRecord(
+                run_id=run_id,
+                sequence_index=sequence_index,
+                lifecycle_status=lifecycle_status,
+                comparability_status=comparability_status,
+                contract_check_result=contract_check_result,
+            )
+            return
+
+        self._validate_upsert_existing_monitoring_run(
+            monitoring_run,
+            sequence_index,
+            comparability_status,
+            contract_check_result,
         )
+
+        self._write_upsert_existing_monitoring_run(
+            monitoring_run,
+            subject_id,
+            run_id,
+            lifecycle_status,
+            comparability_status,
+            contract_check_result,
+        )
+
+        return
 
     def get_monitoring_run(self, subject_id: str, run_id: str) -> MonitoringRunRecord | None:
         """Return the monitoring run record for a given subject and run id, if it exists.
@@ -636,12 +667,35 @@ class InMemoryMonitoringGateway:
                 )
             )
 
-    def _validate_comparability_check_result_status(
+    def _validate_comparability_check_result_status_consistency(
         self, status: ComparabilityStatus | None = None, result: ContractCheckResult | None = None
     ) -> None:
         """Validate that the comparability status is a known value."""
-        if status is None or result is None:
+        if status is None and result is None:
             return
+
+        if result is None:
+            raise GatewayConsistencyViolation(
+                code="comparability_result_status_mismatch",
+                message=(
+                    "Contract check result must be provided if comparability status is provided; "
+                    f"got comparability_status={status!r} and contract_check_result=None."
+                ),
+                details=(("comparability_status", status), ("contract_check_result", None)),
+            )
+
+        if status is None:
+            raise GatewayConsistencyViolation(
+                code="comparability_result_status_mismatch",
+                message=(
+                    "Comparability status must be provided if contract check result is provided; "
+                    f"got comparability_status=None and contract_check_result={result.status!r}."
+                ),
+                details=(
+                    ("comparability_status", status),
+                    ("contract_check_result", result.status),
+                ),
+            )
 
         if (
             status not in ComparabilityStatus
@@ -660,4 +714,72 @@ class InMemoryMonitoringGateway:
                     ("contract_check_result.status", result.status),
                 ),
             )
+
         return
+
+    def _validate_upsert_existing_monitoring_run(
+        self,
+        monitoring_run: MonitoringRunRecord,
+        sequence_index: int,
+        comparability_status: ComparabilityStatus | None,
+        contract_check_result: ContractCheckResult | None,
+    ) -> None:
+        """Validate that an existing monitoring run is updated consistently."""
+        details: tuple[tuple[str, str | int | None], ...] = ()
+
+        if monitoring_run.sequence_index != sequence_index:
+            details += (("sequence_index", sequence_index),)
+
+        if (
+            monitoring_run.comparability_status is not None
+            and comparability_status is not None
+            and monitoring_run.comparability_status != comparability_status
+        ):
+            details += (("comparability_status", comparability_status),)
+
+        if (
+            monitoring_run.contract_check_result is not None
+            and contract_check_result is not None
+            and monitoring_run.contract_check_result != contract_check_result
+        ):
+            details += (("contract_check_result", str(contract_check_result)),)
+
+        if bool(details):
+            raise GatewayConsistencyViolation(
+                code="monitoring_run_upsert_field_override",
+                message=(
+                    "Attempted to upsert monitoring run with immutable field value: "
+                    + ", ".join(f"{field}={value!r}" for field, value in details)
+                ),
+                details=details,
+            )
+
+        return
+
+    def _write_upsert_existing_monitoring_run(
+        self,
+        monitoring_run: MonitoringRunRecord,
+        subject_id: str,
+        run_id: str,
+        lifecycle_status: LifecycleStatus,
+        comparability_status: ComparabilityStatus | None,
+        contract_check_result: ContractCheckResult | None,
+    ) -> None:
+        """Persist an update to an existing monitoring run without mutating immutable fields."""
+        effective_comparability_status = (
+            monitoring_run.comparability_status
+            if comparability_status is None
+            else comparability_status
+        )
+        effective_contract_check_result = (
+            monitoring_run.contract_check_result
+            if contract_check_result is None
+            else contract_check_result
+        )
+        self._runs_by_subject[subject_id][run_id] = MonitoringRunRecord(
+            run_id=run_id,
+            sequence_index=monitoring_run.sequence_index,
+            lifecycle_status=lifecycle_status,
+            comparability_status=effective_comparability_status,
+            contract_check_result=effective_contract_check_result,
+        )
