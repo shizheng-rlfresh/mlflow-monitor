@@ -1,10 +1,13 @@
 """Unit tests for the v0-lite recipe parser and validator."""
 
+from collections.abc import Mapping
+from typing import cast
+
 import pytest
 
+from mlflow_monitor.contract import SYSTEM_DEFAULT_CONTRACT_ID
 from mlflow_monitor.errors import RecipeValidationError
 from mlflow_monitor.recipe import (
-    SYSTEM_DEFAULT_CONTRACT_ID,
     SYSTEM_DEFAULT_RECIPE_ID,
     SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
     RecipeReferenceCatalog,
@@ -179,7 +182,7 @@ def test_validate_recipe_v0_lite_rejects_unknown_nested_section_keys(
     bad_key: str,
 ) -> None:
     raw = make_valid_recipe()
-    section = dict(raw[section_name])  # type: ignore[index]
+    section = dict(cast(Mapping[str, object], raw[section_name]))
     section[bad_key] = "unexpected"
     raw[section_name] = section
 

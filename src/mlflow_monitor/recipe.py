@@ -11,17 +11,12 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from mlflow_monitor.builtins.builtin_contract import (
-    SYSTEM_DEFAULT_CONTRACT_ID as _SYSTEM_DEFAULT_CONTRACT_ID,
-)
 from mlflow_monitor.builtins.builtin_recipes import (
     SYSTEM_DEFAULT_RECIPE_ID,
     SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
     build_system_default_recipe_raw,
 )
 from mlflow_monitor.errors import RecipeValidationError, RecipeValidationIssue
-
-SYSTEM_DEFAULT_CONTRACT_ID = _SYSTEM_DEFAULT_CONTRACT_ID
 
 _REQUIRED_TOP_LEVEL_SECTIONS = {
     "identity",

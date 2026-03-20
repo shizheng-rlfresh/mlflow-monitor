@@ -51,7 +51,7 @@
   1. If user specifies a recipe → use that recipe.
   2. If user specifies nothing → use the system default recipe.
 
-  The default recipe provides sensible baseline analysis using whatever MLflow already has logged — no required metrics, no required artifacts, and a built-in default permissive contract binding.
+  The default recipe provides sensible baseline analysis using whatever MLflow already has logged — no required metrics, no required artifacts, and a built-in default permissive contract binding. It uses the reserved runtime source-run token, which workflow/gateway resolves later to the caller-supplied source run. Missing optional evidence means the default recipe adds no extra evidence requirements rather than failing implicitly.
 
 ## 3. Input Layer Model
 
