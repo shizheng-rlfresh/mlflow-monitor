@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 
 from mlflow_monitor.contract_checker import ContractChecker
 from mlflow_monitor.domain import ComparabilityStatus, Contract, LifecycleStatus, Run
+from mlflow_monitor.errors import CheckStageError, InvalidRunTransition, PrepareStageError
 from mlflow_monitor.gateway import MonitoringGateway
 from mlflow_monitor.recipe_compiler import CompiledRunPlan
+from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 from mlflow_monitor.workflow import (
     PreparedContext,
     execute_contract_check,
@@ -112,6 +115,142 @@ def _check_stage(
     return checked_run
 
 
-def run(*args, **kwargs):
-    """Run the MLflow Monitor with the given arguments."""
-    raise NotImplementedError("monitor.run is not implemented yet")
+def _run_prepare_and_check(
+    *,
+    run_id: str,
+    subject_id: str,
+    compiled_plan: CompiledRunPlan,
+    resolved_contract: Contract,
+    gateway: MonitoringGateway,
+    contract_checker: ContractChecker,
+    runtime_source_run_id: str | None = None,
+    baseline_source_run_id: str | None = None,
+) -> Run:
+    """Compose prepare and check orchestration through checked state."""
+    prepared_run, prepared_context = _prepare_stage(
+        run_id=run_id,
+        subject_id=subject_id,
+        compiled_plan=compiled_plan,
+        resolved_contract=resolved_contract,
+        gateway=gateway,
+        runtime_source_run_id=runtime_source_run_id,
+        baseline_source_run_id=baseline_source_run_id,
+    )
+    return _check_stage(
+        prepared_run=prepared_run,
+        prepared_context=prepared_context,
+        gateway=gateway,
+        contract_checker=contract_checker,
+    )
+
+
+def _checked_run_to_result(checked_run: Run) -> MonitorRunResult:
+    """Convert a checked run into the public synchronous result contract."""
+    return MonitorRunResult(
+        run_id=checked_run.run_id,
+        subject_id=checked_run.subject_id,
+        timeline_id=checked_run.timeline_id,
+        lifecycle_status=checked_run.lifecycle_status,
+        comparability_status=checked_run.comparability_status,
+        summary=None,
+        finding_ids=(),
+        diff_ids=(),
+        reference_run_ids={},
+        error=None,
+    )
+
+
+def _error_details_to_mapping(
+    details: tuple[tuple[str, str | int | None], ...],
+) -> Mapping[str, str] | None:
+    """Convert workflow error details into string-only result-contract details."""
+    if not details:
+        return None
+    return {
+        key: "" if value is None else str(value)
+        for key, value in details
+    }
+
+
+def run(
+    *,
+    run_id: str,
+    subject_id: str,
+    compiled_plan: CompiledRunPlan,
+    resolved_contract: Contract,
+    gateway: MonitoringGateway,
+    contract_checker: ContractChecker,
+    runtime_source_run_id: str | None = None,
+    baseline_source_run_id: str | None = None,
+) -> MonitorRunResult:
+    """Execute monitor orchestration through checked state and return a result."""
+    try:
+        checked_run = _run_prepare_and_check(
+            run_id=run_id,
+            subject_id=subject_id,
+            compiled_plan=compiled_plan,
+            resolved_contract=resolved_contract,
+            gateway=gateway,
+            contract_checker=contract_checker,
+            runtime_source_run_id=runtime_source_run_id,
+            baseline_source_run_id=baseline_source_run_id,
+        )
+    except PrepareStageError as exc:
+        return MonitorRunResult(
+            run_id=run_id,
+            subject_id=subject_id,
+            timeline_id=None,
+            lifecycle_status=LifecycleStatus.FAILED,
+            comparability_status=None,
+            summary=None,
+            finding_ids=(),
+            diff_ids=(),
+            reference_run_ids={},
+            error=MonitorRunError(
+                code=exc.code,
+                message=exc.message,
+                stage="prepare",
+                details=_error_details_to_mapping(exc.details),
+            ),
+        )
+    except CheckStageError as exc:
+        return MonitorRunResult(
+            run_id=run_id,
+            subject_id=subject_id,
+            timeline_id=None,
+            lifecycle_status=LifecycleStatus.FAILED,
+            comparability_status=None,
+            summary=None,
+            finding_ids=(),
+            diff_ids=(),
+            reference_run_ids={},
+            error=MonitorRunError(
+                code=exc.code,
+                message=exc.message,
+                stage="check",
+                details=_error_details_to_mapping(exc.details),
+            ),
+        )
+    except InvalidRunTransition as exc:
+        return MonitorRunResult(
+            run_id=run_id,
+            subject_id=subject_id,
+            timeline_id=None,
+            lifecycle_status=LifecycleStatus.FAILED,
+            comparability_status=None,
+            summary=None,
+            finding_ids=(),
+            diff_ids=(),
+            reference_run_ids={},
+            error=MonitorRunError(
+                code="invalid_run_transition",
+                message=exc.message,
+                stage="check",
+                details={
+                    "from_status": str(exc.from_status),
+                    "to_status": str(exc.to_status),
+                },
+            ),
+        )
+
+    return _checked_run_to_result(checked_run)

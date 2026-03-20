@@ -19,6 +19,7 @@ from mlflow_monitor.recipe import (
     resolve_recipe_v0_lite,
 )
 from mlflow_monitor.recipe_compiler import CompiledRunPlan, compile_recipe_v0_lite
+from mlflow_monitor.result_contract import MonitorRunResult
 
 
 def make_compiled_run_plan(
@@ -260,6 +261,131 @@ def test_check_stage_updates_run_and_persists_checked_state() -> None:
 
 
 def test_monitor_run_remains_unimplemented() -> None:
-    """Public monitor entrypoint should remain a stub in this slice."""
-    with pytest.raises(NotImplementedError):
-        run()
+    """Public monitor entrypoint should orchestrate through checked state."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-baseline",
+        source_experiment="training/churn",
+        metrics={"f1": 0.87, "auc": 0.93},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-123",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={"python": "3.11"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+
+    result = run(
+        run_id="run-1",
+        subject_id="churn_model",
+        compiled_plan=make_compiled_run_plan(contract_id="env_repro"),
+        resolved_contract=ENV_REPRO_CONTRACT,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert isinstance(result, MonitorRunResult)
+    assert result.lifecycle_status is LifecycleStatus.CHECKED
+    assert result.comparability_status is ComparabilityStatus.WARN
+    assert result.timeline_id == "timeline-churn_model"
+    assert result.summary is None
+    assert result.finding_ids == ()
+    assert result.diff_ids == ()
+    assert result.reference_run_ids == {}
+    assert result.error is None
+
+
+def test_monitor_run_returns_failed_result_for_prepare_error() -> None:
+    """Public monitor entrypoint should map prepare failures into result errors."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+
+    result = run(
+        run_id="run-prepare-failed",
+        subject_id="churn_model",
+        compiled_plan=make_compiled_run_plan(),
+        resolved_contract=DEFAULT_CONTRACT,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert isinstance(result, MonitorRunResult)
+    assert result.lifecycle_status is LifecycleStatus.FAILED
+    assert result.comparability_status is None
+    assert result.timeline_id is None
+    assert result.summary is None
+    assert result.finding_ids == ()
+    assert result.diff_ids == ()
+    assert result.reference_run_ids == {}
+    assert result.error is not None
+    assert result.error.stage == "prepare"
+    assert result.error.code == "prepare_missing_baseline_no_timeline"
+
+
+class InvalidCheckStageGateway(InMemoryMonitoringGateway):
+    """Gateway test double that hides check-stage contract evidence."""
+
+    def get_source_run_contract_evidence(self, run_id: str):
+        """Force the check stage to see missing evidence."""
+        del run_id
+        return None
+
+
+def test_monitor_run_returns_failed_result_for_check_error() -> None:
+    """Public monitor entrypoint should map check failures into result errors."""
+    gateway = InvalidCheckStageGateway(GatewayConfig())
+    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-baseline",
+        source_experiment="training/churn",
+        metrics={"f1": 0.87, "auc": 0.93},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-123",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={"python": "3.11"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+
+    result = run(
+        run_id="run-check-failed",
+        subject_id="churn_model",
+        compiled_plan=make_compiled_run_plan(contract_id="env_repro"),
+        resolved_contract=ENV_REPRO_CONTRACT,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert isinstance(result, MonitorRunResult)
+    assert result.lifecycle_status is LifecycleStatus.FAILED
+    assert result.comparability_status is None
+    assert result.timeline_id is None
+    assert result.summary is None
+    assert result.finding_ids == ()
+    assert result.diff_ids == ()
+    assert result.reference_run_ids == {}
+    assert result.error is not None
+    assert result.error.stage == "check"
+    assert result.error.code == "check_missing_baseline_evidence"
