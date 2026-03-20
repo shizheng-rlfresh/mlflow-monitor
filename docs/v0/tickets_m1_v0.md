@@ -530,6 +530,7 @@ Required deliverables:
 - Explicit architecture for contract binding resolution.
   - Define the step that maps recipe-selected contract binding into a resolved runtime `Contract`.
   - Define whether this resolution occurs between recipe compilation and workflow prepare, or another explicitly chosen boundary.
+  - Assign resolution ownership to a dedicated runtime module (`contract.py`), not the checker module.
 - v0 failure behavior for contract binding.
   - Unknown contract binding fails explicitly.
   - System default recipe resolves to a concrete default permissive contract.
@@ -543,6 +544,7 @@ Non-goals:
 - No concrete contract checker implementation in this ticket.
 - No check-stage workflow orchestration in this ticket.
 - No external plugin system or full user-extensible contract-definition framework unless explicitly chosen by the design.
+- No contract compiler in M1; contract handling remains binding resolution rather than a second compilation pipeline.
 - No `metric_mismatch` behavior.
 
 Acceptance criteria:
@@ -562,6 +564,7 @@ Implement the v0 bridge from recipe-selected contract binding to the runtime `Co
 Required deliverables:
 
 - Resolve recipe-selected contract binding into runtime `Contract`.
+- Implement the resolver in `contract.py`.
 - Provide system default permissive contract resolution.
 - Fail explicitly for unknown contract bindings.
 - Keep workflow consuming resolved `Contract` rather than raw recipe binding.
@@ -571,6 +574,7 @@ Non-goals:
 - No concrete contract checker implementation in this ticket.
 - No check-stage workflow orchestration in this ticket.
 - No external plugin system or full user-extensible contract-definition framework unless explicitly chosen by D-004E.
+- No contract compiler in M1.
 - No `metric_mismatch` behavior.
 
 Acceptance criteria:

@@ -84,12 +84,15 @@ D-004 only introduces a provisional checker protocol and prepared-evidence conta
 - Define what the runtime `Contract` represents in v0
 - Define the recipe-facing contract binding concept and terminology
 - Define the resolution bridge from recipe-selected contract binding to runtime `Contract`
+- Place runtime contract resolution in `contract.py`, separate from `contract_checker.py`
 - Decide where contract binding belongs architecturally and how unknown bindings fail
+- Keep contract handling as binding resolution only; do not add a contract compiler in M1
 - Dependencies: D-004, R-003
 
 **D-004F: Implement contract binding resolution for v0** (P1)
 
 - Resolve recipe-selected contract binding into runtime `Contract`
+- Implement the resolver in `contract.py`
 - Provide system default permissive contract resolution
 - Fail explicitly for unknown contract bindings
 - Keep workflow consuming resolved `Contract` rather than raw recipe binding

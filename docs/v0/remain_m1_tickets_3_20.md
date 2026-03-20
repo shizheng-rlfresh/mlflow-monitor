@@ -60,6 +60,7 @@ Remaining scope:
 
 - define what runtime `Contract` represents in v0
 - define how recipe-selected contract binding maps to runtime `Contract`
+- assign runtime contract resolution responsibility to `contract.py`
 - define the built-in default permissive contract as a real system concept
 - define failure behavior for unknown contract bindings
 
@@ -67,6 +68,7 @@ Notes:
 
 - this is an internal architecture ticket
 - M1 does not expose runtime contract objects in the public API
+- M1 does not introduce a contract compiler; contract handling is binding resolution only
 
 ### `D-004F` Implement contract binding resolution for v0
 
@@ -76,6 +78,7 @@ Implement the resolver that turns recipe contract binding into a workflow-ready 
 Remaining scope:
 
 - add runtime contract resolution in app code
+- place the resolver in `contract.py`
 - support the system default permissive contract
 - fail explicitly on unknown contract bindings
 - keep workflow consuming resolved `Contract`, not raw recipe binding
