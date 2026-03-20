@@ -13,11 +13,11 @@ def build_system_default_recipe_raw() -> Mapping[str, object]:
     """Build the raw mapping for the system default recipe."""
     return MappingProxyType(
         {
-            "identity": {"recipe_id": SYSTEM_DEFAULT_RECIPE_ID, "version": "v0"},
-            "input_binding": {"run_selector": SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN},
-            "contract_binding": {"contract_id": SYSTEM_DEFAULT_CONTRACT_ID},
-            "metrics_slices": {},
-            "finding_policy": {},
-            "output_binding": {},
+            "identity": MappingProxyType({"recipe_id": SYSTEM_DEFAULT_RECIPE_ID, "version": "v0"}),
+            "input_binding": MappingProxyType({"run_selector": SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN}),
+            "contract_binding": MappingProxyType({"contract_id": SYSTEM_DEFAULT_CONTRACT_ID}),
+            "metrics_slices": MappingProxyType({}),
+            "finding_policy": MappingProxyType({}),
+            "output_binding": MappingProxyType({}),
         }
     )
