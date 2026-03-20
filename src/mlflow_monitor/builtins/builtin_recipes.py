@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from mlflow_monitor.builtins.builtin_contract import SYSTEM_DEFAULT_CONTRACT_ID
+from .builtin_contract import SYSTEM_DEFAULT_CONTRACT_ID
 
 SYSTEM_DEFAULT_RECIPE_ID = "system_default"
 SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN = "__RUNTIME_SOURCE_RUN_ID__"

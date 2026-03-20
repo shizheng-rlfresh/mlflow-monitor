@@ -1,7 +1,7 @@
 """Unit tests for the v0-lite recipe compilation pipeline."""
 
+from mlflow_monitor.contract import SYSTEM_DEFAULT_CONTRACT_ID
 from mlflow_monitor.recipe import (
-    SYSTEM_DEFAULT_CONTRACT_ID,
     SYSTEM_DEFAULT_RECIPE_ID,
     SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
     RecipeReferenceCatalog,

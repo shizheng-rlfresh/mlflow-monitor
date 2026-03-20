@@ -258,6 +258,8 @@ MLflow-Monitor ships with a system default recipe:
 - Reads whatever metrics, params, and tags MLflow already has on the source run.
 - No required metrics, no required artifacts, and binds to the built-in default permissive contract.
 - Applies default finding policy and standard summary output.
+- Uses the reserved runtime source-run token, which workflow/gateway resolves later to the caller-supplied source training run.
+- Treats omitted optional evidence as no additional requirements rather than as an implicit validation failure.
 
 Zero-config here refers to recipe configuration, not timeline bootstrap. On the first monitoring run for a subject, the caller must still provide an explicit `baseline_source_run_id` so the system can initialize the timeline sentinel without hidden inference.
 

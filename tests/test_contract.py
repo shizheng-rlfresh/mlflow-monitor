@@ -2,7 +2,7 @@
 
 import pytest
 
-from mlflow_monitor.builtins.builtin_contract import (
+from mlflow_monitor.builtins import (
     SYSTEM_DEFAULT_DATA_SCOPE_CONTRACT_REF,
     SYSTEM_DEFAULT_EXECUTION_CONTRACT_REF,
     SYSTEM_DEFAULT_FEATURE_CONTRACT_REF,

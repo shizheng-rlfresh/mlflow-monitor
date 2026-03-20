@@ -2,6 +2,7 @@
 
 import pytest
 
+from mlflow_monitor.contract import SYSTEM_DEFAULT_CONTRACT_ID, resolve_contract_v0
 from mlflow_monitor.contract_checker import DefaultContractChecker
 from mlflow_monitor.domain import (
     Baseline,
@@ -19,7 +20,6 @@ from mlflow_monitor.gateway import (
     TimelineInitializationResult,
 )
 from mlflow_monitor.recipe import (
-    SYSTEM_DEFAULT_CONTRACT_ID,
     SYSTEM_DEFAULT_RECIPE_ID,
     SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
     RecipeReferenceCatalog,
@@ -757,6 +757,98 @@ def test_prepare_run_context_uses_runtime_source_run_id_for_reserved_selector() 
         runtime_source_run_id="train-run-runtime",
     )
 
+    assert prepared.source_run_id == "train-run-runtime"
+
+
+def test_prepare_run_context_succeeds_for_resolved_system_default_recipe() -> None:
+    """Prepare should treat the built-in default recipe as a first-class runtime input."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-runtime",
+        source_experiment=None,
+        metrics={"f1": 0.91},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-01",
+    )
+
+    recipe = resolve_recipe_v0_lite(
+        None,
+        references=RecipeReferenceCatalog(
+            contract_ids=frozenset({SYSTEM_DEFAULT_CONTRACT_ID}),
+            finding_policy_profiles=frozenset(),
+            summary_modes=frozenset(),
+        ),
+    )
+    compiled = compile_recipe_v0_lite(recipe)
+    resolved_contract = resolve_contract_v0(compiled.contract.contract_id)
+
+    prepared = prepare_run_context(
+        run_id="run-1",
+        subject_id="churn_model",
+        compiled_plan=compiled,
+        resolved_contract=resolved_contract,
+        gateway=gateway,
+        runtime_source_run_id="train-run-runtime",
+    )
+
+    assert compiled.identity.recipe_id == SYSTEM_DEFAULT_RECIPE_ID
+    assert compiled.input.run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
+    assert compiled.contract.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
+    assert resolved_contract.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
+    assert prepared.recipe_id == SYSTEM_DEFAULT_RECIPE_ID
+    assert prepared.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
+    assert prepared.contract == resolved_contract
+    assert prepared.source_run_id == "train-run-runtime"
+    assert prepared.source_experiment is None
+    assert prepared.run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
+    assert prepared.required_metrics == ()
+    assert prepared.required_artifacts == ()
+    assert prepared.custom_reference_run_id is None
+
+
+def test_prepare_run_context_allows_system_default_recipe_without_optional_evidence() -> None:
+    """Prepare should not require extra metrics or artifacts for the system default recipe."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-runtime",
+        source_experiment=None,
+        metrics={},
+        artifacts=(),
+        environment={"python": "3.12"},
+        features=(),
+        schema={},
+        data_scope="validation:2026-03-01",
+    )
+
+    recipe = resolve_recipe_v0_lite(
+        None,
+        references=RecipeReferenceCatalog(
+            contract_ids=frozenset({SYSTEM_DEFAULT_CONTRACT_ID}),
+            finding_policy_profiles=frozenset(),
+            summary_modes=frozenset(),
+        ),
+    )
+    compiled = compile_recipe_v0_lite(recipe)
+
+    prepared = prepare_run_context(
+        run_id="run-1",
+        subject_id="churn_model",
+        compiled_plan=compiled,
+        resolved_contract=resolve_contract_v0(compiled.contract.contract_id),
+        gateway=gateway,
+        runtime_source_run_id="train-run-runtime",
+    )
+
+    assert prepared.required_metrics == ()
+    assert prepared.required_artifacts == ()
+    assert prepared.custom_reference_run_id is None
     assert prepared.source_run_id == "train-run-runtime"
 
 
