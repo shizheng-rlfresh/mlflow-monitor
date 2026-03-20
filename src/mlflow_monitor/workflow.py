@@ -18,11 +18,15 @@ from dataclasses import dataclass, replace
 
 from mlflow_monitor.contract_checker import (
     ContractChecker,
-    DefaultContractChecker,
     make_contract_evaluation_context,
 )
 from mlflow_monitor.domain import Contract, ContractCheckResult, LifecycleStatus, Run
-from mlflow_monitor.errors import CheckStageError, InvalidRunTransition, PrepareStageError
+from mlflow_monitor.errors import (
+    CheckStageError,
+    InvalidRunTransition,
+    InvariantViolation,
+    PrepareStageError,
+)
 from mlflow_monitor.gateway import MonitoringGateway, TimelineState
 from mlflow_monitor.invariant import validate_contract_check_result
 from mlflow_monitor.recipe_compiler import CompiledRunPlan
@@ -300,18 +304,18 @@ def prepare_run_context(
 def execute_contract_check(
     prepared_context: PreparedContext,
     gateway: MonitoringGateway,
-    contract_checker: ContractChecker | None = None,
+    contract_checker: ContractChecker,
 ) -> ContractCheckResult:
     """Evaluate the prepared contract context and return the check result.
 
     Args:
         prepared_context: Resolved prepare-stage context for one contract evaluation.
         gateway: Gateway used to read source-run evidence.
-        contract_checker: Optional checker implementation. Defaults to the built-in checker.
+        contract_checker: Checker implementation.
 
     Raises:
-        CheckStageError: If required evidence is missing, checker execution fails,
-            or the checker result violates invariants.
+        CheckStageError: If required evidence is missing or the checker result
+            violates invariants.
 
     Returns:
         Validated contract check result for the prepared context.
@@ -344,19 +348,11 @@ def execute_contract_check(
         current_context=current_evidence,
     )
 
-    checker = contract_checker or DefaultContractChecker()
-    try:
-        result = checker.check(prepared_context.contract, evaluation_context)
-    except Exception as exc:
-        raise CheckStageError(
-            code="check_checker_execution_failed",
-            message="Contract checker execution failed.",
-            details=(("run_id", prepared_context.run_id),),
-        ) from exc
+    result = contract_checker.check(prepared_context.contract, evaluation_context)
 
     try:
         validate_contract_check_result(result)
-    except Exception as exc:
+    except InvariantViolation as exc:
         raise CheckStageError(
             code="check_result_invalid",
             message="Contract checker produced an invalid contract check result.",

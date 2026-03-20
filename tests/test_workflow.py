@@ -2,6 +2,7 @@
 
 import pytest
 
+from mlflow_monitor.contract_checker import DefaultContractChecker
 from mlflow_monitor.domain import (
     Baseline,
     ComparabilityStatus,
@@ -422,6 +423,7 @@ def test_execute_contract_check_returns_warn_result_for_environment_mismatch() -
     result = execute_contract_check(
         prepared_context=make_prepared_context(contract=contract),
         gateway=gateway,
+        contract_checker=DefaultContractChecker(),
     )
 
     assert result == ContractCheckResult(
@@ -455,6 +457,7 @@ def test_execute_contract_check_fails_when_baseline_evidence_is_missing() -> Non
         execute_contract_check(
             prepared_context=make_prepared_context(contract=CONTRACT),
             gateway=gateway,
+            contract_checker=DefaultContractChecker(),
         )
 
     assert exc_info.value.code == "check_missing_baseline_evidence"
@@ -479,13 +482,14 @@ def test_execute_contract_check_fails_when_current_evidence_is_missing() -> None
         execute_contract_check(
             prepared_context=make_prepared_context(contract=CONTRACT),
             gateway=gateway,
+            contract_checker=DefaultContractChecker(),
         )
 
     assert exc_info.value.code == "check_missing_current_evidence"
 
 
-def test_execute_contract_check_wraps_checker_failures() -> None:
-    """Check should wrap checker execution failures in a workflow error."""
+def test_execute_contract_check_propagates_checker_failures() -> None:
+    """Check should surface unexpected checker runtime failures."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
@@ -510,14 +514,12 @@ def test_execute_contract_check_wraps_checker_failures() -> None:
         data_scope="validation:2026-03-01",
     )
 
-    with pytest.raises(CheckStageError) as exc_info:
+    with pytest.raises(RuntimeError, match="checker exploded"):
         execute_contract_check(
             prepared_context=make_prepared_context(contract=CONTRACT),
             gateway=gateway,
             contract_checker=RaisingContractChecker(),
         )
-
-    assert exc_info.value.code == "check_checker_execution_failed"
 
 
 def test_execute_contract_check_rejects_invalid_checker_result() -> None:
