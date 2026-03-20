@@ -416,6 +416,33 @@ def test_get_source_run_contract_evidence_returns_expected_snapshot() -> None:
     )
 
 
+def test_upsert_monitoring_run_comparability_status_is_derived_from_contract_check_result() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    result = ContractCheckResult(
+        status=ComparabilityStatus.WARN,
+        reasons=(
+            ContractCheckReason(
+                code="environment_mismatch",
+                message="Execution environment does not match the baseline.",
+                blocking=False,
+            ),
+        ),
+    )
+
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        run_id="run-1",
+        lifecycle_status=LifecycleStatus.CHECKED,
+        sequence_index=0,
+        contract_check_result=result,
+    )
+
+    stored = gateway.get_monitoring_run("churn_model", "run-1")
+
+    assert stored is not None
+    assert stored.comparability_status is ComparabilityStatus.WARN
+
+
 def test_upsert_monitoring_run_stores_contract_check_outputs() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     result = ContractCheckResult(
