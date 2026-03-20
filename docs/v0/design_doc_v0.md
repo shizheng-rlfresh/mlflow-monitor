@@ -90,6 +90,9 @@ mlflow-monitor run \
 
 The CLI is a thin wrapper over the SDK. The system does not own scheduling or triggering — the caller decides when and how to invoke monitoring runs (cron, CI pipeline, Airflow task, notebook, etc.). After a timeline has been initialized, the caller can omit `baseline_source_run_id`; the system resolves the pinned baseline from timeline state.
 
+Implementation status note:
+The full v0 design described in this document includes analyze, close, findings, query, and promotion behavior. The current M1 implementation slice is narrower: synchronous `monitor.run(...)` covers create/prepare/check plus minimal run/check persistence. Later lifecycle stages remain part of the target v0 design but are not required to land in M1.
+
 ### 3.2 Output Delivery
 
 The system delivers results through two paths:
@@ -208,6 +211,9 @@ Transition to `analyzed`.
 **Promote (optional)** — After a run is closed, evaluate LKG promotion policy if enabled. Promote or hold based on configurable gates. Promotion does not re-run analysis. This is a core feature that aligns directly with MLflow's model promotion concept — monitoring exists to determine whether a run is good enough to be promoted.
 
 *Design note on usability:* The system should minimize the configuration burden on users. The default recipe reads whatever MLflow already has — users do not need to prepare anything special in their training pipeline. Required metrics and artifacts are opt-in additions, not prerequisites. When validation fails, error messages should be specific and actionable (e.g. "source run abc123 is missing metric f1 — either log this metric in your training pipeline or remove it from the recipe's required_metrics list").
+
+Implementation status note:
+M1 implements only the initial create/prepare/check execution slice. Analyze, close, promotion, and the richer synchronous outputs described above remain later-cycle work.
 
 ### 5.3 Comparability Decision Matrix
 

@@ -14,9 +14,12 @@ result = monitor.run(
     baseline_source_run_id="run_101",
 )
 
-print(result.status)    # pass / warn / fail
-print(result.findings)  # prioritized findings with evidence
+print(result.lifecycle_status)      # created / prepared / checked / ...
+print(result.comparability_status)  # pass / warn / fail / None
 ```
+
+Current implementation note:
+The long-term v0 design includes analyze, diffs, findings, close, query, and promotion flows. The current M1 slice is narrower: `monitor.run(...)` resolves baseline and comparability context, executes the contract check, persists minimal run/check state, and returns the synchronous result envelope.
 
 ## Why it exists
 
@@ -88,15 +91,14 @@ result = monitor.run(
     baseline_source_run_id="run_101",
 )
 
+print(result.lifecycle_status)      # expected M1 outcome: checked
+print(result.comparability_status)  # pass / warn / fail
+
 # Later runs reuse the pinned baseline from timeline state
 result = monitor.run(
     subject_id="churn_model",
     source_run_id="run_104",
 )
-
-if result.comparability == "pass":
-    for finding in result.findings:
-        print(f"[{finding.severity}] {finding.summary}")
 ```
 
 ```bash
@@ -119,6 +121,8 @@ mlflow-monitor run \
 
 ## What’s in v0
 
+Planned v0 capabilities:
+
 - Single timeline per subject
 - Baseline / previous / LKG comparison
 - Contract-based comparability checks
@@ -128,6 +132,14 @@ mlflow-monitor run \
 - Default recipe for low-setup usage
 - SDK and CLI entry points
 - Configurable monitoring namespace prefix
+
+Current M1 slice:
+
+- SDK entry point with a small public API
+- Default recipe and internal contract resolution
+- Prepare-stage context resolution
+- Contract-based comparability checks
+- Minimal persisted run/check state in the monitoring namespace
 
 ## License
 
