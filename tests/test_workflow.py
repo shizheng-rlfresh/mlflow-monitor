@@ -2,6 +2,7 @@
 
 import pytest
 
+from mlflow_monitor.contract_checker import DefaultContractChecker
 from mlflow_monitor.domain import (
     Baseline,
     ComparabilityStatus,
@@ -11,7 +12,7 @@ from mlflow_monitor.domain import (
     LifecycleStatus,
     Run,
 )
-from mlflow_monitor.errors import InvalidRunTransition, PrepareStageError
+from mlflow_monitor.errors import CheckStageError, InvalidRunTransition, PrepareStageError
 from mlflow_monitor.gateway import (
     GatewayConfig,
     InMemoryMonitoringGateway,
@@ -26,6 +27,8 @@ from mlflow_monitor.recipe import (
 )
 from mlflow_monitor.recipe_compiler import CompiledRunPlan, compile_recipe_v0_lite
 from mlflow_monitor.workflow import (
+    PreparedContext,
+    execute_contract_check,
     prepare_run_context,
     transition_run,
 )
@@ -80,7 +83,7 @@ def make_compiled_run_plan(
     recipe = resolve_recipe_v0_lite(
         raw,
         references=RecipeReferenceCatalog(
-            contract_ids=frozenset({"default", SYSTEM_DEFAULT_CONTRACT_ID}),
+            contract_ids=frozenset({"default", "env_repro", SYSTEM_DEFAULT_CONTRACT_ID}),
             finding_policy_profiles=frozenset({"default_policy"}),
             summary_modes=frozenset({"standard"}),
         ),
@@ -220,6 +223,60 @@ def make_run(
     )
 
 
+class RaisingContractChecker:
+    """Test double whose contract check execution raises an exception."""
+
+    def check(self, contract: Contract, context: object) -> ContractCheckResult:
+        """Raise a deterministic checker failure."""
+        del contract, context
+        raise RuntimeError("checker exploded")
+
+
+class InvalidResultContractChecker:
+    """Test double returning an invariant-invalid contract check result."""
+
+    def check(self, contract: Contract, context: object) -> ContractCheckResult:
+        """Return an invalid result shape for workflow validation tests."""
+        del contract, context
+        return ContractCheckResult(
+            status=ComparabilityStatus.PASS,
+            reasons=(
+                ContractCheckReason(
+                    code="environment_mismatch",
+                    message="Execution environment does not match the baseline.",
+                    blocking=False,
+                ),
+            ),
+        )
+
+
+def make_prepared_context(
+    *,
+    contract: Contract,
+    source_run_id: str = "train-run-123",
+    baseline_source_run_id: str = "train-run-baseline",
+) -> PreparedContext:
+    """Build a prepared context aligned with the common workflow test subject."""
+    return PreparedContext(
+        run_id="run-1",
+        subject_id="churn_model",
+        recipe_id="default",
+        recipe_version="v0",
+        contract_id=contract.contract_id,
+        run_selector=source_run_id,
+        source_experiment="training/churn",
+        timeline_id="timeline-churn_model",
+        baseline_source_run_id=baseline_source_run_id,
+        previous_run_id=None,
+        active_lkg_run_id=None,
+        custom_reference_run_id=None,
+        source_run_id=source_run_id,
+        contract=contract,
+        required_metrics=("f1", "auc"),
+        required_artifacts=("metrics.json",),
+    )
+
+
 def test_transition_run_advances_through_happy_path() -> None:
     """Run should move through the allowed lifecycle sequence to closed."""
     run = make_run()
@@ -326,6 +383,179 @@ def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     assert prepared.recipe_id == "default"
     assert prepared.recipe_version == "v0"
     assert prepared.contract_id == "default"
+
+
+def test_execute_contract_check_returns_warn_result_for_environment_mismatch() -> None:
+    """Check should return the canonical warning result for env mismatch."""
+    contract = Contract(
+        contract_id="env_repro",
+        version="v0",
+        schema_contract_ref=None,
+        feature_contract_ref=None,
+        metric_contract_ref=None,
+        data_scope_contract_ref=None,
+        execution_contract_ref="builtin:env_repro",
+    )
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-baseline",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-123",
+        source_experiment="training/churn",
+        metrics={"f1": 0.89, "auc": 0.94},
+        artifacts=("metrics.json",),
+        environment={"python": "3.11"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+
+    result = execute_contract_check(
+        prepared_context=make_prepared_context(contract=contract),
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert result == ContractCheckResult(
+        status=ComparabilityStatus.WARN,
+        reasons=(
+            ContractCheckReason(
+                code="environment_mismatch",
+                message="Execution environment does not match the baseline.",
+                blocking=False,
+            ),
+        ),
+    )
+
+
+def test_execute_contract_check_fails_when_baseline_evidence_is_missing() -> None:
+    """Check should fail explicitly when baseline evidence cannot be loaded."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-123",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+
+    with pytest.raises(CheckStageError) as exc_info:
+        execute_contract_check(
+            prepared_context=make_prepared_context(contract=CONTRACT),
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    assert exc_info.value.code == "check_missing_baseline_evidence"
+
+
+def test_execute_contract_check_fails_when_current_evidence_is_missing() -> None:
+    """Check should fail explicitly when current evidence cannot be loaded."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-baseline",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+
+    with pytest.raises(CheckStageError) as exc_info:
+        execute_contract_check(
+            prepared_context=make_prepared_context(contract=CONTRACT),
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    assert exc_info.value.code == "check_missing_current_evidence"
+
+
+def test_execute_contract_check_propagates_checker_failures() -> None:
+    """Check should surface unexpected checker runtime failures."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-baseline",
+        source_experiment="training/churn",
+        metrics={"f1": 0.87, "auc": 0.93},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-123",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+
+    with pytest.raises(RuntimeError, match="checker exploded"):
+        execute_contract_check(
+            prepared_context=make_prepared_context(contract=CONTRACT),
+            gateway=gateway,
+            contract_checker=RaisingContractChecker(),
+        )
+
+
+def test_execute_contract_check_rejects_invalid_checker_result() -> None:
+    """Check should reject results that violate contract-check invariants."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-baseline",
+        source_experiment="training/churn",
+        metrics={"f1": 0.87, "auc": 0.93},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-123",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+
+    with pytest.raises(CheckStageError) as exc_info:
+        execute_contract_check(
+            prepared_context=make_prepared_context(contract=CONTRACT),
+            gateway=gateway,
+            contract_checker=InvalidResultContractChecker(),
+        )
+
+    assert exc_info.value.code == "check_result_invalid"
 
 
 def test_prepare_run_context_succeeds_without_previous_run() -> None:

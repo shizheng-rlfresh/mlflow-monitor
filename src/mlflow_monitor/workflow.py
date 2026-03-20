@@ -16,9 +16,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from mlflow_monitor.domain import Contract, LifecycleStatus, Run
-from mlflow_monitor.errors import InvalidRunTransition, PrepareStageError
+from mlflow_monitor.contract_checker import (
+    ContractChecker,
+    make_contract_evaluation_context,
+)
+from mlflow_monitor.domain import Contract, ContractCheckResult, LifecycleStatus, Run
+from mlflow_monitor.errors import (
+    CheckStageError,
+    InvalidRunTransition,
+    InvariantViolation,
+    PrepareStageError,
+)
 from mlflow_monitor.gateway import MonitoringGateway, TimelineState
+from mlflow_monitor.invariant import validate_contract_check_result
 from mlflow_monitor.recipe_compiler import CompiledRunPlan
 
 _ALLOWED_TRANSITIONS = {
@@ -289,6 +299,67 @@ def prepare_run_context(
         required_metrics=compiled_plan.input.required_metrics,
         required_artifacts=compiled_plan.input.required_artifacts,
     )
+
+
+def execute_contract_check(
+    prepared_context: PreparedContext,
+    gateway: MonitoringGateway,
+    contract_checker: ContractChecker,
+) -> ContractCheckResult:
+    """Evaluate the prepared contract context and return the check result.
+
+    Args:
+        prepared_context: Resolved prepare-stage context for one contract evaluation.
+        gateway: Gateway used to read source-run evidence.
+        contract_checker: Checker implementation.
+
+    Raises:
+        CheckStageError: If required evidence is missing or the checker result
+            violates invariants.
+
+    Returns:
+        Validated contract check result for the prepared context.
+    """
+    baseline_evidence = gateway.get_source_run_contract_evidence(
+        run_id=prepared_context.baseline_source_run_id,
+    )
+    if baseline_evidence is None:
+        raise CheckStageError(
+            code="check_missing_baseline_evidence",
+            message="Baseline contract evidence could not be resolved.",
+            details=(("baseline_source_run_id", prepared_context.baseline_source_run_id),),
+        )
+
+    current_evidence = gateway.get_source_run_contract_evidence(
+        run_id=prepared_context.source_run_id,
+    )
+    if current_evidence is None:
+        raise CheckStageError(
+            code="check_missing_current_evidence",
+            message="Current contract evidence could not be resolved.",
+            details=(("source_run_id", prepared_context.source_run_id),),
+        )
+
+    evaluation_context = make_contract_evaluation_context(
+        subject_id=prepared_context.subject_id,
+        source_run_id=prepared_context.source_run_id,
+        baseline_source_run_id=prepared_context.baseline_source_run_id,
+        baseline_context=baseline_evidence,
+        current_context=current_evidence,
+    )
+
+    result = contract_checker.check(prepared_context.contract, evaluation_context)
+
+    try:
+        validate_contract_check_result(result)
+    except InvariantViolation as exc:
+        raise CheckStageError(
+            code="check_result_invalid",
+            message="Contract checker produced an invalid contract check result.",
+            details=(("run_id", prepared_context.run_id),),
+        ) from exc
+
+    return result
 
 
 def _resolve_baseline_for_prepare(
