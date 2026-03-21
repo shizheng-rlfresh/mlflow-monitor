@@ -371,6 +371,39 @@ def test_run_orchestration_reuses_idempotent_run_without_overwriting_check_outpu
     assert stored.contract_check_result is not None
 
 
+def test_run_orchestration_returns_existing_checked_run_before_reprepare() -> None:
+    gateway = make_gateway()
+    factory = run_id_factory()
+
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-other",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+
+    stored = gateway.get_monitoring_run("churn_model", first.run_id)
+
+    assert second.run_id == first.run_id
+    assert second.lifecycle_status is LifecycleStatus.CHECKED
+    assert second.comparability_status is ComparabilityStatus.PASS
+    assert second.error is None
+    assert stored is not None
+    assert stored.lifecycle_status is LifecycleStatus.CHECKED
+    assert stored.contract_check_result is not None
+    assert stored.contract_check_result.status is ComparabilityStatus.PASS
+
+
 def test_public_run_is_a_thin_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     expected = object()
     captured: dict[str, object] = {}

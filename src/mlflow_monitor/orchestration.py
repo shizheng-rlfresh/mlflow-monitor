@@ -75,6 +75,14 @@ def run_orchestration(
         gateway.reserve_sequence_index(subject_id) if is_new_run else existing_run.sequence_index
     )
 
+    if existing_run is not None and existing_run.contract_check_result is not None:
+        return _build_existing_checked_result(
+            subject_id=subject_id,
+            run_id=run_id,
+            contract_check_result=existing_run.contract_check_result,
+            gateway=gateway,
+        )
+
     if is_new_run:
         gateway.upsert_monitoring_run(
             subject_id=subject_id,
@@ -194,6 +202,44 @@ def _build_success_result(
         finding_ids=(),
         diff_ids=(),
         reference_run_ids=_build_reference_run_ids(prepared_context),
+        error=None,
+    )
+
+
+def _build_existing_checked_result(
+    *,
+    subject_id: str,
+    run_id: str,
+    contract_check_result: ContractCheckResult,
+    gateway: MonitoringGateway,
+) -> MonitorRunResult:
+    """Build a success result for an already checked idempotent run.
+
+    Args:
+        subject_id: The ID of the monitored subject this run is associated with.
+        run_id: The ID of the monitoring run.
+        contract_check_result: The previously persisted contract check result for this run.
+        gateway: The monitoring gateway to use for retrieving timeline information.
+
+    Returns:
+        The canonical success result for an already checked run.
+    """
+    timeline_state = gateway.get_timeline_state(subject_id)
+    reference_run_ids = (
+        {}
+        if timeline_state is None
+        else {"baseline": timeline_state.baseline_source_run_id}
+    )
+    return MonitorRunResult(
+        run_id=run_id,
+        subject_id=subject_id,
+        timeline_id=None if timeline_state is None else timeline_state.timeline_id,
+        lifecycle_status=LifecycleStatus.CHECKED,
+        comparability_status=contract_check_result.status,
+        summary=None,
+        finding_ids=(),
+        diff_ids=(),
+        reference_run_ids=reference_run_ids,
         error=None,
     )
 
