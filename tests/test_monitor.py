@@ -371,9 +371,20 @@ def test_run_orchestration_reuses_idempotent_run_without_overwriting_check_outpu
     assert stored.contract_check_result is not None
 
 
-def test_run_orchestration_returns_existing_checked_run_before_reprepare() -> None:
+def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun() -> None:
     gateway = make_gateway()
     factory = run_id_factory()
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-other",
+        source_experiment=None,
+        metrics={"f1": 0.88},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-01",
+    )
 
     first = run_orchestration(
         subject_id="churn_model",
@@ -395,9 +406,11 @@ def test_run_orchestration_returns_existing_checked_run_before_reprepare() -> No
     stored = gateway.get_monitoring_run("churn_model", first.run_id)
 
     assert second.run_id == first.run_id
-    assert second.lifecycle_status is LifecycleStatus.CHECKED
-    assert second.comparability_status is ComparabilityStatus.PASS
-    assert second.error is None
+    assert second.lifecycle_status is LifecycleStatus.FAILED
+    assert second.comparability_status is None
+    assert second.error is not None
+    assert second.error.stage == "prepare"
+    assert second.error.code == "prepare_baseline_override_existing_timeline"
     assert stored is not None
     assert stored.lifecycle_status is LifecycleStatus.CHECKED
     assert stored.contract_check_result is not None

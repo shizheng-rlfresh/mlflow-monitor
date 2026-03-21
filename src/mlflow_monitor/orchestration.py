@@ -71,17 +71,12 @@ def run_orchestration(
     run_id = gateway.get_or_create_idempotent_run_id(idempotency_key, run_id_factory)
     existing_run = gateway.get_monitoring_run(subject_id, run_id)
     is_new_run = existing_run is None
+    is_existing_checked_run = (
+        existing_run is not None and existing_run.contract_check_result is not None
+    )
     sequence_index = (
         gateway.reserve_sequence_index(subject_id) if is_new_run else existing_run.sequence_index
     )
-
-    if existing_run is not None and existing_run.contract_check_result is not None:
-        return _build_existing_checked_result(
-            subject_id=subject_id,
-            run_id=run_id,
-            contract_check_result=existing_run.contract_check_result,
-            gateway=gateway,
-        )
 
     if is_new_run:
         gateway.upsert_monitoring_run(
@@ -102,12 +97,13 @@ def run_orchestration(
             baseline_source_run_id=baseline_source_run_id,
         )
     except _OWNED_FAILURES as exc:
-        gateway.upsert_monitoring_run(
-            subject_id=subject_id,
-            run_id=run_id,
-            lifecycle_status=LifecycleStatus.FAILED,
-            sequence_index=sequence_index,
-        )
+        if not is_existing_checked_run:
+            gateway.upsert_monitoring_run(
+                subject_id=subject_id,
+                run_id=run_id,
+                lifecycle_status=LifecycleStatus.FAILED,
+                sequence_index=sequence_index,
+            )
         return _build_failure_result(
             subject_id=subject_id,
             run_id=run_id,
