@@ -29,10 +29,12 @@ Skip this skill when:
 
 ### 1. Ground In Planning And Design Docs
 
-1. For ticket-related work, read `docs/v0/ticket_breakdown_v0.md` and `docs/v0/tickets_m1_v0.md` first.
-3. Read `docs/v0/remain_m1_tickets_3_20.md` when the task is about implementing tickets for M1 cycle.
-3. Read `docs/v0/design_doc_v0.md` before proposing implementation behavior or architecture changes.
-4. Read only the additional docs needed for the specific task.
+1. Read `docs/v0/mvp_design_v0.md` for the MVP work.
+2. Read `docs/v0/design_doc_v0.md` for the intended architecture and design decisions from original and full scope design.
+3. For recaping M1 cycle work, read `docs/v0/m1_closeout_v0.md` to understand the intended M1 scope and what is already considered "done" for M1; read `docs/vo/tickets_m1_v0.md` for specific M1 ticket details and execution order.
+4. For ticket-related work, read `docs/v0/ticket_breakdown_v0.md`.
+5. Read only the additional docs needed for the specific task.
+
 
 ### 2. Inspect Current Implementation
 

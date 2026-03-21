@@ -129,9 +129,8 @@ The next work should treat M1 as a completed foundation and move into M2 plannin
 
 Recommended direction:
 
-1. lock the first M2 vertical slice around analyze-stage behavior
-2. define the minimum diff outputs needed for comparable vs non-comparable runs
-3. add finding-generation semantics only after diff/reference behavior is stable
-4. decide how much of close/query/promotion should be sequenced into early M2 versus later
+1. We should aim for a MVP rather than chasing completeness of M2 from the original design.
+2. A MVP should clear one goal: we can clear a path in real MLflow setting, even if it is just demo.
+3. After that, we can switch back to M2 and make iterative devleopment in steady pace.
 
 For future planning, use this document as the closeout reference for M1 and use the ticket docs for milestone/backlog structure rather than as the source of truth for what M1 still lacks.
