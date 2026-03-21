@@ -173,7 +173,7 @@ Acceptance criteria:
 
 Dependencies: R-001, D-004
 
-**R-000a: Define zero-config default behavior details** (P0)
+**R-000a: Define zero-config default behavior details** (P0) **DONE**
 
 Goal:
 Make the system default recipe behavior explicit enough that later workflow code can consume it deterministically.
@@ -393,7 +393,7 @@ Acceptance criteria:
 
 Dependencies: W-002, P-001
 
-**W-003: Implement comparability check stage** (P0)
+**W-003: Implement comparability check stage** (P0) **DONE**
 
 Goal:
 Execute the resolved contract check after prepare and produce the canonical comparability result for the run.
@@ -453,7 +453,7 @@ Dependencies: W-001, D-001
 
 ### Docs & Ops Readiness
 
-**O-001: Keep design docs synchronized** (P0, ongoing)
+**O-001: Keep design docs synchronized** (P0, satisfied for M1 closeout; ongoing discipline)
 
 Goal:
 Keep the v0 design docs aligned with implemented behavior as tickets land.
@@ -485,7 +485,7 @@ Metric mismatch from D-003 is deferred: need explicit rule for whether mismatch 
 
 **D-004D: Concrete contract checker** (P1) **DONE**
 
-D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. Baseline-side schema/feature/data-scope evidence will be finalized in W-003 when the real checker semantics and prepare-stage evidence resolution are implemented.”
+D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. The concrete checker semantics and prepare-stage evidence resolution were completed through the M1 W-003 execution slice.
 
 **D-004DD: Support richer contract-check reason messages** (P2)
 
@@ -513,7 +513,7 @@ Acceptance criteria:
 
 Dependencies: D-004D, D-003
 
-**D-004E: Design contract model and binding resolution for v0** (P1)
+**D-004E: Design contract model and binding resolution for v0** (P1) **DONE**
 
 Goal:
 Close the current architectural gap between recipe-side contract selection and runtime `Contract` consumption by defining the v0 contract model and the binding-resolution path.
@@ -556,7 +556,7 @@ Acceptance criteria:
 
 Dependencies: D-004, R-003
 
-**D-004F: Implement contract binding resolution for v0** (P1)
+**D-004F: Implement contract binding resolution for v0** (P1) **DONE**
 
 Goal:
 Implement the v0 bridge from recipe-selected contract binding to the runtime `Contract` consumed by workflow prepare/check.

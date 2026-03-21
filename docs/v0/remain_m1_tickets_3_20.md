@@ -1,8 +1,16 @@
 # MLflow-Monitor v0: Remaining M1 Tickets as of 2026-03-20
 
+## Superseded Note
+
+This file is preserved as a historical planning snapshot from 2026-03-20.
+
+M1 coding has since been completed for the create/prepare/check slice. For the canonical post-M1 summary, implemented boundary, and remaining post-M1 backlog, see [m1_closeout_v0.md](m1_closeout_v0.md).
+
+---
+
 ## Summary
 
-This document records the remaining M1 work after the 2026-03-20 planning review.
+This document recorded the remaining M1 work after the 2026-03-20 planning review.
 
 M1 remains focused on one synchronous core execution path:
 

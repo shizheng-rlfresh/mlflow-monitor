@@ -91,7 +91,7 @@ mlflow-monitor run \
 The CLI is a thin wrapper over the SDK. The system does not own scheduling or triggering — the caller decides when and how to invoke monitoring runs (cron, CI pipeline, Airflow task, notebook, etc.). After a timeline has been initialized, the caller can omit `baseline_source_run_id`; the system resolves the pinned baseline from timeline state.
 
 Implementation status note:
-The full v0 design described in this document includes analyze, close, findings, query, and promotion behavior. The current M1 implementation slice is narrower: synchronous `monitor.run(...)` covers create/prepare/check plus minimal run/check persistence. Later lifecycle stages remain part of the target v0 design but are not required to land in M1.
+The full v0 design described in this document includes analyze, close, findings, query, and promotion behavior. The implemented M1 slice is narrower: synchronous `monitor.run(...)` covers create/prepare/check plus minimal run/check persistence. Later lifecycle stages remain part of the target v0 design and remain post-M1 work. See [m1_closeout_v0.md](m1_closeout_v0.md) for the canonical M1 boundary summary.
 
 ### 3.2 Output Delivery
 
@@ -213,7 +213,7 @@ Transition to `analyzed`.
 *Design note on usability:* The system should minimize the configuration burden on users. The default recipe reads whatever MLflow already has — users do not need to prepare anything special in their training pipeline. Required metrics and artifacts are opt-in additions, not prerequisites. When validation fails, error messages should be specific and actionable (e.g. "source run abc123 is missing metric f1 — either log this metric in your training pipeline or remove it from the recipe's required_metrics list").
 
 Implementation status note:
-M1 implements only the initial create/prepare/check execution slice. Analyze, close, promotion, and the richer synchronous outputs described above remain later-cycle work.
+M1 landed the initial create/prepare/check execution slice. Analyze, close, promotion, and the richer synchronous outputs described above remain later-cycle work. See [m1_closeout_v0.md](m1_closeout_v0.md) for the implemented M1 boundary and post-M1 handoff summary.
 
 ### 5.3 Comparability Decision Matrix
 

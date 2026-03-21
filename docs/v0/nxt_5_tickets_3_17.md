@@ -1,8 +1,14 @@
 # Next 5 Ticket Proposal
 
+## Superseded Note
+
+This file is preserved as a historical planning note from the pre-closeout M1 period.
+
+M1 coding has since been completed for the create/prepare/check slice. For the canonical M1 completion summary and post-M1 backlog framing, see [m1_closeout_v0.md](m1_closeout_v0.md).
+
 ## Summary
 
-Reviewing the updated ticket docs against the implemented code and the dependency graph, the fastest coherent path is still to finish the remaining M1 execution chain before pulling in deferred enhancements or M2 analysis work.
+At the time of writing, reviewing the updated ticket docs against the implemented code and the dependency graph suggested that the fastest coherent path was to finish the remaining M1 execution chain before pulling in deferred enhancements or M2 analysis work.
 
 Recommended next 5 tickets, in order:
 
