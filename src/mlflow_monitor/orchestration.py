@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from mlflow_monitor.builtins import SYSTEM_DEFAULT_CONTRACT_ID, SYSTEM_DEFAULT_RECIPE_ID
 from mlflow_monitor.contract import resolve_contract_v0
 from mlflow_monitor.contract_checker import ContractChecker
-from mlflow_monitor.domain import ContractCheckResult, LifecycleStatus
+from mlflow_monitor.domain import Contract, ContractCheckResult, LifecycleStatus
 from mlflow_monitor.errors import (
     CheckStageError,
     ContractResolutionError,
@@ -20,9 +21,13 @@ from mlflow_monitor.recipe import (
     RecipeReferenceCatalog,
     resolve_recipe_v0_lite,
 )
-from mlflow_monitor.recipe_compiler import compile_recipe_v0_lite
+from mlflow_monitor.recipe_compiler import CompiledRunPlan, compile_recipe_v0_lite
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
-from mlflow_monitor.workflow import execute_contract_check, prepare_run_context
+from mlflow_monitor.workflow import (
+    PreparedContext,
+    execute_contract_check,
+    prepare_run_context,
+)
 
 _OWNED_FAILURES = (
     PrepareStageError,
@@ -30,6 +35,21 @@ _OWNED_FAILURES = (
     ContractResolutionError,
     RecipeValidationError,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _OrchestrationState:
+    """Resolved orchestration inputs and run state for one monitoring request."""
+
+    subject_id: str
+    source_run_id: str
+    baseline_source_run_id: str | None
+    compiled_plan: CompiledRunPlan
+    resolved_contract: Contract
+    run_id: str
+    existing_run: MonitoringRunRecord | None
+    is_new_run: bool
+    sequence_index: int
 
 
 def run_orchestration(
@@ -55,6 +75,33 @@ def run_orchestration(
         The result of the monitoring run execution, including comparability status and any findings.
 
     """
+    compiled_plan, resolved_contract = _resolve_startup()
+    state_or_result = _resolve_orchestration_state(
+        subject_id=subject_id,
+        source_run_id=source_run_id,
+        baseline_source_run_id=baseline_source_run_id,
+        compiled_plan=compiled_plan,
+        resolved_contract=resolved_contract,
+        gateway=gateway,
+        run_id_factory=run_id_factory,
+    )
+    if isinstance(state_or_result, MonitorRunResult):
+        return state_or_result
+
+    prepare_outcome = _run_prepare_slice(state_or_result, gateway)
+    if isinstance(prepare_outcome, MonitorRunResult):
+        return prepare_outcome
+
+    return _run_check_slice(
+        state=state_or_result,
+        prepared_context=prepare_outcome,
+        gateway=gateway,
+        contract_checker=contract_checker,
+    )
+
+
+def _resolve_startup() -> tuple[CompiledRunPlan, Contract]:
+    """Resolve the fixed startup inputs used by orchestration."""
     references = RecipeReferenceCatalog(
         contract_ids=frozenset({SYSTEM_DEFAULT_CONTRACT_ID}),
         finding_policy_profiles=frozenset(),
@@ -63,6 +110,20 @@ def run_orchestration(
     recipe = resolve_recipe_v0_lite(None, references=references)
     compiled_plan = compile_recipe_v0_lite(recipe)
     resolved_contract = resolve_contract_v0(compiled_plan.contract.contract_id)
+    return compiled_plan, resolved_contract
+
+
+def _resolve_orchestration_state(
+    *,
+    subject_id: str,
+    source_run_id: str,
+    baseline_source_run_id: str | None,
+    compiled_plan: CompiledRunPlan,
+    resolved_contract: Contract,
+    gateway: MonitoringGateway,
+    run_id_factory: Callable[[], str],
+) -> _OrchestrationState | MonitorRunResult:
+    """Resolve idempotency state and apply rerun short-circuit policy."""
     idempotency_key = IdempotencyKey(
         subject_id=subject_id,
         source_run_id=source_run_id,
@@ -75,86 +136,128 @@ def run_orchestration(
     sequence_index = (
         gateway.reserve_sequence_index(subject_id) if is_new_run else existing_run.sequence_index
     )
+    state = _OrchestrationState(
+        subject_id=subject_id,
+        source_run_id=source_run_id,
+        baseline_source_run_id=baseline_source_run_id,
+        compiled_plan=compiled_plan,
+        resolved_contract=resolved_contract,
+        run_id=run_id,
+        existing_run=existing_run,
+        is_new_run=is_new_run,
+        sequence_index=sequence_index,
+    )
+    return _short_circuit_existing_run(state, gateway)
 
-    if existing_run is not None and existing_run.lifecycle_status is LifecycleStatus.FAILED:
+
+def _short_circuit_existing_run(
+    state: _OrchestrationState,
+    gateway: MonitoringGateway,
+) -> _OrchestrationState | MonitorRunResult:
+    """Return an existing-run result early when idempotency policy requires it."""
+    if state.existing_run is None:
+        return state
+
+    if state.existing_run.lifecycle_status is LifecycleStatus.FAILED:
         return _build_failure_result(
-            subject_id=subject_id,
-            run_id=run_id,
+            subject_id=state.subject_id,
+            run_id=state.run_id,
             stage="prepare",
-            error=_build_terminal_failed_rerun_error(subject_id=subject_id, run_id=run_id),
+            error=_build_terminal_failed_rerun_error(
+                subject_id=state.subject_id,
+                run_id=state.run_id,
+            ),
             gateway=gateway,
         )
 
-    if existing_run is not None and existing_run.contract_check_result is not None:
-        existing_check_result = existing_run.contract_check_result
-        assert existing_check_result is not None
-        replay_error = _validate_checked_rerun_inputs(
-            subject_id=subject_id,
-            baseline_source_run_id=baseline_source_run_id,
-            source_experiment=compiled_plan.input.source_experiment,
-            gateway=gateway,
-        )
-        if replay_error is not None:
-            return _build_failure_result(
-                subject_id=subject_id,
-                run_id=run_id,
-                stage="prepare",
-                error=replay_error,
-                gateway=gateway,
-            )
-        return _build_existing_checked_result(
-            subject_id=subject_id,
-            run_id=run_id,
-            existing_run=existing_run,
+    if state.existing_run.contract_check_result is None:
+        return state
+
+    replay_error = _validate_checked_rerun_inputs(
+        subject_id=state.subject_id,
+        baseline_source_run_id=state.baseline_source_run_id,
+        source_experiment=state.compiled_plan.input.source_experiment,
+        gateway=gateway,
+    )
+    if replay_error is not None:
+        return _build_failure_result(
+            subject_id=state.subject_id,
+            run_id=state.run_id,
+            stage="prepare",
+            error=replay_error,
             gateway=gateway,
         )
 
-    if is_new_run:
+    return _build_existing_checked_result(
+        subject_id=state.subject_id,
+        run_id=state.run_id,
+        existing_run=state.existing_run,
+        gateway=gateway,
+    )
+
+
+def _run_prepare_slice(
+    state: _OrchestrationState,
+    gateway: MonitoringGateway,
+) -> PreparedContext | MonitorRunResult:
+    """Run the prepare slice, including persistence and failure normalization."""
+    if state.is_new_run:
         gateway.upsert_monitoring_run(
-            subject_id=subject_id,
-            run_id=run_id,
+            subject_id=state.subject_id,
+            run_id=state.run_id,
             lifecycle_status=LifecycleStatus.CREATED,
-            sequence_index=sequence_index,
+            sequence_index=state.sequence_index,
         )
 
     try:
         prepared_context = prepare_run_context(
-            run_id=run_id,
-            subject_id=subject_id,
-            compiled_plan=compiled_plan,
-            resolved_contract=resolved_contract,
+            run_id=state.run_id,
+            subject_id=state.subject_id,
+            compiled_plan=state.compiled_plan,
+            resolved_contract=state.resolved_contract,
             gateway=gateway,
-            runtime_source_run_id=source_run_id,
-            baseline_source_run_id=baseline_source_run_id,
+            runtime_source_run_id=state.source_run_id,
+            baseline_source_run_id=state.baseline_source_run_id,
         )
     except _OWNED_FAILURES as exc:
         gateway.upsert_monitoring_run(
-            subject_id=subject_id,
-            run_id=run_id,
+            subject_id=state.subject_id,
+            run_id=state.run_id,
             lifecycle_status=LifecycleStatus.FAILED,
-            sequence_index=sequence_index,
+            sequence_index=state.sequence_index,
         )
         return _build_failure_result(
-            subject_id=subject_id,
-            run_id=run_id,
+            subject_id=state.subject_id,
+            run_id=state.run_id,
             stage="prepare",
             error=exc,
             gateway=gateway,
         )
 
-    if existing_run is None or existing_run.lifecycle_status is LifecycleStatus.CREATED:
+    if state.existing_run is None or state.existing_run.lifecycle_status is LifecycleStatus.CREATED:
         gateway.upsert_monitoring_run(
-            subject_id=subject_id,
-            run_id=run_id,
+            subject_id=state.subject_id,
+            run_id=state.run_id,
             lifecycle_status=LifecycleStatus.PREPARED,
-            sequence_index=sequence_index,
+            sequence_index=state.sequence_index,
         )
 
-    existing_run = gateway.get_monitoring_run(subject_id, run_id)
+    return prepared_context
+
+
+def _run_check_slice(
+    *,
+    state: _OrchestrationState,
+    prepared_context: PreparedContext,
+    gateway: MonitoringGateway,
+    contract_checker: ContractChecker,
+) -> MonitorRunResult:
+    """Run the check slice, including persistence and success replay handling."""
+    existing_run = gateway.get_monitoring_run(state.subject_id, state.run_id)
     if existing_run is not None and existing_run.contract_check_result is not None:
         return _build_existing_checked_result(
-            subject_id=subject_id,
-            run_id=run_id,
+            subject_id=state.subject_id,
+            run_id=state.run_id,
             existing_run=existing_run,
             gateway=gateway,
         )
@@ -167,30 +270,30 @@ def run_orchestration(
         )
     except _OWNED_FAILURES as exc:
         gateway.upsert_monitoring_run(
-            subject_id=subject_id,
-            run_id=run_id,
+            subject_id=state.subject_id,
+            run_id=state.run_id,
             lifecycle_status=LifecycleStatus.FAILED,
-            sequence_index=sequence_index,
+            sequence_index=state.sequence_index,
         )
         return _build_failure_result(
-            subject_id=subject_id,
-            run_id=run_id,
+            subject_id=state.subject_id,
+            run_id=state.run_id,
             stage="check",
             error=exc,
             gateway=gateway,
         )
 
     gateway.upsert_monitoring_run(
-        subject_id=subject_id,
-        run_id=run_id,
+        subject_id=state.subject_id,
+        run_id=state.run_id,
         lifecycle_status=LifecycleStatus.CHECKED,
-        sequence_index=sequence_index,
+        sequence_index=state.sequence_index,
         contract_check_result=contract_check_result,
         reference_run_ids=_build_reference_run_ids(prepared_context),
     )
     return _build_success_result(
-        subject_id=subject_id,
-        run_id=run_id,
+        subject_id=state.subject_id,
+        run_id=state.run_id,
         prepared_context=prepared_context,
         contract_check_result=contract_check_result,
         gateway=gateway,
