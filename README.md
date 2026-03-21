@@ -18,8 +18,8 @@ print(result.lifecycle_status)      # created / prepared / checked / ...
 print(result.comparability_status)  # pass / warn / fail / None
 ```
 
-Current implementation note:
-The long-term v0 design includes analyze, diffs, findings, close, query, and promotion flows. The current M1 slice is narrower: `monitor.run(...)` resolves baseline and comparability context, executes the contract check, persists minimal run/check state, and returns the synchronous result envelope.
+Implementation note:
+The long-term v0 design includes analyze, diffs, findings, close, query, and promotion flows. The implemented M1 slice is narrower: `monitor.run(...)` resolves baseline and comparability context, executes the contract check, persists minimal run/check state, and returns the synchronous result envelope. Engineering readers can find the closeout summary in [docs/v0/m1_closeout_v0.md](docs/v0/m1_closeout_v0.md).
 
 ## Why it exists
 

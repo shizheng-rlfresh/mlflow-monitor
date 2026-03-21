@@ -71,6 +71,7 @@ class MonitoringRunRecord:
         lifecycle_status: Current lifecycle status.
         comparability_status: Optional comparability status for the run.
         contract_check_result: Optional contract check result for the run.
+        reference_run_ids: Reference kind to run ID mapping captured for the run.
     """
 
     run_id: str
@@ -78,6 +79,15 @@ class MonitoringRunRecord:
     lifecycle_status: LifecycleStatus
     comparability_status: ComparabilityStatus | None = None
     contract_check_result: ContractCheckResult | None = None
+    reference_run_ids: Mapping[str, str] = MappingProxyType({})
+
+    def __post_init__(self) -> None:
+        """Freeze reference-run identifiers after a defensive copy."""
+        object.__setattr__(
+            self,
+            "reference_run_ids",
+            MappingProxyType(dict(self.reference_run_ids)),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +185,7 @@ class MonitoringGateway(Protocol):
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
+        reference_run_ids: Mapping[str, str] | None = None,
     ) -> None:
         """Persist minimal monitoring run metadata for a subject."""
 
@@ -360,6 +371,7 @@ class InMemoryMonitoringGateway:
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
+        reference_run_ids: Mapping[str, str] | None = None,
     ) -> None:
         """Persist minimal monitoring run metadata for a subject.
 
@@ -369,6 +381,7 @@ class InMemoryMonitoringGateway:
             lifecycle_status: Current lifecycle status of the run.
             sequence_index: Monotonic per-subject sequence index for ordering.
             contract_check_result: Optional contract check result to persist for the run.
+            reference_run_ids: Optional reference run ids to persist for the run.
 
         Raises:
             GatewayConsistencyViolation: If the upsert would override immutable and non empty fields
@@ -394,6 +407,7 @@ class InMemoryMonitoringGateway:
                 lifecycle_status=lifecycle_status,
                 comparability_status=comparability_status,
                 contract_check_result=contract_check_result,
+                reference_run_ids={} if reference_run_ids is None else reference_run_ids,
             )
             return
 
@@ -401,6 +415,7 @@ class InMemoryMonitoringGateway:
             monitoring_run,
             sequence_index,
             contract_check_result,
+            reference_run_ids,
         )
 
         self._write_upsert_existing_monitoring_run(
@@ -410,6 +425,7 @@ class InMemoryMonitoringGateway:
             lifecycle_status,
             comparability_status,
             contract_check_result,
+            reference_run_ids,
         )
 
         return
@@ -743,6 +759,7 @@ class InMemoryMonitoringGateway:
         monitoring_run: MonitoringRunRecord,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None,
+        reference_run_ids: Mapping[str, str] | None,
     ) -> None:
         """Validate that an existing monitoring run is updated consistently.
 
@@ -750,6 +767,7 @@ class InMemoryMonitoringGateway:
             monitoring_run: The existing monitoring run record being updated.
             sequence_index: The new sequence index being written for the run.
             contract_check_result: The new contract check result being written for the run.
+            reference_run_ids: The new reference run ids being written for the run.
 
         Raises:
             GatewayConsistencyViolation: If the upsert would override immutable and non empty fields
@@ -769,6 +787,13 @@ class InMemoryMonitoringGateway:
             and monitoring_run.contract_check_result != contract_check_result
         ):
             details += (("contract_check_result", str(contract_check_result)),)
+
+        if (
+            monitoring_run.reference_run_ids
+            and reference_run_ids is not None
+            and dict(monitoring_run.reference_run_ids) != dict(reference_run_ids)
+        ):
+            details += (("reference_run_ids", str(dict(reference_run_ids))),)
 
         if bool(details):
             raise GatewayConsistencyViolation(
@@ -790,6 +815,7 @@ class InMemoryMonitoringGateway:
         lifecycle_status: LifecycleStatus,
         comparability_status: ComparabilityStatus | None,
         contract_check_result: ContractCheckResult | None,
+        reference_run_ids: Mapping[str, str] | None,
     ) -> None:
         """Persist an update to an existing monitoring run without mutating immutable fields.
 
@@ -800,6 +826,7 @@ class InMemoryMonitoringGateway:
             lifecycle_status: Current lifecycle status of the run.
             comparability_status: Optional comparability status to persist for the run.
             contract_check_result: Optional contract check result to persist for the run.
+            reference_run_ids: Optional reference run ids to persist for the run.
 
         Returns:
             None
@@ -814,10 +841,14 @@ class InMemoryMonitoringGateway:
             if contract_check_result is None
             else contract_check_result
         )
+        effective_reference_run_ids = (
+            monitoring_run.reference_run_ids if reference_run_ids is None else reference_run_ids
+        )
         self._runs_by_subject[subject_id][run_id] = MonitoringRunRecord(
             run_id=run_id,
             sequence_index=monitoring_run.sequence_index,
             lifecycle_status=lifecycle_status,
             comparability_status=effective_comparability_status,
             contract_check_result=effective_contract_check_result,
+            reference_run_ids=effective_reference_run_ids,
         )

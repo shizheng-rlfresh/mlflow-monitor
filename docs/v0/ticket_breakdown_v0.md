@@ -69,7 +69,7 @@ Metric mismatch from D-003 is deferred: need explicit rule for whether mismatch 
 
 **D-004D: Concrete contract checker** (P1) **DONE**
 
-D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. Baseline-side schema/feature/data-scope evidence will be finalized in W-003 when the real checker semantics and prepare-stage evidence resolution are implemented.”
+D-004 only introduces a provisional checker protocol and prepared-evidence container, not a complete contract-check implementation. The concrete checker semantics and prepare-stage evidence resolution were completed through the M1 W-003 execution slice.
 
 **D-004DD: Support richer contract-check reason messages** (P2)
 
@@ -79,7 +79,7 @@ D-004 only introduces a provisional checker protocol and prepared-evidence conta
 - Clarify that `message` is descriptive text, not part of the canonical taxonomy
 - Dependencies: D-004D, D-003
 
-**D-004E: Design contract model and binding resolution for v0** (P1)
+**D-004E: Design contract model and binding resolution for v0** (P1) **DONE**
 
 - Define what the runtime `Contract` represents in v0
 - Define the recipe-facing contract binding concept and terminology
@@ -89,7 +89,7 @@ D-004 only introduces a provisional checker protocol and prepared-evidence conta
 - Keep contract handling as binding resolution only; do not add a contract compiler in M1
 - Dependencies: D-004, R-003
 
-**D-004F: Implement contract binding resolution for v0** (P1)
+**D-004F: Implement contract binding resolution for v0** (P1) **DONE**
 
 - Resolve recipe-selected contract binding into runtime `Contract`
 - Implement the resolver in `contract.py`
@@ -114,7 +114,7 @@ D-004 only introduces a provisional checker protocol and prepared-evidence conta
 - Depends on a system default permissive contract/profile rather than bypassing contract check
 - Dependencies: R-001, D-004
 
-**R-000a: Define zero-config default behavior details** (P0)
+**R-000a: Define zero-config default behavior details** (P0) **DONE**
 
 - Default source-run selection behavior
 - Default contract/profile behavior
@@ -171,7 +171,7 @@ R-001 recipe json and yaml is deferred
 - Reject later baseline mutation attempts
 - Dependencies: W-002, P-001
 
-**W-003: Implement comparability check stage** (P0)
+**W-003: Implement comparability check stage** (P0) **DONE**
 
 - Execute contract checker via checker interface
 - Persist check reasons
@@ -194,7 +194,7 @@ R-001 recipe json and yaml is deferred
 
 ### Docs & Ops Readiness
 
-**O-001: Keep design docs synchronized** (P0, ongoing)
+**O-001: Keep design docs synchronized** (P0, satisfied for M1 closeout; ongoing discipline)
 
 - Update docs for any behavior deltas
 - Dependencies: none
