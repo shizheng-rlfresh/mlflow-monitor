@@ -91,6 +91,7 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
+        reference_run_ids: dict[str, str] | None = None,
     ) -> None:
         if lifecycle_status is LifecycleStatus.PREPARED:
             raise GatewayConsistencyViolation(
@@ -103,7 +104,41 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
             lifecycle_status=lifecycle_status,
             sequence_index=sequence_index,
             contract_check_result=contract_check_result,
+            reference_run_ids=reference_run_ids,
         )
+
+
+class ReplaySensitiveGateway(InMemoryMonitoringGateway):
+    """Fail if checked reruns re-enter prepare-sensitive source-run reads."""
+
+    def __init__(self, config: GatewayConfig) -> None:
+        super().__init__(config)
+        self.block_source_resolution = False
+        self.block_baseline_evidence = False
+        self.block_current_evidence = False
+
+    def resolve_source_run_id(
+        self,
+        subject_id: str,
+        source_experiment: str | None,
+        run_selector: str,
+        runtime_source_run_id: str | None = None,
+    ) -> str | None:
+        if self.block_source_resolution:
+            return None
+        return super().resolve_source_run_id(
+            subject_id=subject_id,
+            source_experiment=source_experiment,
+            run_selector=run_selector,
+            runtime_source_run_id=runtime_source_run_id,
+        )
+
+    def get_source_run_contract_evidence(self, run_id: str):  # type: ignore[no-untyped-def]
+        if run_id == "train-run-baseline" and self.block_baseline_evidence:
+            return None
+        if run_id == "train-run-current" and self.block_current_evidence:
+            return None
+        return super().get_source_run_contract_evidence(run_id)
 
 
 def test_run_orchestration_first_run_persists_checked_state() -> None:
@@ -369,6 +404,169 @@ def test_run_orchestration_reuses_idempotent_run_without_overwriting_check_outpu
     assert stored.sequence_index == 0
     assert stored.lifecycle_status is LifecycleStatus.CHECKED
     assert stored.contract_check_result is not None
+    assert second.lifecycle_status is LifecycleStatus.CHECKED
+    assert second.error is None
+
+
+def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> None:
+    gateway = make_gateway()
+    factory = run_id_factory()
+
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+
+    assert second.run_id == first.run_id
+    assert second.lifecycle_status is LifecycleStatus.CHECKED
+    assert second.comparability_status is ComparabilityStatus.PASS
+    assert second.reference_run_ids == {"baseline": "train-run-baseline"}
+    assert second.error is None
+
+
+def test_run_orchestration_checked_rerun_preserves_reference_run_ids() -> None:
+    gateway = make_gateway()
+    factory = run_id_factory()
+    gateway.set_active_lkg_run_id("churn_model", "run-lkg")
+
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+
+    assert first.reference_run_ids == {"baseline": "train-run-baseline", "lkg": "run-lkg"}
+    assert second.run_id == first.run_id
+    assert second.reference_run_ids == first.reference_run_ids
+    assert second.error is None
+
+
+def test_run_orchestration_checked_rerun_replays_when_source_run_no_longer_resolves() -> None:
+    gateway = ReplaySensitiveGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-baseline",
+        source_experiment=None,
+        metrics={"f1": 0.87},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-current",
+        source_experiment=None,
+        metrics={"f1": 0.91},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-01",
+    )
+    factory = run_id_factory()
+
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+    gateway.block_source_resolution = True
+
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+
+    assert second.run_id == first.run_id
+    assert second.lifecycle_status is LifecycleStatus.CHECKED
+    assert second.comparability_status is ComparabilityStatus.PASS
+    assert second.error is None
+
+
+def test_run_orchestration_checked_rerun_replays_when_baseline_evidence_no_longer_resolves() -> (
+    None
+):
+    gateway = ReplaySensitiveGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-baseline",
+        source_experiment=None,
+        metrics={"f1": 0.87},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        run_id="train-run-current",
+        source_experiment=None,
+        metrics={"f1": 0.91},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-01",
+    )
+    factory = run_id_factory()
+
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+    gateway.block_baseline_evidence = True
+    gateway.block_current_evidence = True
+
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+
+    assert second.run_id == first.run_id
+    assert second.lifecycle_status is LifecycleStatus.CHECKED
+    assert second.comparability_status is ComparabilityStatus.PASS
+    assert second.error is None
 
 
 def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun() -> None:

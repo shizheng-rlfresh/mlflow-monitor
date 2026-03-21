@@ -14,7 +14,7 @@ from mlflow_monitor.errors import (
     PrepareStageError,
     RecipeValidationError,
 )
-from mlflow_monitor.gateway import IdempotencyKey, MonitoringGateway
+from mlflow_monitor.gateway import IdempotencyKey, MonitoringGateway, MonitoringRunRecord
 from mlflow_monitor.recipe import (
     RecipeReferenceCatalog,
     resolve_recipe_v0_lite,
@@ -71,12 +71,33 @@ def run_orchestration(
     run_id = gateway.get_or_create_idempotent_run_id(idempotency_key, run_id_factory)
     existing_run = gateway.get_monitoring_run(subject_id, run_id)
     is_new_run = existing_run is None
-    is_existing_checked_run = (
-        existing_run is not None and existing_run.contract_check_result is not None
-    )
     sequence_index = (
         gateway.reserve_sequence_index(subject_id) if is_new_run else existing_run.sequence_index
     )
+
+    if existing_run is not None and existing_run.contract_check_result is not None:
+        existing_check_result = existing_run.contract_check_result
+        assert existing_check_result is not None
+        replay_error = _validate_checked_rerun_inputs(
+            subject_id=subject_id,
+            baseline_source_run_id=baseline_source_run_id,
+            source_experiment=compiled_plan.input.source_experiment,
+            gateway=gateway,
+        )
+        if replay_error is not None:
+            return _build_failure_result(
+                subject_id=subject_id,
+                run_id=run_id,
+                stage="prepare",
+                error=replay_error,
+                gateway=gateway,
+            )
+        return _build_existing_checked_result(
+            subject_id=subject_id,
+            run_id=run_id,
+            existing_run=existing_run,
+            gateway=gateway,
+        )
 
     if is_new_run:
         gateway.upsert_monitoring_run(
@@ -97,13 +118,12 @@ def run_orchestration(
             baseline_source_run_id=baseline_source_run_id,
         )
     except _OWNED_FAILURES as exc:
-        if not is_existing_checked_run:
-            gateway.upsert_monitoring_run(
-                subject_id=subject_id,
-                run_id=run_id,
-                lifecycle_status=LifecycleStatus.FAILED,
-                sequence_index=sequence_index,
-            )
+        gateway.upsert_monitoring_run(
+            subject_id=subject_id,
+            run_id=run_id,
+            lifecycle_status=LifecycleStatus.FAILED,
+            sequence_index=sequence_index,
+        )
         return _build_failure_result(
             subject_id=subject_id,
             run_id=run_id,
@@ -122,11 +142,10 @@ def run_orchestration(
 
     existing_run = gateway.get_monitoring_run(subject_id, run_id)
     if existing_run is not None and existing_run.contract_check_result is not None:
-        return _build_success_result(
+        return _build_existing_checked_result(
             subject_id=subject_id,
             run_id=run_id,
-            prepared_context=prepared_context,
-            contract_check_result=existing_run.contract_check_result,
+            existing_run=existing_run,
             gateway=gateway,
         )
 
@@ -157,6 +176,7 @@ def run_orchestration(
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=sequence_index,
         contract_check_result=contract_check_result,
+        reference_run_ids=_build_reference_run_ids(prepared_context),
     )
     return _build_success_result(
         subject_id=subject_id,
@@ -206,7 +226,7 @@ def _build_existing_checked_result(
     *,
     subject_id: str,
     run_id: str,
-    contract_check_result: ContractCheckResult,
+    existing_run: MonitoringRunRecord,
     gateway: MonitoringGateway,
 ) -> MonitorRunResult:
     """Build a success result for an already checked idempotent run.
@@ -214,26 +234,25 @@ def _build_existing_checked_result(
     Args:
         subject_id: The ID of the monitored subject this run is associated with.
         run_id: The ID of the monitoring run.
-        contract_check_result: The previously persisted contract check result for this run.
+        existing_run: The previously persisted monitoring run record for this run.
         gateway: The monitoring gateway to use for retrieving timeline information.
 
     Returns:
         The canonical success result for an already checked run.
     """
     timeline_state = gateway.get_timeline_state(subject_id)
-    reference_run_ids = (
-        {} if timeline_state is None else {"baseline": timeline_state.baseline_source_run_id}
-    )
     return MonitorRunResult(
         run_id=run_id,
         subject_id=subject_id,
         timeline_id=None if timeline_state is None else timeline_state.timeline_id,
         lifecycle_status=LifecycleStatus.CHECKED,
-        comparability_status=contract_check_result.status,
+        comparability_status=existing_run.contract_check_result.status
+        if existing_run.contract_check_result is not None
+        else None,
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        reference_run_ids=reference_run_ids,
+        reference_run_ids=existing_run.reference_run_ids,
         error=None,
     )
 
@@ -329,3 +348,49 @@ def _error_details(error: Exception) -> dict[str, str] | None:
         return None
     normalized = {key: str(value) for key, value in details if value is not None}
     return normalized or None
+
+
+def _validate_checked_rerun_inputs(
+    *,
+    subject_id: str,
+    baseline_source_run_id: str | None,
+    source_experiment: str | None,
+    gateway: MonitoringGateway,
+) -> PrepareStageError | None:
+    """Validate caller-controlled checked-rerun inputs without re-running prepare."""
+    timeline_state = gateway.get_timeline_state(subject_id)
+    if timeline_state is None:
+        return PrepareStageError(
+            code="prepare_timeline_initialization_failed",
+            message=(
+                f"Timeline initialization did not materialize state for subject_id={subject_id}."
+            ),
+            details=(("subject_id", subject_id),),
+        )
+
+    if baseline_source_run_id is None:
+        return None
+
+    resolved_baseline_source_run_id = gateway.resolve_source_run_id(
+        subject_id=subject_id,
+        source_experiment=source_experiment,
+        run_selector=baseline_source_run_id,
+    )
+    if resolved_baseline_source_run_id == timeline_state.baseline_source_run_id:
+        return None
+
+    return PrepareStageError(
+        code="prepare_baseline_override_existing_timeline",
+        message=(
+            f"Provided baseline_source_run_id={baseline_source_run_id!r} "
+            f"with resolved_baseline_source_run_id={resolved_baseline_source_run_id!r} "
+            "does not match existing timeline "
+            f"baseline_source_run_id={timeline_state.baseline_source_run_id!r} "
+            f"for subject_id={subject_id}. Overriding an existing timeline's baseline "
+            "is not allowed."
+        ),
+        details=(
+            ("subject_id", subject_id),
+            ("baseline_source_run_id", baseline_source_run_id),
+        ),
+    )
