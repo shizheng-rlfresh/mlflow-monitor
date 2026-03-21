@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from mlflow_monitor.contract import SYSTEM_DEFAULT_CONTRACT_ID, resolve_contract_v0
+from mlflow_monitor.builtins import SYSTEM_DEFAULT_CONTRACT_ID, SYSTEM_DEFAULT_RECIPE_ID
+from mlflow_monitor.contract import resolve_contract_v0
 from mlflow_monitor.contract_checker import ContractChecker
 from mlflow_monitor.domain import ContractCheckResult, LifecycleStatus
+from mlflow_monitor.errors import (
+    CheckStageError,
+    ContractResolutionError,
+    PrepareStageError,
+    RecipeValidationError,
+)
 from mlflow_monitor.gateway import IdempotencyKey, MonitoringGateway
 from mlflow_monitor.recipe import (
-    SYSTEM_DEFAULT_RECIPE_ID,
     RecipeReferenceCatalog,
     resolve_recipe_v0_lite,
 )
@@ -17,8 +23,15 @@ from mlflow_monitor.recipe_compiler import compile_recipe_v0_lite
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 from mlflow_monitor.workflow import execute_contract_check, prepare_run_context
 
+_OWNED_FAILURES = (
+    PrepareStageError,
+    CheckStageError,
+    ContractResolutionError,
+    RecipeValidationError,
+)
 
-def _run_monitoring(
+
+def run_orchestration(
     *,
     subject_id: str,
     source_run_id: str,
@@ -27,7 +40,20 @@ def _run_monitoring(
     contract_checker: ContractChecker,
     run_id_factory: Callable[[], str],
 ) -> MonitorRunResult:
-    """Execute the M1 create/prepare/check slice for one monitoring request."""
+    """Execute the orchestration for one monitoring run, including prepare and check stages.
+
+    Args:
+        subject_id: The ID of the monitored subject this run is associated with.
+        source_run_id: The original run ID from the training system that produced this run.
+        baseline_source_run_id: The source run ID of the baseline this run is compared against
+        gateway: The monitoring gateway to use for persistence during orchestration.
+        contract_checker: The contract checker to use for executing the contract check stage.
+        run_id_factory: A callable that produces new unique run IDs for monitoring runs.
+
+    Returns:
+        The result of the monitoring run execution, including comparability status and any findings.
+
+    """
     references = RecipeReferenceCatalog(
         contract_ids=frozenset({SYSTEM_DEFAULT_CONTRACT_ID}),
         finding_policy_profiles=frozenset(),
@@ -46,9 +72,7 @@ def _run_monitoring(
     existing_run = gateway.get_monitoring_run(subject_id, run_id)
     is_new_run = existing_run is None
     sequence_index = (
-        gateway.reserve_sequence_index(subject_id)
-        if is_new_run
-        else existing_run.sequence_index
+        gateway.reserve_sequence_index(subject_id) if is_new_run else existing_run.sequence_index
     )
 
     if is_new_run:
@@ -69,7 +93,7 @@ def _run_monitoring(
             runtime_source_run_id=source_run_id,
             baseline_source_run_id=baseline_source_run_id,
         )
-    except Exception as exc:
+    except _OWNED_FAILURES as exc:
         gateway.upsert_monitoring_run(
             subject_id=subject_id,
             run_id=run_id,
@@ -108,7 +132,7 @@ def _run_monitoring(
             gateway=gateway,
             contract_checker=contract_checker,
         )
-    except Exception as exc:
+    except _OWNED_FAILURES as exc:
         gateway.upsert_monitoring_run(
             subject_id=subject_id,
             run_id=run_id,
@@ -147,7 +171,18 @@ def _build_success_result(
     contract_check_result: ContractCheckResult,
     gateway: MonitoringGateway,
 ) -> MonitorRunResult:
-    """Build the canonical success result for one checked monitoring run."""
+    """Build the canonical success result for one checked monitoring run.
+
+    Args:
+        subject_id: The ID of the monitored subject this run is associated with.
+        run_id: The ID of the monitoring run.
+        prepared_context: The prepared context produced by the prepare stage for this run.
+        contract_check_result: The result of the contract check stage for this run.
+        gateway: The monitoring gateway to use for retrieving any additional information needed.
+
+    Returns:
+        The canonical success result for this run, including comparability status and any findings.
+    """
     timeline_state = gateway.get_timeline_state(subject_id)
     return MonitorRunResult(
         run_id=run_id,
@@ -171,7 +206,18 @@ def _build_failure_result(
     error: Exception,
     gateway: MonitoringGateway,
 ) -> MonitorRunResult:
-    """Build the canonical failed result for a prepare/check execution error."""
+    """Build the canonical failed result for a prepare/check execution error.
+
+    Args:
+        subject_id: The ID of the monitored subject this run is associated with.
+        run_id: The ID of the monitoring run.
+        stage: The stage during which the error occurred (e.g., "prepare" or "check").
+        error: The exception raised during execution.
+        gateway: The monitoring gateway to use for retrieving any additional information needed.
+
+    Returns:
+        The canonical failure result for this run, including error details.
+    """
     timeline_state = gateway.get_timeline_state(subject_id)
     return MonitorRunResult(
         run_id=run_id,
@@ -193,7 +239,15 @@ def _build_failure_result(
 
 
 def _build_reference_run_ids(prepared_context) -> dict[str, str]:
-    """Build the minimal reference-run mapping for the synchronous result."""
+    """Build the minimal reference-run mapping for the synchronous result.
+
+    Args:
+        prepared_context: The prepared context produced by the prepare stage for this run.
+
+    Returns:
+        A mapping of reference types to source run IDs that were used as references during
+            contract check.
+    """
     reference_run_ids = {"baseline": prepared_context.baseline_source_run_id}
     if prepared_context.previous_run_id is not None:
         reference_run_ids["previous"] = prepared_context.previous_run_id
@@ -205,7 +259,15 @@ def _build_reference_run_ids(prepared_context) -> dict[str, str]:
 
 
 def _error_code_for_stage(stage: str, error: Exception) -> str:
-    """Return the stable runtime error code for one failed stage."""
+    """Return the stable runtime error code for one failed stage.
+
+    Args:
+        stage: The stage during which the error occurred (e.g., "prepare" or "check").
+        error: The exception raised during execution.
+
+    Returns:
+        A stable error code string that can be used for error categorization and handling.
+    """
     code = getattr(error, "code", None)
     if isinstance(code, str) and code:
         return code
@@ -213,13 +275,17 @@ def _error_code_for_stage(stage: str, error: Exception) -> str:
 
 
 def _error_details(error: Exception) -> dict[str, str] | None:
-    """Convert structured workflow error details into result-contract shape."""
+    """Convert structured workflow error details into result-contract shape.
+
+    Args:
+        error: The exception raised during execution, which may have a
+            ``details`` attribute containing structured information.
+
+    Returns:
+        A mapping of error detail keys to string values, or None if no details are available.
+    """
     details = getattr(error, "details", ())
     if not details:
         return None
-    normalized = {
-        key: str(value)
-        for key, value in details
-        if value is not None
-    }
+    normalized = {key: str(value) for key, value in details if value is not None}
     return normalized or None
