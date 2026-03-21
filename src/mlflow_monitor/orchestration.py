@@ -222,9 +222,7 @@ def _build_existing_checked_result(
     """
     timeline_state = gateway.get_timeline_state(subject_id)
     reference_run_ids = (
-        {}
-        if timeline_state is None
-        else {"baseline": timeline_state.baseline_source_run_id}
+        {} if timeline_state is None else {"baseline": timeline_state.baseline_source_run_id}
     )
     return MonitorRunResult(
         run_id=run_id,
