@@ -107,6 +107,19 @@ class ContractResolutionError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class TerminalRunRetryError(ValueError):
+    """Raised when a duplicate request targets a terminal failed monitoring run."""
+
+    code: str
+    message: str
+    details: tuple[tuple[str, str | int | None], ...] = ()
+
+    def __str__(self) -> str:
+        """Return the error message when the exception is converted to a string."""
+        return self.message
+
+
+@dataclass(frozen=True, slots=True)
 class RecipeValidationIssue:
     """One machine-readable issue discovered during recipe validation."""
 

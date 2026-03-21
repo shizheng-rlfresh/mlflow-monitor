@@ -266,6 +266,42 @@ def test_run_orchestration_prepare_error_persists_failed_and_returns_runtime_err
     assert stored.contract_check_result is None
 
 
+def test_run_orchestration_failed_prepare_rerun_short_circuits_terminal_state() -> None:
+    gateway = make_gateway()
+    factory = run_id_factory()
+
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-missing",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-missing",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+
+    stored = gateway.get_monitoring_run("churn_model", first.run_id)
+
+    assert first.lifecycle_status is LifecycleStatus.FAILED
+    assert second.run_id == first.run_id
+    assert second.lifecycle_status is LifecycleStatus.FAILED
+    assert second.comparability_status is None
+    assert second.error is not None
+    assert second.error.stage == "prepare"
+    assert second.error.code == "idempotent_run_retry_failed_terminal"
+    assert stored is not None
+    assert stored.sequence_index == 0
+    assert stored.lifecycle_status is LifecycleStatus.FAILED
+    assert stored.contract_check_result is None
+
+
 def test_run_orchestration_bootstrap_failure_returns_failed_result_without_timeline() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
@@ -319,6 +355,42 @@ def test_run_orchestration_check_error_persists_failed_and_returns_runtime_error
     assert result.error.stage == "check"
     assert result.error.code == "check_result_invalid"
     assert stored is not None
+    assert stored.lifecycle_status is LifecycleStatus.FAILED
+    assert stored.contract_check_result is None
+
+
+def test_run_orchestration_failed_check_rerun_short_circuits_terminal_state() -> None:
+    gateway = make_gateway()
+    factory = run_id_factory()
+
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=InvalidResultContractChecker(),
+        run_id_factory=factory,
+    )
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+        run_id_factory=factory,
+    )
+
+    stored = gateway.get_monitoring_run("churn_model", first.run_id)
+
+    assert first.lifecycle_status is LifecycleStatus.FAILED
+    assert second.run_id == first.run_id
+    assert second.lifecycle_status is LifecycleStatus.FAILED
+    assert second.comparability_status is None
+    assert second.error is not None
+    assert second.error.stage == "prepare"
+    assert second.error.code == "idempotent_run_retry_failed_terminal"
+    assert stored is not None
+    assert stored.sequence_index == 0
     assert stored.lifecycle_status is LifecycleStatus.FAILED
     assert stored.contract_check_result is None
 

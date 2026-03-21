@@ -13,6 +13,7 @@ from mlflow_monitor.errors import (
     ContractResolutionError,
     PrepareStageError,
     RecipeValidationError,
+    TerminalRunRetryError,
 )
 from mlflow_monitor.gateway import IdempotencyKey, MonitoringGateway, MonitoringRunRecord
 from mlflow_monitor.recipe import (
@@ -74,6 +75,15 @@ def run_orchestration(
     sequence_index = (
         gateway.reserve_sequence_index(subject_id) if is_new_run else existing_run.sequence_index
     )
+
+    if existing_run is not None and existing_run.lifecycle_status is LifecycleStatus.FAILED:
+        return _build_failure_result(
+            subject_id=subject_id,
+            run_id=run_id,
+            stage="prepare",
+            error=_build_terminal_failed_rerun_error(subject_id=subject_id, run_id=run_id),
+            gateway=gateway,
+        )
 
     if existing_run is not None and existing_run.contract_check_result is not None:
         existing_check_result = existing_run.contract_check_result
@@ -348,6 +358,25 @@ def _error_details(error: Exception) -> dict[str, str] | None:
         return None
     normalized = {key: str(value) for key, value in details if value is not None}
     return normalized or None
+
+
+def _build_terminal_failed_rerun_error(
+    *,
+    subject_id: str,
+    run_id: str,
+) -> TerminalRunRetryError:
+    """Build a deterministic error for duplicate requests targeting failed runs."""
+    return TerminalRunRetryError(
+        code="idempotent_run_retry_failed_terminal",
+        message=(
+            f"Cannot retry monitoring run {run_id} for subject_id={subject_id}: "
+            "the idempotent run is already in terminal FAILED state."
+        ),
+        details=(
+            ("subject_id", subject_id),
+            ("run_id", run_id),
+        ),
+    )
 
 
 def _validate_checked_rerun_inputs(
