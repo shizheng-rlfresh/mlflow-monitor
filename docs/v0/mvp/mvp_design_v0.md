@@ -44,7 +44,7 @@ Some of what we designed against the in-memory gateway may not survive contact w
 
 Two new modules are added in the MLflow integration layer. Core layering is preserved, but the current gateway/orchestration contract will need refitting because real MLflow assigns monitoring run IDs at `create_run()` time rather than letting orchestration allocate them ahead of persistence.
 
-```
+```text
 monitor.py (MODIFIED: gateway injection, MLflow default)
     ↓
 orchestration.py (MODIFIED: gateway-owned create-or-reuse monitoring run flow)
@@ -329,21 +329,23 @@ Use a dedicated directory for MLflow data, separate from your project root:
 mkdir -p .mlflow-dev
 
 # Preferred: use a local SQLite backend
-export MLFLOW_TRACKING_URI=sqlite:///.mlflow-dev/mlflow.db
+export MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db
 
 # File-store remains possible for temporary experiments, but MLflow now warns
 # that the filesystem backend is deprecated.
-export MLFLOW_TRACKING_URI=.mlflow-dev/mlruns
+export MLFLOW_TRACKING_URI=./.mlflow-dev/mlruns
 ```
 
 ### Development loop
 
 **Terminal 1:**
+
 ```bash
 mlflow ui --port 5000 --backend-store-uri sqlite:///.mlflow-dev/mlflow.db
 ```
 
 **Terminal 2:**
+
 ```bash
 python -m mlflow_monitor.demo.setup
 mlflow-monitor run --subject churn_model --source-run <run_id_1> --baseline <run_id_1>
