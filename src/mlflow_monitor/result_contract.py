@@ -49,7 +49,7 @@ class MonitorRunResult:
     """Canonical SDK/CLI run result envelope.
 
     Attributes:
-        run_id: Unique monitoring run identifier.
+        monitoring_run_id: Unique monitoring run identifier.
         subject_id: Monitored subject identifier.
         timeline_id: Timeline identifier if known for this run.
         lifecycle_status: Current workflow lifecycle status.
@@ -61,7 +61,7 @@ class MonitorRunResult:
         error: Structured error payload for failed runs only.
     """
 
-    run_id: str
+    monitoring_run_id: str
     subject_id: str
     timeline_id: str | None
     lifecycle_status: LifecycleStatus
@@ -107,7 +107,7 @@ class MonitorRunResult:
     def to_dict(self) -> dict[str, object]:
         """Serialize this result envelope into a deterministic dictionary."""
         return {
-            "run_id": self.run_id,
+            "monitoring_run_id": self.monitoring_run_id,
             "subject_id": self.subject_id,
             "timeline_id": self.timeline_id,
             "lifecycle_status": self.lifecycle_status.value,

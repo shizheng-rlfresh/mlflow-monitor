@@ -30,8 +30,8 @@ def test_timeline_active_contract_is_resolved_contract() -> None:
         subject_id="churn_model",
         monitoring_namespace="mlflow_monitor/churn_model",
         baseline=baseline,
-        run_ids=["run-1"],
-        active_lkg_run_id=None,
+        monitoring_run_ids=["monitoring-run-1"],
+        active_lkg_monitoring_run_id=None,
         active_contract=contract,
     )
 

@@ -9,7 +9,7 @@ from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 def test_monitor_run_result_success_envelope_construction() -> None:
     """Success envelope should construct with required canonical fields."""
     result = MonitorRunResult(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         timeline_id="timeline-1",
         lifecycle_status=LifecycleStatus.CLOSED,
@@ -20,7 +20,7 @@ def test_monitor_run_result_success_envelope_construction() -> None:
         reference_run_ids={"baseline": "train-run-1"},
     )
 
-    assert result.run_id == "run-1"
+    assert result.monitoring_run_id == "monitoring-run-1"
     assert result.subject_id == "churn_model"
     assert result.timeline_id == "timeline-1"
     assert result.lifecycle_status is LifecycleStatus.CLOSED
@@ -41,7 +41,7 @@ def test_monitor_run_result_failure_envelope_construction() -> None:
         details={"subject_id": "churn_model"},
     )
     result = MonitorRunResult(
-        run_id="run-2",
+        monitoring_run_id="monitoring-run-2",
         subject_id="churn_model",
         timeline_id=None,
         lifecycle_status=LifecycleStatus.FAILED,
@@ -67,7 +67,7 @@ def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
         details={"checker": "default"},
     )
     result = MonitorRunResult(
-        run_id="run-3",
+        monitoring_run_id="monitoring-run-3",
         subject_id="fraud_model",
         timeline_id="timeline-3",
         lifecycle_status=LifecycleStatus.FAILED,
@@ -94,7 +94,7 @@ def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
 def test_monitor_run_result_to_dict_stable_keys_for_success_and_failure() -> None:
     """to_dict should emit the same top-level keys for success and failure."""
     success = MonitorRunResult(
-        run_id="run-success",
+        monitoring_run_id="monitoring-run-success",
         subject_id="churn_model",
         timeline_id="timeline-1",
         lifecycle_status=LifecycleStatus.CLOSED,
@@ -105,7 +105,7 @@ def test_monitor_run_result_to_dict_stable_keys_for_success_and_failure() -> Non
         reference_run_ids={},
     )
     failure = MonitorRunResult(
-        run_id="run-failure",
+        monitoring_run_id="monitoring-run-failure",
         subject_id="churn_model",
         timeline_id=None,
         lifecycle_status=LifecycleStatus.FAILED,
@@ -134,7 +134,7 @@ def test_monitor_run_result_failed_requires_error() -> None:
         match="lifecycle_status=failed requires a non-null error",
     ):
         MonitorRunResult(
-            run_id="run-failed",
+            monitoring_run_id="monitoring-run-failed",
             subject_id="churn_model",
             timeline_id=None,
             lifecycle_status=LifecycleStatus.FAILED,
@@ -154,7 +154,7 @@ def test_monitor_run_result_non_failed_forbids_error() -> None:
         match="non-failed lifecycle_status must have error=None",
     ):
         MonitorRunResult(
-            run_id="run-checked",
+            monitoring_run_id="monitoring-run-checked",
             subject_id="churn_model",
             timeline_id="timeline-1",
             lifecycle_status=LifecycleStatus.CHECKED,
@@ -193,7 +193,7 @@ def test_monitor_run_result_collections_are_immutable_after_construction() -> No
     finding_ids = ["finding-1"]
     diff_ids = ["diff-1"]
     result = MonitorRunResult(
-        run_id="run-immutability",
+        monitoring_run_id="monitoring-run-immutability",
         subject_id="churn_model",
         timeline_id="timeline-1",
         lifecycle_status=LifecycleStatus.CHECKED,
