@@ -43,8 +43,8 @@ def test_canonical_entities_can_be_constructed() -> None:
         subject_id="churn_model",
         monitoring_namespace="mlflow_monitor/churn_model",
         baseline=baseline,
-        run_ids=["run-1"],
-        active_lkg_run_id="run-1",
+        monitoring_run_ids=["monitoring-run-1"],
+        active_lkg_monitoring_run_id="monitoring-run-1",
         active_contract=contract,
     )
     contract_check = ContractCheckResult(
@@ -59,15 +59,15 @@ def test_canonical_entities_can_be_constructed() -> None:
     )
     diff = Diff(
         diff_id="diff-1",
-        run_id="run-1",
-        reference_run_id="run-0",
+        monitoring_run_id="monitoring-run-1",
+        reference_monitoring_run_id="monitoring-run-0",
         reference_kind=DiffReferenceKind.BASELINE,
         metric_deltas={"f1": -0.02},
         metadata={"window": "full"},
     )
     finding = Finding(
         finding_id="finding-1",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         severity=FindingSeverity.HIGH,
         category="performance_regression",
         summary="F1 regressed against baseline",
@@ -75,7 +75,7 @@ def test_canonical_entities_can_be_constructed() -> None:
         recommendation="Investigate feature changes before promotion.",
     )
     run = Run(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         timeline_id="timeline-1",
         sequence_index=0,
         subject_id="churn_model",
@@ -88,14 +88,14 @@ def test_canonical_entities_can_be_constructed() -> None:
         diff_ids=("diff-1",),
         finding_ids=("finding-1",),
     )
-    lkg = LKG(timeline_id="timeline-1", run_id="run-1")
+    lkg = LKG(timeline_id="timeline-1", monitoring_run_id="monitoring-run-1")
 
     assert timeline.baseline.source_run_id == "train-run-1"
     assert run.contract_check_result is not None
     assert run.contract_check_result.status is ComparabilityStatus.WARN
     assert diff.reference_kind is DiffReferenceKind.BASELINE
     assert finding.evidence_diff_ids == ("diff-1",)
-    assert lkg.run_id == "run-1"
+    assert lkg.monitoring_run_id == "monitoring-run-1"
 
 
 def test_status_vocabularies_are_fixed() -> None:
@@ -137,12 +137,12 @@ def test_relationship_shapes_match_cast() -> None:
         subject_id="churn_model",
         monitoring_namespace="mlflow_monitor/churn_model",
         baseline=baseline,
-        run_ids=["run-1", "run-2"],
-        active_lkg_run_id=None,
+        monitoring_run_ids=["monitoring-run-1", "monitoring-run-2"],
+        active_lkg_monitoring_run_id=None,
         active_contract=contract,
     )
     run = Run(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         timeline_id=timeline.timeline_id,
         sequence_index=0,
         subject_id=timeline.subject_id,
@@ -158,14 +158,14 @@ def test_relationship_shapes_match_cast() -> None:
 
     assert run.timeline_id == timeline.timeline_id
     assert timeline.active_contract.contract_id == "default"
-    assert timeline.run_ids == ["run-1", "run-2"]
+    assert timeline.monitoring_run_ids == ["monitoring-run-1", "monitoring-run-2"]
 
 
 def test_finding_references_one_or_more_diffs() -> None:
     """Test that a Finding can reference one or more Diff records."""
     finding = Finding(
         finding_id="finding-1",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         severity=FindingSeverity.MEDIUM,
         category="quality",
         summary="Regression detected",

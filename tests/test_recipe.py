@@ -29,7 +29,7 @@ def make_valid_recipe() -> dict[str, object]:
             "source_experiment": "training/churn",
             "required_metrics": ["f1", "auc"],
             "required_artifacts": ["metrics.json"],
-            "custom_reference_run_id": "run-custom-1",
+            "custom_reference_monitoring_run_id": "monitoring-run-custom-1",
         },
         "contract_binding": {"contract_id": "contract-default"},
         "metrics_slices": {"metrics": ["f1", "auc"], "slices": ["region", "segment"]},
@@ -70,7 +70,7 @@ def test_parse_recipe_v0_lite_parses_valid_recipe() -> None:
     assert parsed.input_binding.source_experiment == "training/churn"
     assert parsed.input_binding.required_metrics == ("f1", "auc")
     assert parsed.input_binding.required_artifacts == ("metrics.json",)
-    assert parsed.input_binding.custom_reference_run_id == "run-custom-1"
+    assert parsed.input_binding.custom_reference_monitoring_run_id == "monitoring-run-custom-1"
     assert parsed.contract_binding.contract_id == "contract-default"
     assert parsed.metrics_slices.metrics == ("f1", "auc")
     assert parsed.metrics_slices.slices == ("region", "segment")
@@ -150,7 +150,7 @@ def test_parse_recipe_v0_lite_applies_defaults_for_omitted_optional_fields() -> 
     assert parsed.input_binding.source_experiment is None
     assert parsed.input_binding.required_metrics == ()
     assert parsed.input_binding.required_artifacts == ()
-    assert parsed.input_binding.custom_reference_run_id is None
+    assert parsed.input_binding.custom_reference_monitoring_run_id is None
     assert parsed.metrics_slices.metrics == ()
     assert parsed.metrics_slices.slices == ()
     assert parsed.finding_policy.profile is None
@@ -220,7 +220,7 @@ def test_validate_recipe_v0_lite_rejects_unknown_output_summary_mode() -> None:
         "",
         "   ",
         "latest",
-        "run_id:abc",
+        "training_run_id:abc",
     ],
 )
 def test_validate_recipe_v0_lite_rejects_invalid_run_selector(selector: str) -> None:
@@ -304,7 +304,7 @@ def test_get_system_default_recipe_v0_lite_returns_expected_shape() -> None:
     assert parsed.input_binding.source_experiment is None
     assert parsed.input_binding.required_metrics == ()
     assert parsed.input_binding.required_artifacts == ()
-    assert parsed.input_binding.custom_reference_run_id is None
+    assert parsed.input_binding.custom_reference_monitoring_run_id is None
     assert parsed.contract_binding.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
     assert parsed.metrics_slices.metrics == ()
     assert parsed.metrics_slices.slices == ()
