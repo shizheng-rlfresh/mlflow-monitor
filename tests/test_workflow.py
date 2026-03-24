@@ -369,7 +369,7 @@ def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
         gateway=gateway,
     )
 
-    assert prepared.monitoring_run_id == "monitoring_run-1"
+    assert prepared.monitoring_run_id == "monitoring-run-1"
     assert prepared.subject_id == "churn_model"
     assert prepared.timeline_id == "timeline-churn_model"
     assert prepared.source_run_id == "train-run-123"
