@@ -27,8 +27,7 @@ from typing import Any
 from mlflow import MlflowClient
 from mlflow.entities import Experiment, Run
 from mlflow.exceptions import MlflowException
-
-_RESOURCE_ALREADY_EXISTS = "RESOURCE_ALREADY_EXISTS"
+from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS
 
 
 class MonitorMLflowClient:
@@ -100,14 +99,14 @@ class MonitorMLflowClient:
             )
         except MlflowException as exc:
             # Duplicate-create races are normal for get-or-create semantics.
-            if exc.error_code != _RESOURCE_ALREADY_EXISTS:
+            if exc.error_code != RESOURCE_ALREADY_EXISTS:
                 raise
 
         experiment = self._get_experiment_by_name(name)
         if experiment is None:
             raise MlflowException(
                 f"Experiment {name!r} already exists but could not be resolved by name.",
-                error_code=_RESOURCE_ALREADY_EXISTS,
+                error_code=RESOURCE_ALREADY_EXISTS,
             )
         if experiment.lifecycle_stage == "deleted":
             self._client.restore_experiment(experiment.experiment_id)
