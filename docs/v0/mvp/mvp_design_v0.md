@@ -163,8 +163,8 @@ def log_json_artifact(self, run_id: str, data: dict, path: str) -> None:
 
 ### 5.1 Design principles
 
-- **No `search_runs()` for single-run lookups.** Experiment-level tags serve as the index for direct lookups.
-- **`search_runs()` only used for multi-run queries** (listing all monitoring runs in the timeline) — these are inherently multi-run operations.
+- **No `search_runs()`.** All lookups are direct via experiment-level tags + `get_run()`. Experiment tags serve as the index.
+- **Run IDs indexed by sequence.** Each monitoring run ID is stored as `monitoring.run.{sequence_index}` on the experiment. Combined with `monitoring.next_sequence_index`, this enables listing all runs without search.
 - **Tag prefix convention:** `training.*` for values pointing to training runs, `monitoring.*` for values about our monitoring runs. No outer `monitor.` prefix needed since the experiment `mlflow_monitor/{subject_id}` is already our namespace.
 - **No sentinel run.** The experiment IS the timeline. Experiment tags hold all timeline-level state directly.
 
@@ -178,6 +178,7 @@ These tags live on the `mlflow_monitor/{subject_id}` experiment itself:
 | `monitoring.lkg_run_id` | monitoring run ID | Current LKG (absent if none promoted) |
 | `monitoring.latest_run_id` | monitoring run ID | Most recent monitoring run (for previous-run lookup) |
 | `monitoring.next_sequence_index` | integer as string | Next available sequence index |
+| `monitoring.run.{index}` | monitoring run ID | Run ID at each sequence index (e.g., `monitoring.run.0`, `monitoring.run.1`) |
 | `training.{source_run_id}.monitoring_run_id` | monitoring run ID | Idempotency: maps training run → its monitoring run |
 
 **Idempotency check:** To check if training run `abc123` was already monitored, read experiment tags and look for key `training.abc123.monitoring_run_id`. If present, fetch that monitoring run via `client.get_run()` and verify `monitoring.recipe_id` and `monitoring.recipe_version` match the current request. For MVP with one recipe, the match is always true.
@@ -244,7 +245,7 @@ All writes go to `{namespace_prefix}/{subject_id}` experiments. Tags for queryab
 
 ### 6.4 Protocol method → implementation
 
-| Protocol method | How it works (no search_runs for single lookups) |
+| Protocol method | How it works (all direct lookups — no search_runs) |
 |---|---|
 | `initialize_timeline(subject_id, baseline_id)` | Get-or-create experiment. Set experiment tags: `training.baseline_run_id`, `monitoring.next_sequence_index = "0"`. |
 | `get_timeline_state(subject_id)` | Get experiment by name. Read `training.baseline_run_id` from experiment tags. |
@@ -252,7 +253,7 @@ All writes go to `{namespace_prefix}/{subject_id}` experiments. Tags for queryab
 | `get_or_create_idempotent_run_id(key, factory)` | Read experiment tag `training.{source_run_id}.monitoring_run_id`. If present, verify recipe match from run tags, return existing. If absent, call factory, store mapping, return new ID. |
 | `upsert_monitoring_run(...)` | Create MLflow run with run-level tags. Set experiment tag `training.{source_run_id}.monitoring_run_id`. Update `monitoring.latest_run_id`. Log `outputs/result.json` artifact at final stage. |
 | `get_monitoring_run(subject_id, run_id)` | `client.get_run(run_id)`, read run tags, build `MonitoringRunRecord`. |
-| `list_timeline_runs(subject_id, exclude_failed)` | This is the one case where we need `search_runs()` — listing all monitoring runs. Filter by `monitoring.lifecycle_status`, order by `monitoring.sequence_index`. |
+| `list_timeline_runs(subject_id, exclude_failed)` | Read `monitoring.next_sequence_index` from experiment tags. Loop from 0 to N-1, read `monitoring.run.{i}` to get each run ID. Call `get_run()` for each to build `MonitoringRunRecord`. Filter by lifecycle_status if `exclude_failed`. |
 | `resolve_source_run_id(...)` | `client.get_run(source_run_id)` — direct lookup. No `latest` selector in MVP. |
 | `get_missing_source_run_metrics(...)` | Read `run.data.metrics`, check required keys. |
 | `get_missing_source_run_artifacts(...)` | `client.list_artifacts(run_id)`, check required paths. |
@@ -429,12 +430,11 @@ Focused sequence, one week target. Adapter and gateway built together since they
 
 1. **Tag string serialization.** `sequence_index` is int in-memory, string in MLflow. Adapter owns serialization.
 2. **Sequence index races.** Read + increment is not atomic. Acceptable for MVP (single user, sequential runs).
-3. **Experiment tag accumulation.** Idempotency mappings (`training.{id}.monitoring_run_id`) grow with each monitored training run. Fine for MVP scale. May need a different approach for large timelines.
+3. **Experiment tag accumulation.** Indexed run tags (`monitoring.run.{i}`) and idempotency tags (`training.{id}.monitoring_run_id`) grow with each run. Fine for MVP scale. Total tag count per experiment may have practical limits at scale.
 4. **Experiment name races.** `create_experiment` fails on duplicate. Adapter handles get-or-create with try/except.
 5. **Tag size.** Keys ≤ 255 bytes, values ≤ 5,000 bytes. Structured outputs go in `outputs/result.json` artifact, not tags.
 6. **Evidence conventions may need adjustment.** The read conventions are a starting point.
 7. **Orchestration may need refactoring.** Current idempotency/rerun logic was designed for in-memory — may not map cleanly to MLflow tag-based lookups.
-8. **`search_runs()` used for `list_timeline_runs` only.** This is the one multi-run query we can't avoid. Results should be deterministic since we control all the tags.
 
 ---
 
