@@ -76,7 +76,7 @@ Required deliverables:
 - Add `MonitorMLflowClient` as the only runtime module that imports `MlflowClient`.
 - Implement experiment lookup/create, experiment tag read/write, run create/get/terminate, run tag write, run metrics/params/tags reads, artifact listing, and JSON artifact logging.
 - Support terminating monitoring runs as `FINISHED` or `FAILED`.
-- Normalize MLflow API quirks and missing-run behavior into deterministic adapter behavior suitable for the gateway.
+- Normalize MLflow API quirks and missing-run behavior into deterministic adapter behavior suitable for the gateway, including auto-restoring soft-deleted monitoring experiments because the monitoring experiment is system-owned bookkeeping state rather than disposable per-run state.
 
 Non-goals:
 
@@ -87,6 +87,7 @@ Non-goals:
 Acceptance criteria:
 
 - Adapter tests cover create/get patterns, experiment tag access, run reads, tag writes, termination behavior, artifact listing, and JSON artifact logging against a local MLflow store.
+- Adapter get-or-create behavior restores soft-deleted monitoring experiments instead of returning an unusable deleted experiment id.
 - Runtime code outside the adapter does not import `MlflowClient` directly.
 
 Dependencies: MVP-02

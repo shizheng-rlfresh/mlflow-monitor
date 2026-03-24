@@ -44,7 +44,7 @@ Some of what we designed against the in-memory gateway may not survive contact w
 
 Two new modules are added in the MLflow integration layer. Core layering is preserved, but the current gateway/orchestration contract will need refitting because real MLflow assigns monitoring run IDs at `create_run()` time rather than letting orchestration allocate them ahead of persistence.
 
-```
+```text
 monitor.py (MODIFIED: gateway injection, MLflow default)
     ↓
 orchestration.py (MODIFIED: gateway-owned create-or-reuse monitoring run flow)
@@ -160,9 +160,15 @@ def log_json_artifact(self, run_id: str, data: dict, path: str) -> None:
 ### 4.3 What the adapter owns
 
 - Get-or-create with race-condition try/except for experiments
+- Soft-delete recovery for monitoring experiments: if MLflow returns the subject's monitoring experiment in `deleted` state, the adapter restores it because the experiment is the timeline/bookkeeping record for that subject, not disposable cache state
 - String ↔ int serialization for tags like `next_sequence_index`
 - `MlflowException` handling and normalization
 - The `from mlflow import MlflowClient` import — nowhere else in the codebase
+
+Monitoring runs and their containing monitoring experiment are treated as
+bookkeeping owned by MLflow-Monitor. For MVP, deleting a monitoring experiment
+does not mean "start a fresh timeline"; the adapter restores the soft-deleted
+experiment so the existing timeline state remains authoritative.
 
 ---
 
@@ -322,21 +328,24 @@ Use a dedicated directory for MLflow data, separate from your project root:
 # Create a dedicated store directory
 mkdir -p .mlflow-dev
 
-# Set tracking URI to use it
-export MLFLOW_TRACKING_URI=sqlite:///.mlflow-dev/mlflow.db
+# Preferred: use a local SQLite backend
+export MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db
 
-# Or for file-based (simplest):
-export MLFLOW_TRACKING_URI=.mlflow-dev/mlruns
+# File-store remains possible for temporary experiments, but MLflow now warns
+# that the filesystem backend is deprecated.
+export MLFLOW_TRACKING_URI=./.mlflow-dev/mlruns
 ```
 
 ### Development loop
 
 **Terminal 1:**
+
 ```bash
-mlflow ui --port 5000 --backend-store-uri .mlflow-dev/mlruns
+mlflow ui --port 5000 --backend-store-uri sqlite:///.mlflow-dev/mlflow.db
 ```
 
 **Terminal 2:**
+
 ```bash
 python -m mlflow_monitor.demo.setup
 mlflow-monitor run --subject churn_model --source-run <run_id_1> --baseline <run_id_1>
@@ -351,7 +360,8 @@ Open `http://localhost:5000` and see:
 - Run tags showing lifecycle_status, comparability_status, source_run_id
 - `outputs/result.json` artifact on monitoring runs containing the full run result
 
-Integration tests use the same approach with a temp directory per test session.
+Integration tests use the same SQLite-backed approach with a temp directory per
+test session.
 
 ---
 
@@ -378,7 +388,7 @@ tests/integration/
   test_mlflow_e2e.py      # full monitor.run() against real MLflow
 ```
 
-No running server needed — local file store only.
+No running server needed — local SQLite store only.
 
 Key scenarios:
 
@@ -460,6 +470,6 @@ MVP is done when:
 3. Training experiments never modified.
 4. Demo produces pass, warn, and fail results demonstrating all three comparability outcomes.
 5. All existing unit tests still pass against in-memory gateway.
-6. Integration tests pass against local file store.
+6. Integration tests pass against a local SQLite store.
 7. First-run bootstrap and later baseline reuse both work against real MLflow.
 8. CLI is optional and is not required for MVP completion this week.
