@@ -114,20 +114,20 @@ def validate_lkg_membership(timeline: Timeline, lkg: LKG) -> None:
             field="timeline_id",
         )
 
-    if lkg.run_id not in timeline.run_ids:
+    if lkg.monitoring_run_id not in timeline.monitoring_run_ids:
         raise InvariantViolation(
             code="lkg_membership_violation",
             message=f"LKG {lkg} does not belong to Timeline {timeline}",
             entity="LKG",
-            field="run_id",
+            field="monitoring_run_id",
         )
 
-    if lkg.run_id != timeline.active_lkg_run_id:
+    if lkg.monitoring_run_id != timeline.active_lkg_monitoring_run_id:
         raise InvariantViolation(
             code="lkg_membership_violation",
             message=f"LKG {lkg} does not belong to Timeline {timeline}",
             entity="LKG",
-            field="active_lkg_run_id",
+            field="active_lkg_monitoring_run_id",
         )
 
     return None
@@ -156,12 +156,15 @@ def validate_finding_to_diff_evidence(finding: Finding, diff: Diff) -> None:
             field="diff_id",
         )
 
-    if diff.run_id != finding.run_id:
+    if diff.monitoring_run_id != finding.monitoring_run_id:
         raise InvariantViolation(
             code="finding_diff_evidence_violation",
-            message=f"Diff run_id {diff.run_id} does not match Finding run_id {finding.run_id}",
+            message=(
+                f"Diff monitoring_run_id {diff.monitoring_run_id} does not "
+                f"match Finding monitoring_run_id {finding.monitoring_run_id}"
+            ),
             entity="Diff",
-            field="run_id",
+            field="monitoring_run_id",
         )
 
     return None

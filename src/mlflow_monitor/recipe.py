@@ -36,7 +36,7 @@ _ALLOWED_SECTION_FIELDS: dict[str, frozenset[str]] = {
             "source_experiment",
             "required_metrics",
             "required_artifacts",
-            "custom_reference_run_id",
+            "custom_reference_monitoring_run_id",
         }
     ),
     "contract_binding": frozenset({"contract_id"}),
@@ -83,7 +83,7 @@ class RecipeInputBinding:
         source_experiment: Optional source training experiment name.
         required_metrics: Optional metric names that must exist on the source run.
         required_artifacts: Optional artifact names that must exist on the source run.
-        custom_reference_run_id: Optional additional same-timeline reference run id
+        custom_reference_monitoring_run_id: Optional additional timeline reference monitoring run id
             used for analysis diffs. This is not the baseline reference and does
             not replace default baseline/previous/LKG comparisons.
     """
@@ -92,7 +92,7 @@ class RecipeInputBinding:
     source_experiment: str | None = None
     required_metrics: tuple[str, ...] = ()
     required_artifacts: tuple[str, ...] = ()
-    custom_reference_run_id: str | None = None
+    custom_reference_monitoring_run_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -494,9 +494,9 @@ def _parse_input_binding(section: Mapping[str, object]) -> RecipeInputBinding:
         source_experiment=_optional_string(section, "source_experiment", "input_binding"),
         required_metrics=_optional_string_tuple(section, "required_metrics", "input_binding"),
         required_artifacts=_optional_string_tuple(section, "required_artifacts", "input_binding"),
-        custom_reference_run_id=_optional_string(
+        custom_reference_monitoring_run_id=_optional_string(
             section,
-            "custom_reference_run_id",
+            "custom_reference_monitoring_run_id",
             "input_binding",
         ),
     )

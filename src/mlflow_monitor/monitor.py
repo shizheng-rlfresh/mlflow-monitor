@@ -34,10 +34,10 @@ def run(
         baseline_source_run_id=baseline_source_run_id,
         gateway=_DEFAULT_GATEWAY,
         contract_checker=DefaultContractChecker(),
-        run_id_factory=_generate_run_id,
+        monitoring_run_id_factory=_generate_monitoring_run_id,
     )
 
 
-def _generate_run_id() -> str:
+def _generate_monitoring_run_id() -> str:
     """Return a new opaque monitoring run identifier."""
-    return f"run-{uuid4().hex}"
+    return f"monitoring-run-{uuid4().hex}"

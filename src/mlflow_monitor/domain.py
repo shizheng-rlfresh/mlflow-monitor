@@ -73,6 +73,8 @@ CONTRACT_CHECK_REASON_CODE_BLOCKING = MappingProxyType(
     }
 )
 
+_MONITORING_RUN_REFERENCE_KINDS = frozenset(("baseline", "previous", "lkg", "custom"))
+
 
 @dataclass(frozen=True, slots=True)
 class ContractCheckReason:
@@ -168,22 +170,72 @@ class Baseline:
 
 
 @dataclass(frozen=True, slots=True)
+class MonitoringRunReference:
+    """Typed run-level reference captured for one monitoring run.
+
+    Attributes:
+        kind: Reference kind for the monitoring run lineage.
+        reference_run_id: Concrete training or monitoring run ID for the reference.
+    """
+
+    kind: str
+    reference_run_id: str
+
+    def __post_init__(self) -> None:
+        """Validate run-level reference shape."""
+        if self.kind not in _MONITORING_RUN_REFERENCE_KINDS:
+            raise ValueError(f"Unsupported monitoring run reference kind {self.kind!r}.")
+        if not self.reference_run_id.strip():
+            raise ValueError("MonitoringRunReference.reference_run_id must be non-empty.")
+
+    def to_dict(self) -> dict[str, str]:
+        """Serialize this run-level reference into a deterministic dictionary."""
+        return {"kind": self.kind, "reference_run_id": self.reference_run_id}
+
+
+@dataclass(frozen=True, slots=True)
+class DiffReference:
+    """Reference descriptor for one diff comparison target.
+
+    Attributes:
+        kind: The reference kind for this diff (e.g., baseline, previous, lkg).
+        reference_id: The ID of the reference entity this diff is comparing to.
+            For `baseline`, this is the pinned baseline `source_run_id`.
+            For `previous`, `lkg`, and `custom`, this is a monitoring run ID.
+            Structural references must omit the ID.
+    """
+
+    kind: DiffReferenceKind
+    reference_id: str | None
+
+    def __post_init__(self) -> None:
+        """Validate that reference identity presence matches the reference kind."""
+        if self.kind is DiffReferenceKind.STRUCTURAL:
+            if self.reference_id is not None:
+                raise ValueError("DiffReference with kind='structural' must not set reference_id.")
+            return
+
+        if self.reference_id is None or not self.reference_id.strip():
+            raise ValueError(
+                f"DiffReference with kind={self.kind.value!r} requires a non-empty reference_id."
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class Diff:
     """Objective change record between a run and one reference point.
 
     Attributes:
         diff_id: Unique identifier for the diff record.
-        run_id: The ID of the run this diff is associated with.
-        reference_run_id: The ID of the reference run this diff is comparing against, if applicable.
-        reference_kind: The kind of reference used for this diff (e.g., baseline, previous, lkg).
+        monitoring_run_id: The ID of the monitoring run this diff is associated with.
+        reference: Reference descriptor containing both reference kind and reference id.
         metric_deltas: A mapping of metric names to their delta values compared to the reference.
         metadata: A mapping of additional metadata keys to values providing context for the diff.
     """
 
     diff_id: str
-    run_id: str
-    reference_run_id: str | None
-    reference_kind: DiffReferenceKind
+    monitoring_run_id: str
+    reference: DiffReference
     metric_deltas: dict[str, float]
     metadata: dict[str, str]
 
@@ -194,7 +246,7 @@ class Finding:
 
     Attributes:
         finding_id: Unique identifier for the finding record.
-        run_id: The ID of the run this finding is associated with.
+        monitoring_run_id: The ID of the monitoring_run this finding is associated with.
         severity: The severity level of the finding (e.g., low, medium, high, critical).
         category: A string categorizing the type of issue this finding represents.
         summary: A human-readable summary describing the finding.
@@ -203,7 +255,7 @@ class Finding:
     """
 
     finding_id: str
-    run_id: str
+    monitoring_run_id: str
     severity: FindingSeverity
     category: str
     summary: str
@@ -216,7 +268,7 @@ class Run:
     """Canonical monitoring run record owned by exactly one timeline.
 
     Attributes:
-        run_id: Unique identifier for the run.
+        monitoring_run_id: Unique identifier for the monitoring run.
         timeline_id: The ID of the timeline this run belongs to.
         sequence_index: The sequential index of this run within its timeline, starting at 0 for the first run.
         subject_id: The ID of the monitored subject this run is associated with.
@@ -230,7 +282,7 @@ class Run:
         finding_ids: A tuple of finding IDs associated with this run.
     """  # noqa: E501
 
-    run_id: str
+    monitoring_run_id: str
     timeline_id: str
     sequence_index: int
     subject_id: str
@@ -250,11 +302,11 @@ class LKG:
 
     Attributes:
         timeline_id: The ID of the timeline this LKG belongs to.
-        run_id: The ID of the run currently considered last-known-good for its timeline.
+        monitoring_run_id: The ID of the monitoring run currently last-known-good for its timeline.
     """
 
     timeline_id: str
-    run_id: str
+    monitoring_run_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,15 +318,15 @@ class Timeline:
         subject_id: The ID of the monitored subject this timeline is associated with.
         monitoring_namespace: The namespace this timeline belongs to.
         baseline: The pinned baseline snapshot for this timeline.
-        run_ids: An ordered list of run IDs belonging to this timeline.
-        active_lkg_run_id: The run ID of the currently active last-known-good run for this timeline.
+        monitoring_run_ids: An ordered list of monitoring run IDs belonging to this timeline.
+        active_lkg_monitoring_run_id: The monitoring run ID of the currently active last-known-good run for this timeline.
         active_contract: The currently active comparability contract for this timeline
-    """
+    """  # noqa: E501
 
     timeline_id: str
     subject_id: str
     monitoring_namespace: str
     baseline: Baseline
-    run_ids: list[str]
-    active_lkg_run_id: str | None
+    monitoring_run_ids: list[str]
+    active_lkg_monitoring_run_id: str | None
     active_contract: Contract

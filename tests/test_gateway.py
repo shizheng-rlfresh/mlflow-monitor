@@ -8,6 +8,7 @@ from mlflow_monitor.domain import (
     ContractCheckReason,
     ContractCheckResult,
     LifecycleStatus,
+    MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
     GatewayConsistencyViolation,
@@ -31,7 +32,7 @@ def test_reserve_sequence_index_is_monotonic_per_subject() -> None:
     assert gateway.reserve_sequence_index("churn_model") == 2
 
 
-def test_get_or_create_idempotent_run_id_creates_then_reuses() -> None:
+def test_get_or_create_idempotent_monitoring_run_id_creates_then_reuses() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     key = IdempotencyKey(
         subject_id="churn_model",
@@ -45,23 +46,23 @@ def test_get_or_create_idempotent_run_id_creates_then_reuses() -> None:
         call_count["factory"] += 1
         return f"run-{call_count['factory']}"
 
-    first = gateway.get_or_create_idempotent_run_id(key, factory)
-    second = gateway.get_or_create_idempotent_run_id(key, factory)
+    first = gateway.get_or_create_idempotent_monitoring_run_id(key, factory)
+    second = gateway.get_or_create_idempotent_monitoring_run_id(key, factory)
 
     assert first == "run-1"
     assert second == first
     assert call_count["factory"] == 1
 
 
-def test_get_or_create_idempotent_run_id_diff_recipe_version_creates_new() -> None:
+def test_get_or_create_idempotent_monitoring_run_id_diff_recipe_version_creates_new() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    key_v0 = IdempotencyKey(
+    monitoring_key_v0 = IdempotencyKey(
         subject_id="churn_model",
         source_run_id="train-run-1",
         recipe_id="default",
         recipe_version="v0",
     )
-    key_v1 = IdempotencyKey(
+    monitoring_key_v1 = IdempotencyKey(
         subject_id="churn_model",
         source_run_id="train-run-1",
         recipe_id="default",
@@ -71,25 +72,29 @@ def test_get_or_create_idempotent_run_id_diff_recipe_version_creates_new() -> No
 
     def factory() -> str:
         call_count["factory"] += 1
-        return f"run-{call_count['factory']}"
+        return f"monitoring-run-{call_count['factory']}"
 
-    run_v0 = gateway.get_or_create_idempotent_run_id(key_v0, factory)
-    run_v1 = gateway.get_or_create_idempotent_run_id(key_v1, factory)
+    monitoring_run_v0 = gateway.get_or_create_idempotent_monitoring_run_id(
+        monitoring_key_v0, factory
+    )
+    monitoring_run_v1 = gateway.get_or_create_idempotent_monitoring_run_id(
+        monitoring_key_v1, factory
+    )
 
-    assert run_v0 == "run-1"
-    assert run_v1 == "run-2"
+    assert monitoring_run_v0 == "monitoring-run-1"
+    assert monitoring_run_v1 == "monitoring-run-2"
     assert call_count["factory"] == 2
 
 
-def test_get_or_create_idempotent_run_id_uses_dataclass_value_equality() -> None:
+def test_get_or_create_idempotent_monitoring_run_id_uses_dataclass_value_equality() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    first_key = IdempotencyKey(
+    monitoring_first_key = IdempotencyKey(
         subject_id="churn_model",
         source_run_id="train-run-1",
         recipe_id="default",
         recipe_version="v0",
     )
-    equivalent_key = IdempotencyKey(
+    monitoring_equivalent_key = IdempotencyKey(
         subject_id="churn_model",
         source_run_id="train-run-1",
         recipe_id="default",
@@ -99,13 +104,17 @@ def test_get_or_create_idempotent_run_id_uses_dataclass_value_equality() -> None
 
     def factory() -> str:
         call_count["factory"] += 1
-        return f"run-{call_count['factory']}"
+        return f"monitoring-run-{call_count['factory']}"
 
-    first = gateway.get_or_create_idempotent_run_id(first_key, factory)
-    second = gateway.get_or_create_idempotent_run_id(equivalent_key, factory)
+    monitoring_first = gateway.get_or_create_idempotent_monitoring_run_id(
+        monitoring_first_key, factory
+    )
+    monitoring_second = gateway.get_or_create_idempotent_monitoring_run_id(
+        monitoring_equivalent_key, factory
+    )
 
-    assert first == "run-1"
-    assert second == first
+    assert monitoring_first == "monitoring-run-1"
+    assert monitoring_second == monitoring_first
     assert call_count["factory"] == 1
 
 
@@ -134,14 +143,14 @@ def test_initialize_timeline_rejects_empty_baseline_source_run_id() -> None:
         gateway.initialize_timeline("churn_model", "")
 
 
-def test_set_and_resolve_active_lkg_run_id() -> None:
+def test_set_and_resolve_active_lkg_monitoring_run_id() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
 
-    assert gateway.resolve_active_lkg_run_id("churn_model") is None
-    gateway.set_active_lkg_run_id("churn_model", "run-2")
-    assert gateway.resolve_active_lkg_run_id("churn_model") == "run-2"
-    gateway.set_active_lkg_run_id("churn_model", None)
-    assert gateway.resolve_active_lkg_run_id("churn_model") is None
+    assert gateway.resolve_active_lkg_monitoring_run_id("churn_model") is None
+    gateway.set_active_lkg_monitoring_run_id("churn_model", "monitoring-run-2")
+    assert gateway.resolve_active_lkg_monitoring_run_id("churn_model") == "monitoring-run-2"
+    gateway.set_active_lkg_monitoring_run_id("churn_model", None)
+    assert gateway.resolve_active_lkg_monitoring_run_id("churn_model") is None
 
 
 def test_list_timeline_runs_includes_failed_by_default() -> None:
@@ -149,28 +158,30 @@ def test_list_timeline_runs_includes_failed_by_default() -> None:
     subject_id = "churn_model"
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
-        run_id="run-created",
+        monitoring_run_id="monitoring-run-created",
         lifecycle_status=LifecycleStatus.CREATED,
         sequence_index=0,
     )
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
-        run_id="run-failed",
+        monitoring_run_id="monitoring-run-failed",
         lifecycle_status=LifecycleStatus.FAILED,
         sequence_index=1,
     )
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
-        run_id="run-closed",
+        monitoring_run_id="monitoring-run-closed",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=2,
     )
 
-    run_ids = tuple(run.run_id for run in gateway.list_timeline_runs(subject_id))
+    monitoring_run_ids = tuple(
+        run.monitoring_run_id for run in gateway.list_timeline_monitoring_runs(subject_id)
+    )
 
-    assert run_ids == (
-        "run-failed",
-        "run-closed",
+    assert monitoring_run_ids == (
+        "monitoring-run-failed",
+        "monitoring-run-closed",
     )
 
 
@@ -179,26 +190,26 @@ def test_list_timeline_runs_excludes_failed_when_requested() -> None:
     subject_id = "churn_model"
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
-        run_id="run-2",
+        monitoring_run_id="monitoring-run-2",
         lifecycle_status=LifecycleStatus.FAILED,
         sequence_index=1,
     )
 
-    run_ids = tuple(
-        run.run_id
-        for run in gateway.list_timeline_runs(
+    monitoring_run_ids = tuple(
+        run.monitoring_run_id
+        for run in gateway.list_timeline_monitoring_runs(
             subject_id=subject_id,
             exclude_failed=True,
         )
     )
 
-    assert run_ids == ("run-1",)
+    assert monitoring_run_ids == ("monitoring-run-1",)
 
 
 def test_namespace_violation_raises_on_invalid_monitoring_write() -> None:
@@ -210,7 +221,7 @@ def test_namespace_violation_raises_on_invalid_monitoring_write() -> None:
     ):
         gateway.upsert_monitoring_run(
             subject_id="team/churn_model",
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             lifecycle_status=LifecycleStatus.CREATED,
             sequence_index=0,
         )
@@ -230,7 +241,7 @@ def test_resolve_source_run_id_returns_matching_raw_run_id() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-1",
+        source_run_id="train-run-1",
         source_experiment="training/churn",
         metrics={"f1": 0.91},
         artifacts=("metrics.json",),
@@ -253,7 +264,7 @@ def test_resolve_source_run_id_uses_runtime_source_run_id_for_reserved_token() -
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-2",
+        source_run_id="train-run-2",
         source_experiment=None,
         metrics={"f1": 0.88},
         artifacts=("metrics.json",),
@@ -277,7 +288,7 @@ def test_resolve_source_run_id_allows_omitted_source_experiment_filter() -> None
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-3",
+        source_run_id="train-run-3",
         source_experiment="training/churn",
         metrics={"f1": 0.89},
         artifacts=("metrics.json",),
@@ -300,7 +311,7 @@ def test_resolve_source_run_id_returns_none_for_missing_or_mismatched_run() -> N
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-1",
+        source_run_id="train-run-1",
         source_experiment="training/churn",
         metrics={"f1": 0.91},
         artifacts=("metrics.json",),
@@ -332,7 +343,7 @@ def test_missing_required_metrics_returns_missing_names_in_request_order() -> No
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-1",
+        source_run_id="train-run-1",
         source_experiment="training/churn",
         metrics={"auc": 0.95},
         artifacts=("metrics.json",),
@@ -343,7 +354,7 @@ def test_missing_required_metrics_returns_missing_names_in_request_order() -> No
     )
 
     missing = gateway.get_missing_source_run_metrics(
-        run_id="train-run-1",
+        source_run_id="train-run-1",
         required_metrics=("f1", "auc", "precision"),
     )
 
@@ -354,7 +365,7 @@ def test_missing_required_artifacts_returns_missing_names_in_request_order() -> 
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-1",
+        source_run_id="train-run-1",
         source_experiment="training/churn",
         metrics={"auc": 0.95},
         artifacts=("metrics.json", "model.pkl"),
@@ -365,37 +376,42 @@ def test_missing_required_artifacts_returns_missing_names_in_request_order() -> 
     )
 
     missing = gateway.get_missing_source_run_artifacts(
-        run_id="train-run-1",
+        source_run_id="train-run-1",
         required_artifacts=("schema.json", "metrics.json"),
     )
 
     assert missing == ("schema.json",)
 
 
-def test_resolve_timeline_run_id_requires_same_subject_timeline() -> None:
+def test_resolve_timeline_monitoring_run_id_requires_same_subject_timeline() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
     gateway.upsert_monitoring_run(
         subject_id="fraud_model",
-        run_id="run-foreign",
+        monitoring_run_id="monitoring-run-foreign",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
 
-    assert gateway.resolve_timeline_run_id("churn_model", "run-1") == "run-1"
-    assert gateway.resolve_timeline_run_id("churn_model", "run-foreign") is None
+    assert (
+        gateway.resolve_timeline_monitoring_run_id("churn_model", "monitoring-run-1")
+        == "monitoring-run-1"
+    )
+    assert (
+        gateway.resolve_timeline_monitoring_run_id("churn_model", "monitoring-run-foreign") is None
+    )
 
 
 def test_get_source_run_contract_evidence_returns_expected_snapshot() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-1",
+        source_run_id="train-run-1",
         source_experiment="training/churn",
         metrics={"f1": 0.91},
         artifacts=("metrics.json",),
@@ -431,13 +447,13 @@ def test_upsert_monitoring_run_comparability_status_is_derived_from_contract_che
 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
     )
 
-    stored = gateway.get_monitoring_run("churn_model", "run-1")
+    stored = gateway.get_monitoring_run("churn_model", "monitoring-run-1")
 
     assert stored is not None
     assert stored.comparability_status is ComparabilityStatus.WARN
@@ -458,20 +474,23 @@ def test_upsert_monitoring_run_stores_contract_check_outputs() -> None:
 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
     )
 
-    stored = gateway.get_monitoring_run("churn_model", "run-1")
+    stored = gateway.get_monitoring_run(
+        "churn_model",
+        "monitoring-run-1",
+    )
 
     assert stored is not None
     assert stored.comparability_status is ComparabilityStatus.WARN
     assert stored.contract_check_result == result
 
 
-def test_upsert_monitoring_run_stores_reference_run_ids() -> None:
+def test_upsert_monitoring_run_stores_references() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     result = ContractCheckResult(
         status=ComparabilityStatus.WARN,
@@ -486,17 +505,23 @@ def test_upsert_monitoring_run_stores_reference_run_ids() -> None:
 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
-        reference_run_ids={"baseline": "train-run-baseline", "lkg": "run-lkg"},
+        references=(
+            MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+            MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+        ),
     )
 
-    stored = gateway.get_monitoring_run("churn_model", "run-1")
+    stored = gateway.get_monitoring_run("churn_model", "monitoring-run-1")
 
     assert stored is not None
-    assert stored.reference_run_ids == {"baseline": "train-run-baseline", "lkg": "run-lkg"}
+    assert stored.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+        MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+    )
 
 
 def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_status_changes() -> None:
@@ -514,27 +539,33 @@ def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_statu
 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
-        reference_run_ids={"baseline": "train-run-baseline", "lkg": "run-lkg"},
+        references=(
+            MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+            MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+        ),
     )
 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
 
-    stored = gateway.get_monitoring_run("churn_model", "run-1")
+    stored = gateway.get_monitoring_run("churn_model", "monitoring-run-1")
 
     assert stored is not None
     assert stored.lifecycle_status is LifecycleStatus.CLOSED
     assert stored.comparability_status is ComparabilityStatus.FAIL
     assert stored.contract_check_result == result
-    assert stored.reference_run_ids == {"baseline": "train-run-baseline", "lkg": "run-lkg"}
+    assert stored.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+        MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+    )
 
 
 def test_upsert_monitoring_run_rejects_changed_sequence_index() -> None:
@@ -542,7 +573,7 @@ def test_upsert_monitoring_run_rejects_changed_sequence_index() -> None:
 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CREATED,
         sequence_index=0,
     )
@@ -550,7 +581,7 @@ def test_upsert_monitoring_run_rejects_changed_sequence_index() -> None:
     with pytest.raises(GatewayConsistencyViolation) as exc:
         gateway.upsert_monitoring_run(
             subject_id="churn_model",
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             lifecycle_status=LifecycleStatus.CREATED,
             sequence_index=1,
         )
@@ -585,7 +616,7 @@ def test_upsert_monitoring_run_reports_all_immutable_field_overrides() -> None:
 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=original_result,
@@ -594,7 +625,7 @@ def test_upsert_monitoring_run_reports_all_immutable_field_overrides() -> None:
     with pytest.raises(GatewayConsistencyViolation) as exc:
         gateway.upsert_monitoring_run(
             subject_id="churn_model",
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             lifecycle_status=LifecycleStatus.CLOSED,
             sequence_index=1,
             contract_check_result=replacement_result,
@@ -633,7 +664,7 @@ def test_upsert_monitoring_run_rejects_changed_contract_check_result_after_initi
 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=original_result,
@@ -642,7 +673,7 @@ def test_upsert_monitoring_run_rejects_changed_contract_check_result_after_initi
     with pytest.raises(GatewayConsistencyViolation) as exc:
         gateway.upsert_monitoring_run(
             subject_id="churn_model",
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             lifecycle_status=LifecycleStatus.CHECKED,
             sequence_index=0,
             contract_check_result=replacement_result,

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus
+from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus, MonitoringRunReference
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +49,7 @@ class MonitorRunResult:
     """Canonical SDK/CLI run result envelope.
 
     Attributes:
-        run_id: Unique monitoring run identifier.
+        monitoring_run_id: Unique monitoring run identifier.
         subject_id: Monitored subject identifier.
         timeline_id: Timeline identifier if known for this run.
         lifecycle_status: Current workflow lifecycle status.
@@ -57,11 +57,11 @@ class MonitorRunResult:
         summary: Optional structured summary payload.
         finding_ids: Finding identifiers associated with the run.
         diff_ids: Diff identifiers associated with the run.
-        reference_run_ids: Reference kind to run ID mapping used in analysis.
+        references: Ordered typed references used in analysis.
         error: Structured error payload for failed runs only.
     """
 
-    run_id: str
+    monitoring_run_id: str
     subject_id: str
     timeline_id: str | None
     lifecycle_status: LifecycleStatus
@@ -69,7 +69,7 @@ class MonitorRunResult:
     summary: Mapping[str, str] | None
     finding_ids: tuple[str, ...]
     diff_ids: tuple[str, ...]
-    reference_run_ids: Mapping[str, str]
+    references: tuple[MonitoringRunReference, ...]
     error: MonitorRunError | None = None
 
     def __post_init__(self) -> None:
@@ -100,14 +100,14 @@ class MonitorRunResult:
         )
         object.__setattr__(
             self,
-            "reference_run_ids",
-            MappingProxyType(dict(self.reference_run_ids)),
+            "references",
+            tuple(self.references),
         )
 
     def to_dict(self) -> dict[str, object]:
         """Serialize this result envelope into a deterministic dictionary."""
         return {
-            "run_id": self.run_id,
+            "monitoring_run_id": self.monitoring_run_id,
             "subject_id": self.subject_id,
             "timeline_id": self.timeline_id,
             "lifecycle_status": self.lifecycle_status.value,
@@ -117,6 +117,6 @@ class MonitorRunResult:
             "summary": None if self.summary is None else dict(self.summary),
             "finding_ids": list(self.finding_ids),
             "diff_ids": list(self.diff_ids),
-            "reference_run_ids": dict(self.reference_run_ids),
+            "references": [reference.to_dict() for reference in self.references],
             "error": None if self.error is None else self.error.to_dict(),
         }

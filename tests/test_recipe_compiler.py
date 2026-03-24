@@ -23,7 +23,7 @@ def make_valid_recipe() -> dict[str, object]:
             "source_experiment": "training/churn",
             "required_metrics": ["f1", "auc"],
             "required_artifacts": ["metrics.json"],
-            "custom_reference_run_id": "run-custom-1",
+            "custom_reference_monitoring_run_id": "monitoring-run-custom-1",
         },
         "contract_binding": {"contract_id": "contract-default"},
         "metrics_slices": {"metrics": ["f1", "auc"], "slices": ["region", "segment"]},
@@ -64,7 +64,7 @@ def test_compile_recipe_v0_lite_compiles_user_recipe_into_run_plan() -> None:
     assert compiled.input.source_experiment == "training/churn"
     assert compiled.input.required_metrics == ("f1", "auc")
     assert compiled.input.required_artifacts == ("metrics.json",)
-    assert compiled.input.custom_reference_run_id == "run-custom-1"
+    assert compiled.input.custom_reference_monitoring_run_id == "monitoring-run-custom-1"
     assert compiled.contract.contract_id == "contract-default"
     assert compiled.analysis.metrics == ("f1", "auc")
     assert compiled.analysis.slices == ("region", "segment")
@@ -85,7 +85,7 @@ def test_compile_recipe_v0_lite_compiles_system_default_recipe() -> None:
     assert compiled.input.source_experiment is None
     assert compiled.input.required_metrics == ()
     assert compiled.input.required_artifacts == ()
-    assert compiled.input.custom_reference_run_id is None
+    assert compiled.input.custom_reference_monitoring_run_id is None
     assert compiled.contract.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
     assert compiled.analysis.metrics == ()
     assert compiled.analysis.slices == ()
@@ -128,7 +128,7 @@ def test_compile_recipe_v0_lite_preserves_omitted_optional_fields() -> None:
     assert compiled.input.source_experiment is None
     assert compiled.input.required_metrics == ()
     assert compiled.input.required_artifacts == ()
-    assert compiled.input.custom_reference_run_id is None
+    assert compiled.input.custom_reference_monitoring_run_id is None
     assert compiled.analysis.metrics == ()
     assert compiled.analysis.slices == ()
     assert compiled.analysis.finding_policy_profile is None
