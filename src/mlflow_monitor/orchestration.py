@@ -38,17 +38,30 @@ _OWNED_FAILURES = (
 
 
 @dataclass(frozen=True, slots=True)
-class _OrchestrationState:
-    """Resolved orchestration inputs and run state for one monitoring request."""
+class OrchestrationState:
+    """Resolved orchestration inputs and run state for one monitoring request.
+
+    Attributes:
+        subject_id: The ID of the monitored subject this run is associated with.
+        source_run_id: The original run ID from the training system that produced this run.
+        baseline_source_run_id: The source run ID of the baseline this run is compared against
+        compiled_plan: The compiled recipe plan for this run.
+        resolved_contract: The resolved contract for this run.
+        monitoring_run_id: The unique ID of the monitoring run to be executed.
+        existing_monitoring_run: The existing monitoring run record, if any.
+        is_new_monitoring_run: Whether this is a new monitoring run.
+        sequence_index: The sequential index of this run within its timeline,
+                        starting at 0 for the first run.
+    """
 
     subject_id: str
     source_run_id: str
     baseline_source_run_id: str | None
     compiled_plan: CompiledRunPlan
     resolved_contract: Contract
-    run_id: str
-    existing_run: MonitoringRunRecord | None
-    is_new_run: bool
+    monitoring_run_id: str
+    existing_monitoring_run: MonitoringRunRecord | None
+    is_new_monitoring_run: bool
     sequence_index: int
 
 
@@ -59,7 +72,7 @@ def run_orchestration(
     baseline_source_run_id: str | None,
     gateway: MonitoringGateway,
     contract_checker: ContractChecker,
-    run_id_factory: Callable[[], str],
+    monitoring_run_id_factory: Callable[[], str],
 ) -> MonitorRunResult:
     """Execute the orchestration for one monitoring run, including prepare and check stages.
 
@@ -69,12 +82,12 @@ def run_orchestration(
         baseline_source_run_id: The source run ID of the baseline this run is compared against
         gateway: The monitoring gateway to use for persistence during orchestration.
         contract_checker: The contract checker to use for executing the contract check stage.
-        run_id_factory: A callable that produces new unique run IDs for monitoring runs.
+        monitoring_run_id_factory: A callable that produces new unique monitoring run IDs for monitoring runs.
 
     Returns:
         The result of the monitoring run execution, including comparability status and any findings.
 
-    """
+    """  # noqa: E501
     compiled_plan, resolved_contract = _resolve_startup()
     state_or_result = _resolve_orchestration_state(
         subject_id=subject_id,
@@ -83,16 +96,16 @@ def run_orchestration(
         compiled_plan=compiled_plan,
         resolved_contract=resolved_contract,
         gateway=gateway,
-        run_id_factory=run_id_factory,
+        monitoring_run_id_factory=monitoring_run_id_factory,
     )
     if isinstance(state_or_result, MonitorRunResult):
         return state_or_result
 
-    prepare_outcome = _run_prepare_slice(state_or_result, gateway)
+    prepare_outcome = _run_prepare_monitoring_run_slice(state_or_result, gateway)
     if isinstance(prepare_outcome, MonitorRunResult):
         return prepare_outcome
 
-    return _run_check_slice(
+    return _run_check_monitoring_run_slice(
         state=state_or_result,
         prepared_context=prepare_outcome,
         gateway=gateway,
@@ -121,8 +134,8 @@ def _resolve_orchestration_state(
     compiled_plan: CompiledRunPlan,
     resolved_contract: Contract,
     gateway: MonitoringGateway,
-    run_id_factory: Callable[[], str],
-) -> _OrchestrationState | MonitorRunResult:
+    monitoring_run_id_factory: Callable[[], str],
+) -> OrchestrationState | MonitorRunResult:
     """Resolve idempotency state and apply rerun short-circuit policy."""
     idempotency_key = IdempotencyKey(
         subject_id=subject_id,
@@ -130,88 +143,92 @@ def _resolve_orchestration_state(
         recipe_id=SYSTEM_DEFAULT_RECIPE_ID,
         recipe_version=compiled_plan.identity.recipe_version,
     )
-    run_id = gateway.get_or_create_idempotent_run_id(idempotency_key, run_id_factory)
-    existing_run = gateway.get_monitoring_run(subject_id, run_id)
-    is_new_run = existing_run is None
-    sequence_index = (
-        gateway.reserve_sequence_index(subject_id) if is_new_run else existing_run.sequence_index
+    monitoring_run_id = gateway.get_or_create_idempotent_monitoring_run_id(
+        idempotency_key, monitoring_run_id_factory
     )
-    state = _OrchestrationState(
+    existing_monitoring_run = gateway.get_monitoring_run(subject_id, monitoring_run_id)
+    is_new_monitoring_run = existing_monitoring_run is None
+    sequence_index = (
+        gateway.reserve_sequence_index(subject_id)
+        if is_new_monitoring_run
+        else existing_monitoring_run.sequence_index
+    )
+    state = OrchestrationState(
         subject_id=subject_id,
         source_run_id=source_run_id,
         baseline_source_run_id=baseline_source_run_id,
         compiled_plan=compiled_plan,
         resolved_contract=resolved_contract,
-        run_id=run_id,
-        existing_run=existing_run,
-        is_new_run=is_new_run,
+        monitoring_run_id=monitoring_run_id,
+        existing_monitoring_run=existing_monitoring_run,
+        is_new_monitoring_run=is_new_monitoring_run,
         sequence_index=sequence_index,
     )
-    return _short_circuit_existing_run(state, gateway)
+    return _short_circuit_existing_monitoring_run(state, gateway)
 
 
-def _short_circuit_existing_run(
-    state: _OrchestrationState,
+def _short_circuit_existing_monitoring_run(
+    state: OrchestrationState,
     gateway: MonitoringGateway,
-) -> _OrchestrationState | MonitorRunResult:
+) -> OrchestrationState | MonitorRunResult:
     """Return an existing-run result early when idempotency policy requires it."""
-    if state.existing_run is None:
+    if state.existing_monitoring_run is None:
         return state
 
-    if state.existing_run.lifecycle_status is LifecycleStatus.FAILED:
-        return _build_failure_result(
+    if state.existing_monitoring_run.lifecycle_status is LifecycleStatus.FAILED:
+        return _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
-            run_id=state.run_id,
+            monitoring_run_id=state.monitoring_run_id,
             stage="prepare",
-            error=_build_terminal_failed_rerun_error(
+            error=_build_terminal_failed_monitoring_run_rerun_error(
                 subject_id=state.subject_id,
-                run_id=state.run_id,
+                monitoring_run_id=state.monitoring_run_id,
             ),
             gateway=gateway,
         )
 
-    if state.existing_run.contract_check_result is None:
+    if state.existing_monitoring_run.contract_check_result is None:
         return state
 
-    replay_error = _validate_checked_rerun_inputs(
+    replay_error = _validate_checked_monitoring_run_rerun_inputs(
         subject_id=state.subject_id,
         baseline_source_run_id=state.baseline_source_run_id,
         source_experiment=state.compiled_plan.input.source_experiment,
         gateway=gateway,
     )
     if replay_error is not None:
-        return _build_failure_result(
+        return _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
-            run_id=state.run_id,
+            monitoring_run_id=state.monitoring_run_id,
             stage="prepare",
             error=replay_error,
             gateway=gateway,
         )
 
-    return _build_existing_checked_result(
+    return _build_existing_checked_monitoring_run_result(
         subject_id=state.subject_id,
-        run_id=state.run_id,
-        existing_run=state.existing_run,
+        monitoring_run_id=state.monitoring_run_id,
+        existing_monitoring_run=state.existing_monitoring_run,
         gateway=gateway,
     )
 
 
-def _run_prepare_slice(
-    state: _OrchestrationState,
+def _run_prepare_monitoring_run_slice(
+    state: OrchestrationState,
     gateway: MonitoringGateway,
 ) -> PreparedContext | MonitorRunResult:
     """Run the prepare slice, including persistence and failure normalization."""
-    if state.is_new_run:
+    if state.is_new_monitoring_run:
         gateway.upsert_monitoring_run(
             subject_id=state.subject_id,
-            run_id=state.run_id,
+            monitoring_run_id=state.monitoring_run_id,
             lifecycle_status=LifecycleStatus.CREATED,
             sequence_index=state.sequence_index,
         )
 
     try:
         prepared_context = prepare_run_context(
-            run_id=state.run_id,
+            monitoring_run_id=state.monitoring_run_id,
             subject_id=state.subject_id,
             compiled_plan=state.compiled_plan,
             resolved_contract=state.resolved_contract,
@@ -222,22 +239,25 @@ def _run_prepare_slice(
     except _OWNED_FAILURES as exc:
         gateway.upsert_monitoring_run(
             subject_id=state.subject_id,
-            run_id=state.run_id,
+            monitoring_run_id=state.monitoring_run_id,
             lifecycle_status=LifecycleStatus.FAILED,
             sequence_index=state.sequence_index,
         )
-        return _build_failure_result(
+        return _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
-            run_id=state.run_id,
+            monitoring_run_id=state.monitoring_run_id,
             stage="prepare",
             error=exc,
             gateway=gateway,
         )
 
-    if state.existing_run is None or state.existing_run.lifecycle_status is LifecycleStatus.CREATED:
+    if (
+        state.existing_monitoring_run is None
+        or state.existing_monitoring_run.lifecycle_status is LifecycleStatus.CREATED
+    ):
         gateway.upsert_monitoring_run(
             subject_id=state.subject_id,
-            run_id=state.run_id,
+            monitoring_run_id=state.monitoring_run_id,
             lifecycle_status=LifecycleStatus.PREPARED,
             sequence_index=state.sequence_index,
         )
@@ -245,20 +265,20 @@ def _run_prepare_slice(
     return prepared_context
 
 
-def _run_check_slice(
+def _run_check_monitoring_run_slice(
     *,
-    state: _OrchestrationState,
+    state: OrchestrationState,
     prepared_context: PreparedContext,
     gateway: MonitoringGateway,
     contract_checker: ContractChecker,
 ) -> MonitorRunResult:
     """Run the check slice, including persistence and success replay handling."""
-    existing_run = gateway.get_monitoring_run(state.subject_id, state.run_id)
+    existing_run = gateway.get_monitoring_run(state.subject_id, state.monitoring_run_id)
     if existing_run is not None and existing_run.contract_check_result is not None:
-        return _build_existing_checked_result(
+        return _build_existing_checked_monitoring_run_result(
             subject_id=state.subject_id,
-            run_id=state.run_id,
-            existing_run=existing_run,
+            monitoring_run_id=state.monitoring_run_id,
+            existing_monitoring_run=existing_run,
             gateway=gateway,
         )
 
@@ -271,13 +291,13 @@ def _run_check_slice(
     except _OWNED_FAILURES as exc:
         gateway.upsert_monitoring_run(
             subject_id=state.subject_id,
-            run_id=state.run_id,
+            monitoring_run_id=state.monitoring_run_id,
             lifecycle_status=LifecycleStatus.FAILED,
             sequence_index=state.sequence_index,
         )
-        return _build_failure_result(
+        return _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
-            run_id=state.run_id,
+            monitoring_run_id=state.monitoring_run_id,
             stage="check",
             error=exc,
             gateway=gateway,
@@ -285,25 +305,25 @@ def _run_check_slice(
 
     gateway.upsert_monitoring_run(
         subject_id=state.subject_id,
-        run_id=state.run_id,
+        monitoring_run_id=state.monitoring_run_id,
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=state.sequence_index,
         contract_check_result=contract_check_result,
         reference_run_ids=_build_reference_run_ids(prepared_context),
     )
-    return _build_success_result(
+    return _build_success_monitoring_run_result(
         subject_id=state.subject_id,
-        run_id=state.run_id,
+        monitoring_run_id=state.monitoring_run_id,
         prepared_context=prepared_context,
         contract_check_result=contract_check_result,
         gateway=gateway,
     )
 
 
-def _build_success_result(
+def _build_success_monitoring_run_result(
     *,
     subject_id: str,
-    run_id: str,
+    monitoring_run_id: str,
     prepared_context,
     contract_check_result: ContractCheckResult,
     gateway: MonitoringGateway,
@@ -312,7 +332,7 @@ def _build_success_result(
 
     Args:
         subject_id: The ID of the monitored subject this run is associated with.
-        run_id: The ID of the monitoring run.
+        monitoring_run_id: The ID of the monitoring run.
         prepared_context: The prepared context produced by the prepare stage for this run.
         contract_check_result: The result of the contract check stage for this run.
         gateway: The monitoring gateway to use for retrieving any additional information needed.
@@ -322,7 +342,7 @@ def _build_success_result(
     """
     timeline_state = gateway.get_timeline_state(subject_id)
     return MonitorRunResult(
-        run_id=run_id,
+        monitoring_run_id=monitoring_run_id,
         subject_id=subject_id,
         timeline_id=None if timeline_state is None else timeline_state.timeline_id,
         lifecycle_status=LifecycleStatus.CHECKED,
@@ -335,19 +355,19 @@ def _build_success_result(
     )
 
 
-def _build_existing_checked_result(
+def _build_existing_checked_monitoring_run_result(
     *,
     subject_id: str,
-    run_id: str,
-    existing_run: MonitoringRunRecord,
+    monitoring_run_id: str,
+    existing_monitoring_run: MonitoringRunRecord,
     gateway: MonitoringGateway,
 ) -> MonitorRunResult:
     """Build a success result for an already checked idempotent run.
 
     Args:
         subject_id: The ID of the monitored subject this run is associated with.
-        run_id: The ID of the monitoring run.
-        existing_run: The previously persisted monitoring run record for this run.
+        monitoring_run_id: The ID of the monitoring run.
+        existing_monitoring_run: The previously persisted monitoring run record for this run.
         gateway: The monitoring gateway to use for retrieving timeline information.
 
     Returns:
@@ -355,25 +375,25 @@ def _build_existing_checked_result(
     """
     timeline_state = gateway.get_timeline_state(subject_id)
     return MonitorRunResult(
-        run_id=run_id,
+        monitoring_run_id=monitoring_run_id,
         subject_id=subject_id,
         timeline_id=None if timeline_state is None else timeline_state.timeline_id,
         lifecycle_status=LifecycleStatus.CHECKED,
-        comparability_status=existing_run.contract_check_result.status
-        if existing_run.contract_check_result is not None
+        comparability_status=existing_monitoring_run.contract_check_result.status
+        if existing_monitoring_run.contract_check_result is not None
         else None,
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        reference_run_ids=existing_run.reference_run_ids,
+        reference_run_ids=existing_monitoring_run.reference_run_ids,
         error=None,
     )
 
 
-def _build_failure_result(
+def _build_failure_monitoring_run_result(
     *,
     subject_id: str,
-    run_id: str,
+    monitoring_run_id: str,
     stage: str,
     error: Exception,
     gateway: MonitoringGateway,
@@ -382,7 +402,7 @@ def _build_failure_result(
 
     Args:
         subject_id: The ID of the monitored subject this run is associated with.
-        run_id: The ID of the monitoring run.
+        monitoring_run_id: The ID of the monitoring run.
         stage: The stage during which the error occurred (e.g., "prepare" or "check").
         error: The exception raised during execution.
         gateway: The monitoring gateway to use for retrieving any additional information needed.
@@ -392,7 +412,7 @@ def _build_failure_result(
     """
     timeline_state = gateway.get_timeline_state(subject_id)
     return MonitorRunResult(
-        run_id=run_id,
+        monitoring_run_id=monitoring_run_id,
         subject_id=subject_id,
         timeline_id=None if timeline_state is None else timeline_state.timeline_id,
         lifecycle_status=LifecycleStatus.FAILED,
@@ -421,12 +441,12 @@ def _build_reference_run_ids(prepared_context) -> dict[str, str]:
             contract check.
     """
     reference_run_ids = {"baseline": prepared_context.baseline_source_run_id}
-    if prepared_context.previous_run_id is not None:
-        reference_run_ids["previous"] = prepared_context.previous_run_id
-    if prepared_context.active_lkg_run_id is not None:
-        reference_run_ids["lkg"] = prepared_context.active_lkg_run_id
-    if prepared_context.custom_reference_run_id is not None:
-        reference_run_ids["custom"] = prepared_context.custom_reference_run_id
+    if prepared_context.previous_monitoring_run_id is not None:
+        reference_run_ids["previous"] = prepared_context.previous_monitoring_run_id
+    if prepared_context.active_lkg_monitoring_run_id is not None:
+        reference_run_ids["lkg"] = prepared_context.active_lkg_monitoring_run_id
+    if prepared_context.custom_reference_monitoring_run_id is not None:
+        reference_run_ids["custom"] = prepared_context.custom_reference_monitoring_run_id
     return reference_run_ids
 
 
@@ -463,26 +483,34 @@ def _error_details(error: Exception) -> dict[str, str] | None:
     return normalized or None
 
 
-def _build_terminal_failed_rerun_error(
+def _build_terminal_failed_monitoring_run_rerun_error(
     *,
     subject_id: str,
-    run_id: str,
+    monitoring_run_id: str,
 ) -> TerminalRunRetryError:
-    """Build a deterministic error for duplicate requests targeting failed runs."""
+    """Build a deterministic error for duplicate requests targeting failed runs.
+
+    Args:
+        subject_id: The ID of the monitored subject this run is associated with.
+        monitoring_run_id: The ID of the monitoring run.
+
+    Returns:
+        A deterministic error for duplicate requests targeting failed runs.
+    """
     return TerminalRunRetryError(
         code="idempotent_run_retry_failed_terminal",
         message=(
-            f"Cannot retry monitoring run {run_id} for subject_id={subject_id}: "
+            f"Cannot retry monitoring run {monitoring_run_id} for subject_id={subject_id}: "
             "the idempotent run is already in terminal FAILED state."
         ),
         details=(
             ("subject_id", subject_id),
-            ("run_id", run_id),
+            ("monitoring_run_id", monitoring_run_id),
         ),
     )
 
 
-def _validate_checked_rerun_inputs(
+def _validate_checked_monitoring_run_rerun_inputs(
     *,
     subject_id: str,
     baseline_source_run_id: str | None,
