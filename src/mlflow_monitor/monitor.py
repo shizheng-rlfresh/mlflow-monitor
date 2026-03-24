@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 from mlflow_monitor.contract_checker import DefaultContractChecker
 from mlflow_monitor.gateway import GatewayConfig, InMemoryMonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
@@ -34,10 +32,4 @@ def run(
         baseline_source_run_id=baseline_source_run_id,
         gateway=_DEFAULT_GATEWAY,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=_generate_monitoring_run_id,
     )
-
-
-def _generate_monitoring_run_id() -> str:
-    """Return a new opaque monitoring run identifier."""
-    return f"monitoring-run-{uuid4().hex}"
