@@ -173,8 +173,11 @@ class Diff:
 
     Attributes:
         diff_id: Unique identifier for the diff record.
-        monitoriing_run_id: The ID of the monitoring run this diff is associated with.
-        reference_source_run_id: The ID of the reference source run diff is comparing to.
+        monitoring_run_id: The ID of the monitoring run this diff is associated with.
+        reference_id: The ID of the reference entity this diff is comparing to.
+            For `baseline`, this is the pinned baseline `source_run_id`.
+            For `previous`, `lkg`, and `custom`, this is a monitoring run ID.
+            The concrete ID space is determined by `reference_kind`.
         reference_kind: The kind of reference used for this diff (e.g., baseline, previous, lkg).
         metric_deltas: A mapping of metric names to their delta values compared to the reference.
         metadata: A mapping of additional metadata keys to values providing context for the diff.
@@ -182,7 +185,7 @@ class Diff:
 
     diff_id: str
     monitoring_run_id: str
-    reference_source_run_id: str | None
+    reference_id: str | None
     reference_kind: DiffReferenceKind
     metric_deltas: dict[str, float]
     metadata: dict[str, str]

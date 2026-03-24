@@ -60,7 +60,7 @@ def test_canonical_entities_can_be_constructed() -> None:
     diff = Diff(
         diff_id="diff-1",
         monitoring_run_id="monitoring-run-1",
-        reference_source_run_id="train-run-0",
+        reference_id="train-run-0",
         reference_kind=DiffReferenceKind.BASELINE,
         metric_deltas={"f1": -0.02},
         metadata={"window": "full"},
