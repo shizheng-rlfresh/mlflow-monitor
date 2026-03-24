@@ -74,9 +74,7 @@ def test_experiment_tag_round_trip(tracking_uri: str, artifact_root_uri: str) ->
 
     client.set_experiment_tag(experiment_id, "monitoring.latest_run_id", "run-123")
 
-    assert client.get_experiment_tags(experiment_id) == {
-        "monitoring.latest_run_id": "run-123"
-    }
+    assert client.get_experiment_tags(experiment_id) == {"monitoring.latest_run_id": "run-123"}
 
 
 def test_create_run_and_read_run_data(tracking_uri: str, artifact_root_uri: str) -> None:
