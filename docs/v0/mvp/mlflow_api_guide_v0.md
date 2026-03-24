@@ -20,14 +20,15 @@ from mlflow import MlflowClient
 ### Initialization
 
 ```python
-client = MlflowClient()                              # uses MLFLOW_TRACKING_URI or ./mlruns
+client = MlflowClient()                              # uses MLFLOW_TRACKING_URI or local default
 client = MlflowClient("http://localhost:5000")        # explicit tracking server
 client = MlflowClient(tracking_uri="databricks")      # Databricks-managed
+client = MlflowClient(tracking_uri="sqlite:///./mlflow.db")  # local SQLite store
 ```
 
 When `tracking_uri` is not provided, the client falls back to:
 1. `MLFLOW_TRACKING_URI` environment variable
-2. `./mlruns` (local file store)
+2. MLflow's local default backend (historically `./mlruns`)
 
 This means our gateway works with any backend without needing to know or care which one the user has configured.
 
@@ -233,7 +234,7 @@ while True:
 ## Compatibility
 
 Target `mlflow>=2.1,<4` for broad compatibility. Core `MlflowClient` tracking methods have been stable since MLflow 2.0 and work identically across:
-- Local file store (`./mlruns/`)
+- Local SQLite store (`sqlite:///./mlflow.db`)
 - Local/remote tracking server (`mlflow server`)
 - Databricks-managed MLflow
 

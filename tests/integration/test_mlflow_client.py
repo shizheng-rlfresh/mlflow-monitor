@@ -14,8 +14,8 @@ from mlflow_monitor.mlflow_client import MonitorMLflowClient
 
 @pytest.fixture
 def tracking_uri(tmp_path: Path) -> str:
-    """Return a pytest-managed local MLflow file store path."""
-    return str(tmp_path / "mlruns")
+    """Return a pytest-managed local MLflow SQLite tracking URI."""
+    return f"sqlite:///{tmp_path / 'mlflow.db'}"
 
 
 def test_get_experiment_id_by_name_returns_none_before_creation(tracking_uri: str) -> None:
