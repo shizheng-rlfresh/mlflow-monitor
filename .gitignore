@@ -219,6 +219,10 @@ spec.md
 # macOS
 .DS_Store
 
+# Local MLflow state
+mlruns/
+.mlflow-dev/
+
 
 # temp file types
 .csv

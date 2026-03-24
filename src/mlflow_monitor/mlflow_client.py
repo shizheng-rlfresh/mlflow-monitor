@@ -52,15 +52,26 @@ class MonitorMLflowClient:
         """
         self._client = MlflowClient(tracking_uri=tracking_uri)
 
-    def get_or_create_experiment(self, name: str) -> str:
+    def get_or_create_experiment(
+        self,
+        name: str,
+        artifact_location: str | None = None,
+    ) -> str:
         """Return an experiment id, creating the experiment if needed.
 
         This wrapper normalizes the common create race where another actor
         creates the experiment between the local existence check and the
-        `create_experiment()` call.
+        `create_experiment()` call. Artifact location only applies when the
+        experiment is created for the first time; if the experiment already
+        exists, MLflow preserves the existing artifact root and the provided
+        `artifact_location` is ignored.
 
         Args:
             name: Experiment name to fetch or create.
+            artifact_location: Optional MLflow artifact root to apply on first
+                creation. This is mainly useful for callers that need local
+                artifact placement to stay inside a dedicated temp directory,
+                such as integration tests.
 
         Returns:
             The stable MLflow experiment id as a string.
@@ -75,7 +86,10 @@ class MonitorMLflowClient:
             return experiment_id
 
         try:
-            return self._client.create_experiment(name)
+            return self._client.create_experiment(
+                name,
+                artifact_location=artifact_location,
+            )
         except MlflowException as exc:
             # Duplicate-create races are normal for get-or-create semantics.
             if exc.error_code != "RESOURCE_ALREADY_EXISTS":

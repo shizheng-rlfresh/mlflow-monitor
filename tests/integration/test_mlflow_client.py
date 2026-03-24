@@ -18,25 +18,59 @@ def tracking_uri(tmp_path: Path) -> str:
     return f"sqlite:///{tmp_path / 'mlflow.db'}"
 
 
+@pytest.fixture
+def artifact_root_uri(tmp_path: Path) -> str:
+    """Return a pytest-managed artifact root for MLflow experiments."""
+    return (tmp_path / "artifacts").as_uri()
+
+
 def test_get_experiment_id_by_name_returns_none_before_creation(tracking_uri: str) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
 
     assert client.get_experiment_id_by_name("churn-monitoring") is None
 
 
-def test_get_or_create_experiment_creates_then_reuses(tracking_uri: str) -> None:
+def test_get_or_create_experiment_creates_then_reuses(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
 
-    first = client.get_or_create_experiment("churn-monitoring")
-    second = client.get_or_create_experiment("churn-monitoring")
+    first = client.get_or_create_experiment(
+        "churn-monitoring",
+        artifact_location=artifact_root_uri,
+    )
+    second = client.get_or_create_experiment(
+        "churn-monitoring",
+        artifact_location="file:///ignored-on-reuse",
+    )
 
     assert first == second
     assert client.get_experiment_id_by_name("churn-monitoring") == first
 
 
-def test_experiment_tag_round_trip(tracking_uri: str) -> None:
+def test_get_or_create_experiment_sets_explicit_artifact_location(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment("fraud-monitoring")
+    raw = MlflowClient(tracking_uri=tracking_uri)
+
+    experiment_id = client.get_or_create_experiment(
+        "artifact-rooted-monitoring",
+        artifact_location=artifact_root_uri,
+    )
+
+    experiment = raw.get_experiment(experiment_id)
+    assert experiment.artifact_location == artifact_root_uri
+
+
+def test_experiment_tag_round_trip(tracking_uri: str, artifact_root_uri: str) -> None:
+    client = MonitorMLflowClient(tracking_uri=tracking_uri)
+    experiment_id = client.get_or_create_experiment(
+        "fraud-monitoring",
+        artifact_location=artifact_root_uri,
+    )
 
     client.set_experiment_tag(experiment_id, "monitoring.latest_run_id", "run-123")
 
@@ -45,10 +79,13 @@ def test_experiment_tag_round_trip(tracking_uri: str) -> None:
     }
 
 
-def test_create_run_and_read_run_data(tracking_uri: str) -> None:
+def test_create_run_and_read_run_data(tracking_uri: str, artifact_root_uri: str) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
     raw = MlflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment("churn-monitoring")
+    experiment_id = client.get_or_create_experiment(
+        "churn-monitoring",
+        artifact_location=artifact_root_uri,
+    )
     monitoring_run_id = client.create_run(
         experiment_id,
         tags={"training.source_run_id": "train-run-1"},
@@ -75,9 +112,12 @@ def test_get_run_returns_none_for_missing_run(tracking_uri: str) -> None:
     assert client.get_run("missing-run-id") is None
 
 
-def test_set_tags_updates_run_tags(tracking_uri: str) -> None:
+def test_set_tags_updates_run_tags(tracking_uri: str, artifact_root_uri: str) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment("churn-monitoring")
+    experiment_id = client.get_or_create_experiment(
+        "churn-monitoring",
+        artifact_location=artifact_root_uri,
+    )
     monitoring_run_id = client.create_run(experiment_id, tags={})
 
     client.set_tags(
@@ -94,9 +134,16 @@ def test_set_tags_updates_run_tags(tracking_uri: str) -> None:
 
 
 @pytest.mark.parametrize("status", ["FINISHED", "FAILED"])
-def test_terminate_run_sets_expected_status(tracking_uri: str, status: str) -> None:
+def test_terminate_run_sets_expected_status(
+    tracking_uri: str,
+    artifact_root_uri: str,
+    status: str,
+) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment("churn-monitoring")
+    experiment_id = client.get_or_create_experiment(
+        "churn-monitoring",
+        artifact_location=artifact_root_uri,
+    )
     monitoring_run_id = client.create_run(experiment_id, tags={})
 
     client.terminate_run(monitoring_run_id, status)
@@ -106,18 +153,30 @@ def test_terminate_run_sets_expected_status(tracking_uri: str, status: str) -> N
     assert run.info.status == status
 
 
-def test_terminate_run_rejects_unknown_status(tracking_uri: str) -> None:
+def test_terminate_run_rejects_unknown_status(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment("churn-monitoring")
+    experiment_id = client.get_or_create_experiment(
+        "churn-monitoring",
+        artifact_location=artifact_root_uri,
+    )
     monitoring_run_id = client.create_run(experiment_id, tags={})
 
     with pytest.raises(ValueError, match="FINISHED or FAILED"):
         client.terminate_run(monitoring_run_id, RunStatus.to_string(RunStatus.RUNNING))
 
 
-def test_list_artifact_paths_returns_recursive_sorted_paths(tracking_uri: str) -> None:
+def test_list_artifact_paths_returns_recursive_sorted_paths(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment("churn-monitoring")
+    experiment_id = client.get_or_create_experiment(
+        "churn-monitoring",
+        artifact_location=artifact_root_uri,
+    )
     monitoring_run_id = client.create_run(experiment_id, tags={})
 
     client.log_json_artifact(monitoring_run_id, {"value": 1}, "outputs/result.json")
@@ -129,10 +188,16 @@ def test_list_artifact_paths_returns_recursive_sorted_paths(tracking_uri: str) -
     ]
 
 
-def test_log_json_artifact_writes_requested_json_path(tracking_uri: str) -> None:
+def test_log_json_artifact_writes_requested_json_path(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
     raw = MlflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment("churn-monitoring")
+    experiment_id = client.get_or_create_experiment(
+        "churn-monitoring",
+        artifact_location=artifact_root_uri,
+    )
     monitoring_run_id = client.create_run(experiment_id, tags={})
 
     client.log_json_artifact(monitoring_run_id, {"status": "ok"}, "outputs/result.json")
