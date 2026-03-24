@@ -65,6 +65,31 @@ def test_get_or_create_experiment_sets_explicit_artifact_location(
     assert experiment.artifact_location == artifact_root_uri
 
 
+def test_get_or_create_experiment_restores_deleted_experiment(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
+    client = MonitorMLflowClient(tracking_uri=tracking_uri)
+    raw = MlflowClient(tracking_uri=tracking_uri)
+
+    experiment_id = client.get_or_create_experiment(
+        "recoverable-monitoring",
+        artifact_location=artifact_root_uri,
+    )
+    raw.delete_experiment(experiment_id)
+
+    restored_experiment_id = client.get_or_create_experiment(
+        "recoverable-monitoring",
+        artifact_location="file:///ignored-after-restore",
+    )
+    monitoring_run_id = client.create_run(restored_experiment_id, tags={})
+    restored = raw.get_experiment(restored_experiment_id)
+
+    assert restored_experiment_id == experiment_id
+    assert restored.lifecycle_stage == "active"
+    assert client.get_run(monitoring_run_id) is not None
+
+
 def test_experiment_tag_round_trip(tracking_uri: str, artifact_root_uri: str) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
     experiment_id = client.get_or_create_experiment(

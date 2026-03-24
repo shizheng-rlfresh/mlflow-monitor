@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mlflow import MlflowClient
-from mlflow.entities import Run
+from mlflow.entities import Experiment, Run
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS
 
@@ -61,10 +61,13 @@ class MonitorMLflowClient:
 
         This wrapper normalizes the common create race where another actor
         creates the experiment between the local existence check and the
-        `create_experiment()` call. Artifact location only applies when the
-        experiment is created for the first time; if the experiment already
-        exists, MLflow preserves the existing artifact root and the provided
-        `artifact_location` is ignored.
+        `create_experiment()` call. It also restores deleted monitoring
+        experiments instead of treating them as disposable state: in this
+        system the experiment is the authoritative bookkeeping timeline for a
+        subject, so soft deletion is recovered back to active state.
+        Artifact location only applies when the experiment is created for the
+        first time; if the experiment already exists, MLflow preserves the
+        existing artifact root and the provided `artifact_location` is ignored.
 
         Args:
             name: Experiment name to fetch or create.
@@ -81,9 +84,13 @@ class MonitorMLflowClient:
                 experiment case, or if the duplicate-race fallback still cannot
                 resolve the experiment by name.
         """
-        experiment_id = self.get_experiment_id_by_name(name)
-        if experiment_id is not None:
-            return experiment_id
+        experiment = self._get_experiment_by_name(name)
+        if experiment is not None:
+            if experiment.lifecycle_stage == "deleted":
+                # Monitoring experiments are system-owned timeline state, not
+                # disposable cache entries, so recover soft-deleted timelines.
+                self._client.restore_experiment(experiment.experiment_id)
+            return experiment.experiment_id
 
         try:
             return self._client.create_experiment(
@@ -104,16 +111,19 @@ class MonitorMLflowClient:
         return experiment_id
 
     def get_experiment_id_by_name(self, name: str) -> str | None:
-        """Return an experiment id for a name, or `None` if it does not exist.
+        """Return an active experiment id for a name, or `None` if unavailable.
 
         Args:
             name: Experiment name to resolve.
 
         Returns:
-            The experiment id if MLflow resolves the name; otherwise `None`.
+            The experiment id if MLflow resolves the name to an active
+            experiment; otherwise `None`.
         """
-        experiment = self._client.get_experiment_by_name(name)
+        experiment = self._get_experiment_by_name(name)
         if experiment is None:
+            return None
+        if experiment.lifecycle_stage != "active":
             return None
         return experiment.experiment_id
 
@@ -282,3 +292,7 @@ class MonitorMLflowClient:
                 continue
             paths.append(artifact.path)
         return paths
+
+    def _get_experiment_by_name(self, name: str) -> Experiment | None:
+        """Return the raw MLflow experiment for internal lifecycle-aware flows."""
+        return self._client.get_experiment_by_name(name)

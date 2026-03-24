@@ -59,3 +59,22 @@ def test_get_or_create_experiment_passes_artifact_location_on_first_create() -> 
         "churn-monitoring",
         artifact_location="file:///tmp/artifacts",
     )
+
+
+def test_get_or_create_experiment_restores_deleted_experiment() -> None:
+    deleted = Experiment(
+        experiment_id="123",
+        name="churn-monitoring",
+        artifact_location="/tmp/mlruns",
+        lifecycle_stage="deleted",
+        tags={},
+    )
+    stub_client = MagicMock()
+    stub_client.get_experiment_by_name.return_value = deleted
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    assert client.get_or_create_experiment("churn-monitoring") == "123"
+    stub_client.restore_experiment.assert_called_once_with("123")
+    stub_client.create_experiment.assert_not_called()

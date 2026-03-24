@@ -160,9 +160,15 @@ def log_json_artifact(self, run_id: str, data: dict, path: str) -> None:
 ### 4.3 What the adapter owns
 
 - Get-or-create with race-condition try/except for experiments
+- Soft-delete recovery for monitoring experiments: if MLflow returns the subject's monitoring experiment in `deleted` state, the adapter restores it because the experiment is the timeline/bookkeeping record for that subject, not disposable cache state
 - String ↔ int serialization for tags like `next_sequence_index`
 - `MlflowException` handling and normalization
 - The `from mlflow import MlflowClient` import — nowhere else in the codebase
+
+Monitoring runs and their containing monitoring experiment are treated as
+bookkeeping owned by MLflow-Monitor. For MVP, deleting a monitoring experiment
+does not mean "start a fresh timeline"; the adapter restores the soft-deleted
+experiment so the existing timeline state remains authoritative.
 
 ---
 
