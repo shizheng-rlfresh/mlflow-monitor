@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import pytest
 
 from mlflow_monitor import monitor
@@ -49,17 +47,6 @@ def make_gateway() -> InMemoryMonitoringGateway:
         data_scope="validation:2026-03-01",
     )
     return gateway
-
-
-def monitoring_run_id_factory() -> Callable[[], str]:
-    """Build a deterministic monitoring-run-id factory for tests."""
-    counter = {"value": 0}
-
-    def factory() -> str:
-        counter["value"] += 1
-        return f"monitoring-run-{counter['value']}"
-
-    return factory
 
 
 class InvalidResultContractChecker:
@@ -154,7 +141,6 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=monitoring_run_id_factory(),
     )
 
     stored = gateway.get_monitoring_run("churn_model", result.monitoring_run_id)
@@ -179,15 +165,12 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
 
 def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
     gateway = make_gateway()
-    factory = monitoring_run_id_factory()
-
     first = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-current",
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
     gateway.add_source_run(
         subject_id="churn_model",
@@ -207,7 +190,6 @@ def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
         baseline_source_run_id=None,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
 
     assert first.lifecycle_status is LifecycleStatus.CHECKED
@@ -237,7 +219,6 @@ def test_run_orchestration_non_comparable_check_still_returns_checked_result() -
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=monitoring_run_id_factory(),
     )
 
     stored = gateway.get_monitoring_run("churn_model", result.monitoring_run_id)
@@ -259,7 +240,6 @@ def test_run_orchestration_prepare_error_persists_failed_and_returns_runtime_err
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=monitoring_run_id_factory(),
     )
 
     stored = gateway.get_monitoring_run("churn_model", result.monitoring_run_id)
@@ -276,15 +256,12 @@ def test_run_orchestration_prepare_error_persists_failed_and_returns_runtime_err
 
 def test_run_orchestration_failed_prepare_rerun_short_circuits_terminal_state() -> None:
     gateway = make_gateway()
-    factory = monitoring_run_id_factory()
-
     first = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-missing",
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
     second = run_orchestration(
         subject_id="churn_model",
@@ -292,7 +269,6 @@ def test_run_orchestration_failed_prepare_rerun_short_circuits_terminal_state() 
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
 
     stored = gateway.get_monitoring_run("churn_model", first.monitoring_run_id)
@@ -330,7 +306,6 @@ def test_run_orchestration_bootstrap_failure_returns_failed_result_without_timel
         baseline_source_run_id=None,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=monitoring_run_id_factory(),
     )
 
     stored = gateway.get_monitoring_run("churn_model", result.monitoring_run_id)
@@ -352,7 +327,6 @@ def test_run_orchestration_check_error_persists_failed_and_returns_runtime_error
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=InvalidResultContractChecker(),
-        monitoring_run_id_factory=monitoring_run_id_factory(),
     )
 
     stored = gateway.get_monitoring_run("churn_model", result.monitoring_run_id)
@@ -369,15 +343,12 @@ def test_run_orchestration_check_error_persists_failed_and_returns_runtime_error
 
 def test_run_orchestration_failed_check_rerun_short_circuits_terminal_state() -> None:
     gateway = make_gateway()
-    factory = monitoring_run_id_factory()
-
     first = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-current",
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=InvalidResultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
     second = run_orchestration(
         subject_id="churn_model",
@@ -385,7 +356,6 @@ def test_run_orchestration_failed_check_rerun_short_circuits_terminal_state() ->
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
 
     stored = gateway.get_monitoring_run("churn_model", first.monitoring_run_id)
@@ -413,7 +383,6 @@ def test_run_orchestration_raises_unexpected_checker_errors() -> None:
             baseline_source_run_id="train-run-baseline",
             gateway=gateway,
             contract_checker=RaisingContractChecker(),
-            monitoring_run_id_factory=monitoring_run_id_factory(),
         )
 
 
@@ -452,21 +421,17 @@ def test_run_orchestration_raises_internal_gateway_errors_instead_of_normalizing
             baseline_source_run_id="train-run-baseline",
             gateway=gateway,
             contract_checker=DefaultContractChecker(),
-            monitoring_run_id_factory=monitoring_run_id_factory(),
         )
 
 
 def test_run_orchestration_reuses_idempotent_run_without_overwriting_check_output() -> None:
     gateway = make_gateway()
-    factory = monitoring_run_id_factory()
-
     first = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-current",
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
     second = run_orchestration(
         subject_id="churn_model",
@@ -474,7 +439,6 @@ def test_run_orchestration_reuses_idempotent_run_without_overwriting_check_outpu
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
 
     stored = gateway.get_monitoring_run("churn_model", first.monitoring_run_id)
@@ -490,15 +454,12 @@ def test_run_orchestration_reuses_idempotent_run_without_overwriting_check_outpu
 
 def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> None:
     gateway = make_gateway()
-    factory = monitoring_run_id_factory()
-
     first = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-current",
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
     second = run_orchestration(
         subject_id="churn_model",
@@ -506,7 +467,6 @@ def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> N
         baseline_source_run_id=None,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
 
     assert second.monitoring_run_id == first.monitoring_run_id
@@ -520,7 +480,6 @@ def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> N
 
 def test_run_orchestration_checked_rerun_preserves_references() -> None:
     gateway = make_gateway()
-    factory = monitoring_run_id_factory()
     gateway.set_active_lkg_monitoring_run_id("churn_model", "monitoring-run-lkg")
 
     first = run_orchestration(
@@ -529,7 +488,6 @@ def test_run_orchestration_checked_rerun_preserves_references() -> None:
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
     second = run_orchestration(
         subject_id="churn_model",
@@ -537,7 +495,6 @@ def test_run_orchestration_checked_rerun_preserves_references() -> None:
         baseline_source_run_id=None,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
 
     assert first.references == (
@@ -573,15 +530,12 @@ def test_run_orchestration_checked_rerun_replays_when_source_run_no_longer_resol
         schema={"age": "int"},
         data_scope="validation:2026-03-01",
     )
-    factory = monitoring_run_id_factory()
-
     first = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-current",
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
     gateway.block_source_resolution = True
 
@@ -591,7 +545,6 @@ def test_run_orchestration_checked_rerun_replays_when_source_run_no_longer_resol
         baseline_source_run_id=None,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
 
     assert second.monitoring_run_id == first.monitoring_run_id
@@ -626,15 +579,12 @@ def test_run_orchestration_checked_rerun_replays_when_baseline_evidence_no_longe
         schema={"age": "int"},
         data_scope="validation:2026-03-01",
     )
-    factory = monitoring_run_id_factory()
-
     first = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-current",
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
     gateway.block_baseline_evidence = True
     gateway.block_current_evidence = True
@@ -645,7 +595,6 @@ def test_run_orchestration_checked_rerun_replays_when_baseline_evidence_no_longe
         baseline_source_run_id=None,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
 
     assert second.monitoring_run_id == first.monitoring_run_id
@@ -656,7 +605,6 @@ def test_run_orchestration_checked_rerun_replays_when_baseline_evidence_no_longe
 
 def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun() -> None:
     gateway = make_gateway()
-    factory = monitoring_run_id_factory()
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-other",
@@ -675,7 +623,6 @@ def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun
         baseline_source_run_id="train-run-baseline",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
     second = run_orchestration(
         subject_id="churn_model",
@@ -683,7 +630,6 @@ def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun
         baseline_source_run_id="train-run-other",
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
-        monitoring_run_id_factory=factory,
     )
 
     stored = gateway.get_monitoring_run("churn_model", first.monitoring_run_id)
@@ -720,3 +666,4 @@ def test_public_run_is_a_thin_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["subject_id"] == "churn_model"
     assert captured["source_run_id"] == "train-run-current"
     assert captured["baseline_source_run_id"] == "train-run-baseline"
+    assert "monitoring_run_id_factory" not in captured

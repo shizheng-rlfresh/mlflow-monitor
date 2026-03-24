@@ -15,24 +15,11 @@ from mlflow_monitor.errors import (
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
 )
-from mlflow_monitor.gateway import (
-    GatewayConfig,
-    IdempotencyKey,
-    InMemoryMonitoringGateway,
-)
+from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey, InMemoryMonitoringGateway
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 
 
-def test_reserve_sequence_index_is_monotonic_per_subject() -> None:
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
-
-    assert gateway.reserve_sequence_index("churn_model") == 0
-    assert gateway.reserve_sequence_index("churn_model") == 1
-    assert gateway.reserve_sequence_index("fraud_model") == 0
-    assert gateway.reserve_sequence_index("churn_model") == 2
-
-
-def test_get_or_create_idempotent_monitoring_run_id_creates_then_reuses() -> None:
+def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     key = IdempotencyKey(
         subject_id="churn_model",
@@ -40,21 +27,20 @@ def test_get_or_create_idempotent_monitoring_run_id_creates_then_reuses() -> Non
         recipe_id="default",
         recipe_version="v0",
     )
-    call_count = {"factory": 0}
+    first = gateway.create_or_reuse_monitoring_run(key)
+    second = gateway.create_or_reuse_monitoring_run(key)
 
-    def factory() -> str:
-        call_count["factory"] += 1
-        return f"run-{call_count['factory']}"
-
-    first = gateway.get_or_create_idempotent_monitoring_run_id(key, factory)
-    second = gateway.get_or_create_idempotent_monitoring_run_id(key, factory)
-
-    assert first == "run-1"
-    assert second == first
-    assert call_count["factory"] == 1
+    assert first.monitoring_run_id.startswith("monitoring-run-")
+    assert first.sequence_index == 0
+    assert first.existing_monitoring_run is None
+    assert first.created is True
+    assert second.monitoring_run_id == first.monitoring_run_id
+    assert second.sequence_index == first.sequence_index
+    assert second.existing_monitoring_run is None
+    assert second.created is False
 
 
-def test_get_or_create_idempotent_monitoring_run_id_diff_recipe_version_creates_new() -> None:
+def test_create_or_reuse_monitoring_run_diff_recipe_version_creates_new() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     monitoring_key_v0 = IdempotencyKey(
         subject_id="churn_model",
@@ -68,25 +54,17 @@ def test_get_or_create_idempotent_monitoring_run_id_diff_recipe_version_creates_
         recipe_id="default",
         recipe_version="v1",
     )
-    call_count = {"factory": 0}
+    monitoring_run_v0 = gateway.create_or_reuse_monitoring_run(monitoring_key_v0)
+    monitoring_run_v1 = gateway.create_or_reuse_monitoring_run(monitoring_key_v1)
 
-    def factory() -> str:
-        call_count["factory"] += 1
-        return f"monitoring-run-{call_count['factory']}"
-
-    monitoring_run_v0 = gateway.get_or_create_idempotent_monitoring_run_id(
-        monitoring_key_v0, factory
-    )
-    monitoring_run_v1 = gateway.get_or_create_idempotent_monitoring_run_id(
-        monitoring_key_v1, factory
-    )
-
-    assert monitoring_run_v0 == "monitoring-run-1"
-    assert monitoring_run_v1 == "monitoring-run-2"
-    assert call_count["factory"] == 2
+    assert monitoring_run_v0.monitoring_run_id.startswith("monitoring-run-")
+    assert monitoring_run_v0.sequence_index == 0
+    assert monitoring_run_v1.monitoring_run_id.startswith("monitoring-run-")
+    assert monitoring_run_v1.monitoring_run_id != monitoring_run_v0.monitoring_run_id
+    assert monitoring_run_v1.sequence_index == 1
 
 
-def test_get_or_create_idempotent_monitoring_run_id_uses_dataclass_value_equality() -> None:
+def test_create_or_reuse_monitoring_run_uses_dataclass_value_equality() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     monitoring_first_key = IdempotencyKey(
         subject_id="churn_model",
@@ -100,22 +78,45 @@ def test_get_or_create_idempotent_monitoring_run_id_uses_dataclass_value_equalit
         recipe_id="default",
         recipe_version="v0",
     )
-    call_count = {"factory": 0}
+    monitoring_first = gateway.create_or_reuse_monitoring_run(monitoring_first_key)
+    monitoring_second = gateway.create_or_reuse_monitoring_run(monitoring_equivalent_key)
 
-    def factory() -> str:
-        call_count["factory"] += 1
-        return f"monitoring-run-{call_count['factory']}"
+    assert monitoring_first.monitoring_run_id.startswith("monitoring-run-")
+    assert monitoring_second.monitoring_run_id == monitoring_first.monitoring_run_id
+    assert monitoring_second.sequence_index == monitoring_first.sequence_index
 
-    monitoring_first = gateway.get_or_create_idempotent_monitoring_run_id(
-        monitoring_first_key, factory
+
+def test_create_or_reuse_monitoring_run_is_monotonic_per_subject() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+
+    churn_first = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-1",
+            recipe_id="default",
+            recipe_version="v0",
+        )
     )
-    monitoring_second = gateway.get_or_create_idempotent_monitoring_run_id(
-        monitoring_equivalent_key, factory
+    churn_second = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-2",
+            recipe_id="default",
+            recipe_version="v0",
+        )
+    )
+    fraud_first = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="fraud_model",
+            source_run_id="train-run-1",
+            recipe_id="default",
+            recipe_version="v0",
+        )
     )
 
-    assert monitoring_first == "monitoring-run-1"
-    assert monitoring_second == monitoring_first
-    assert call_count["factory"] == 1
+    assert churn_first.sequence_index == 0
+    assert churn_second.sequence_index == 1
+    assert fraud_first.sequence_index == 0
 
 
 def test_initialize_timeline_is_deterministic_and_stores_baseline_reference() -> None:

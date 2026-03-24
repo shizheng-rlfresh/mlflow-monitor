@@ -35,10 +35,11 @@ Lifecycle sketch:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Protocol
+from uuid import uuid4
 
 from mlflow_monitor.contract_checker import ContractEvidence
 from mlflow_monitor.domain import (
@@ -126,6 +127,23 @@ class IdempotencyKey:
 
 
 @dataclass(frozen=True, slots=True)
+class CreateOrReuseMonitoringRunResult:
+    """Gateway-owned monitoring run allocation or replay result.
+
+    Attributes:
+        monitoring_run_id: Monitoring run identifier owned by the gateway.
+        sequence_index: Monotonic per-subject sequence index.
+        existing_monitoring_run: Existing stored monitoring run record, if any.
+        created: Whether this call created a new monitoring-run allocation.
+    """
+
+    monitoring_run_id: str
+    sequence_index: int
+    existing_monitoring_run: MonitoringRunRecord | None
+    created: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SourceRunRecord:
     """Minimal source training run record used by the in-memory gateway.
 
@@ -171,22 +189,16 @@ class TimelineInitializationResult:
 class MonitoringGateway(Protocol):
     """Protocol for gateway-mediated monitoring persistence operations."""
 
-    def get_or_create_idempotent_monitoring_run_id(
-        self,
-        key: IdempotencyKey,
-        factory: Callable[[], str],
-    ) -> str:
-        """Return existing monitoring run id for the key, or create and bind a new monitoring run id."""  # noqa: E501
+    def create_or_reuse_monitoring_run(
+        self, key: IdempotencyKey
+    ) -> CreateOrReuseMonitoringRunResult:
+        """Create a monitoring run allocation or return the existing idempotent one."""
         ...
 
     def initialize_timeline(
         self, subject_id: str, baseline_source_run_id: str
     ) -> TimelineInitializationResult:
         """Initialize timeline state once for a subject and return timeline initialiation status."""
-        ...
-
-    def reserve_sequence_index(self, subject_id: str) -> int:
-        """Reserve and return the next sequence index for a subject."""
         ...
 
     def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
@@ -277,7 +289,7 @@ class InMemoryMonitoringGateway:
         self._config = config
         self._timeline_by_subject: dict[str, TimelineState] = {}
         self._next_sequence_by_subject: dict[str, int] = {}
-        self._idempotency_bindings: dict[IdempotencyKey, str] = {}
+        self._idempotency_bindings: dict[IdempotencyKey, tuple[str, int]] = {}
         self._active_lkg_by_subject: dict[str, str] = {}
         self._monitoring_runs_by_subject: dict[str, dict[str, MonitoringRunRecord]] = {}
         self._source_runs_by_id: dict[str, SourceRunRecord] = {}
@@ -287,27 +299,34 @@ class InMemoryMonitoringGateway:
         """Return the gateway config."""
         return self._config
 
-    def get_or_create_idempotent_monitoring_run_id(
-        self,
-        key: IdempotencyKey,
-        factory: Callable[[], str],
-    ) -> str:
-        """Return existing monitoring run id for the key, or create and bind a new monitoring run id.
-
-        Args:
-            key: Idempotency key representing the monitoring intent.
-            factory: Factory function to generate a new run id if needed.
-
-        Returns:
-            The existing or newly created monitoring run id bound to the key.
-        """  # noqa: E501
+    def create_or_reuse_monitoring_run(
+        self, key: IdempotencyKey
+    ) -> CreateOrReuseMonitoringRunResult:
+        """Create a new monitoring run allocation or return the existing idempotent one."""
         self._validate_subject_id(key.subject_id)
-        existing_monitoring_run_id = self._idempotency_bindings.get(key)
-        if existing_monitoring_run_id is not None:
-            return existing_monitoring_run_id
-        new_monitoring_run_id = factory()
-        self._idempotency_bindings[key] = new_monitoring_run_id
-        return new_monitoring_run_id
+        existing_binding = self._idempotency_bindings.get(key)
+        if existing_binding is not None:
+            existing_monitoring_run_id, sequence_index = existing_binding
+            existing_monitoring_run = self.get_monitoring_run(
+                key.subject_id, existing_monitoring_run_id
+            )
+            return CreateOrReuseMonitoringRunResult(
+                monitoring_run_id=existing_monitoring_run_id,
+                sequence_index=sequence_index,
+                existing_monitoring_run=existing_monitoring_run,
+                created=False,
+            )
+
+        sequence_index = self._next_sequence_by_subject.get(key.subject_id, 0)
+        self._next_sequence_by_subject[key.subject_id] = sequence_index + 1
+        new_monitoring_run_id = self._generate_monitoring_run_id()
+        self._idempotency_bindings[key] = (new_monitoring_run_id, sequence_index)
+        return CreateOrReuseMonitoringRunResult(
+            monitoring_run_id=new_monitoring_run_id,
+            sequence_index=sequence_index,
+            existing_monitoring_run=None,
+            created=True,
+        )
 
     def initialize_timeline(
         self, subject_id: str, baseline_source_run_id: str
@@ -351,13 +370,6 @@ class InMemoryMonitoringGateway:
         """
         self._validate_subject_id(subject_id)
         return self._timeline_by_subject.get(subject_id)
-
-    def reserve_sequence_index(self, subject_id: str) -> int:
-        """Reserve and return the next sequence index for a subject."""
-        self._validate_subject_id(subject_id)
-        next_index = self._next_sequence_by_subject.get(subject_id, 0)
-        self._next_sequence_by_subject[subject_id] = next_index + 1
-        return next_index
 
     def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
         """Resolve the active LKG monitoring run id for a subject, if any.
@@ -707,7 +719,7 @@ class InMemoryMonitoringGateway:
         self._validate_subject_id(subject_id)
         bindings = {
             (f"{key.source_run_id}|{key.recipe_id}|{key.recipe_version}"): monitoring_run_id
-            for key, monitoring_run_id in self._idempotency_bindings.items()
+            for key, (monitoring_run_id, _sequence_index) in self._idempotency_bindings.items()
             if key.subject_id == subject_id
         }
         return MappingProxyType(bindings)
@@ -881,3 +893,7 @@ class InMemoryMonitoringGateway:
             contract_check_result=effective_contract_check_result,
             references=effective_references,
         )
+
+    def _generate_monitoring_run_id(self) -> str:
+        """Return a new opaque monitoring run identifier."""
+        return f"monitoring-run-{uuid4().hex}"

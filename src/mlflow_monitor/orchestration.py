@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from mlflow_monitor.builtins import SYSTEM_DEFAULT_CONTRACT_ID, SYSTEM_DEFAULT_RECIPE_ID
@@ -81,7 +80,6 @@ def run_orchestration(
     baseline_source_run_id: str | None,
     gateway: MonitoringGateway,
     contract_checker: ContractChecker,
-    monitoring_run_id_factory: Callable[[], str],
 ) -> MonitorRunResult:
     """Execute the orchestration for one monitoring run, including prepare and check stages.
 
@@ -91,7 +89,6 @@ def run_orchestration(
         baseline_source_run_id: The source run ID of the baseline this run is compared against
         gateway: The monitoring gateway to use for persistence during orchestration.
         contract_checker: The contract checker to use for executing the contract check stage.
-        monitoring_run_id_factory: A callable that produces new unique monitoring run IDs for monitoring runs.
 
     Returns:
         The result of the monitoring run execution, including comparability status and any findings.
@@ -105,7 +102,6 @@ def run_orchestration(
         compiled_plan=compiled_plan,
         resolved_contract=resolved_contract,
         gateway=gateway,
-        monitoring_run_id_factory=monitoring_run_id_factory,
     )
     if isinstance(state_or_result, MonitorRunResult):
         return state_or_result
@@ -143,7 +139,6 @@ def _resolve_orchestration_state(
     compiled_plan: CompiledRunPlan,
     resolved_contract: Contract,
     gateway: MonitoringGateway,
-    monitoring_run_id_factory: Callable[[], str],
 ) -> OrchestrationState | MonitorRunResult:
     """Resolve idempotency state and apply rerun short-circuit policy."""
     idempotency_key = IdempotencyKey(
@@ -152,26 +147,17 @@ def _resolve_orchestration_state(
         recipe_id=SYSTEM_DEFAULT_RECIPE_ID,
         recipe_version=compiled_plan.identity.recipe_version,
     )
-    monitoring_run_id = gateway.get_or_create_idempotent_monitoring_run_id(
-        idempotency_key, monitoring_run_id_factory
-    )
-    existing_monitoring_run = gateway.get_monitoring_run(subject_id, monitoring_run_id)
-    is_new_monitoring_run = existing_monitoring_run is None
-    sequence_index = (
-        gateway.reserve_sequence_index(subject_id)
-        if is_new_monitoring_run
-        else existing_monitoring_run.sequence_index
-    )
+    create_or_reuse_result = gateway.create_or_reuse_monitoring_run(idempotency_key)
     state = OrchestrationState(
         subject_id=subject_id,
         source_run_id=source_run_id,
         baseline_source_run_id=baseline_source_run_id,
         compiled_plan=compiled_plan,
         resolved_contract=resolved_contract,
-        monitoring_run_id=monitoring_run_id,
-        existing_monitoring_run=existing_monitoring_run,
-        is_new_monitoring_run=is_new_monitoring_run,
-        sequence_index=sequence_index,
+        monitoring_run_id=create_or_reuse_result.monitoring_run_id,
+        existing_monitoring_run=create_or_reuse_result.existing_monitoring_run,
+        is_new_monitoring_run=create_or_reuse_result.created,
+        sequence_index=create_or_reuse_result.sequence_index,
     )
     return _short_circuit_existing_monitoring_run(state, gateway)
 
