@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from mlflow_monitor.builtins import SYSTEM_DEFAULT_CONTRACT_ID, SYSTEM_DEFAULT_RECIPE_ID
 from mlflow_monitor.contract import resolve_contract_v0
 from mlflow_monitor.contract_checker import ContractChecker
-from mlflow_monitor.domain import Contract, ContractCheckResult, LifecycleStatus
+from mlflow_monitor.domain import (
+    Contract,
+    ContractCheckResult,
+    LifecycleStatus,
+    MonitoringRunReference,
+)
 from mlflow_monitor.errors import (
     CheckStageError,
     ContractResolutionError,
@@ -16,7 +21,11 @@ from mlflow_monitor.errors import (
     RecipeValidationError,
     TerminalRunRetryError,
 )
-from mlflow_monitor.gateway import IdempotencyKey, MonitoringGateway, MonitoringRunRecord
+from mlflow_monitor.gateway import (
+    IdempotencyKey,
+    MonitoringGateway,
+    MonitoringRunRecord,
+)
 from mlflow_monitor.recipe import (
     RecipeReferenceCatalog,
     resolve_recipe_v0_lite,
@@ -309,7 +318,7 @@ def _run_check_monitoring_run_slice(
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=state.sequence_index,
         contract_check_result=contract_check_result,
-        reference_run_ids=_build_reference_run_ids(prepared_context),
+        references=_build_monitoring_run_references(prepared_context),
     )
     return _build_success_monitoring_run_result(
         subject_id=state.subject_id,
@@ -350,7 +359,7 @@ def _build_success_monitoring_run_result(
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        reference_run_ids=_build_reference_run_ids(prepared_context),
+        references=_build_monitoring_run_references(prepared_context),
         error=None,
     )
 
@@ -385,7 +394,7 @@ def _build_existing_checked_monitoring_run_result(
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        reference_run_ids=existing_monitoring_run.reference_run_ids,
+        references=existing_monitoring_run.references,
         error=None,
     )
 
@@ -420,7 +429,7 @@ def _build_failure_monitoring_run_result(
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        reference_run_ids={},
+        references=(),
         error=MonitorRunError(
             code=_error_code_for_stage(stage, error),
             message=str(error),
@@ -430,24 +439,45 @@ def _build_failure_monitoring_run_result(
     )
 
 
-def _build_reference_run_ids(prepared_context) -> dict[str, str]:
-    """Build the minimal reference-run mapping for the synchronous result.
+def _build_monitoring_run_references(
+    prepared_context,
+) -> tuple[MonitoringRunReference, ...]:
+    """Build ordered typed references for persistence.
 
     Args:
         prepared_context: The prepared context produced by the prepare stage for this run.
 
     Returns:
-        A mapping of reference types to source run IDs that were used as references during
-            contract check.
+        Ordered typed references used during contract check.
     """
-    reference_run_ids = {"baseline": prepared_context.baseline_source_run_id}
+    references = [
+        MonitoringRunReference(
+            kind="baseline",
+            reference_run_id=prepared_context.baseline_source_run_id,
+        )
+    ]
     if prepared_context.previous_monitoring_run_id is not None:
-        reference_run_ids["previous"] = prepared_context.previous_monitoring_run_id
+        references.append(
+            MonitoringRunReference(
+                kind="previous",
+                reference_run_id=prepared_context.previous_monitoring_run_id,
+            )
+        )
     if prepared_context.active_lkg_monitoring_run_id is not None:
-        reference_run_ids["lkg"] = prepared_context.active_lkg_monitoring_run_id
+        references.append(
+            MonitoringRunReference(
+                kind="lkg",
+                reference_run_id=prepared_context.active_lkg_monitoring_run_id,
+            )
+        )
     if prepared_context.custom_reference_monitoring_run_id is not None:
-        reference_run_ids["custom"] = prepared_context.custom_reference_monitoring_run_id
-    return reference_run_ids
+        references.append(
+            MonitoringRunReference(
+                kind="custom",
+                reference_run_id=prepared_context.custom_reference_monitoring_run_id,
+            )
+        )
+    return tuple(references)
 
 
 def _error_code_for_stage(stage: str, error: Exception) -> str:

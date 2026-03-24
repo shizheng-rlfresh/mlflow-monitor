@@ -73,6 +73,8 @@ CONTRACT_CHECK_REASON_CODE_BLOCKING = MappingProxyType(
     }
 )
 
+_MONITORING_RUN_REFERENCE_KINDS = frozenset(("baseline", "previous", "lkg", "custom"))
+
 
 @dataclass(frozen=True, slots=True)
 class ContractCheckReason:
@@ -168,6 +170,30 @@ class Baseline:
 
 
 @dataclass(frozen=True, slots=True)
+class MonitoringRunReference:
+    """Typed run-level reference captured for one monitoring run.
+
+    Attributes:
+        kind: Reference kind for the monitoring run lineage.
+        reference_run_id: Concrete training or monitoring run ID for the reference.
+    """
+
+    kind: str
+    reference_run_id: str
+
+    def __post_init__(self) -> None:
+        """Validate run-level reference shape."""
+        if self.kind not in _MONITORING_RUN_REFERENCE_KINDS:
+            raise ValueError(f"Unsupported monitoring run reference kind {self.kind!r}.")
+        if not self.reference_run_id.strip():
+            raise ValueError("MonitoringRunReference.reference_run_id must be non-empty.")
+
+    def to_dict(self) -> dict[str, str]:
+        """Serialize this run-level reference into a deterministic dictionary."""
+        return {"kind": self.kind, "reference_run_id": self.reference_run_id}
+
+
+@dataclass(frozen=True, slots=True)
 class DiffReference:
     """Reference descriptor for one diff comparison target.
 
@@ -191,8 +217,7 @@ class DiffReference:
 
         if self.reference_id is None or not self.reference_id.strip():
             raise ValueError(
-                f"DiffReference with kind={self.kind.value!r} "
-                "requires a non-empty reference_id."
+                f"DiffReference with kind={self.kind.value!r} requires a non-empty reference_id."
             )
 
 

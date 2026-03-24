@@ -8,6 +8,7 @@ from mlflow_monitor.domain import (
     ContractCheckReason,
     ContractCheckResult,
     LifecycleStatus,
+    MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
     GatewayConsistencyViolation,
@@ -489,7 +490,7 @@ def test_upsert_monitoring_run_stores_contract_check_outputs() -> None:
     assert stored.contract_check_result == result
 
 
-def test_upsert_monitoring_run_stores_reference_run_ids() -> None:
+def test_upsert_monitoring_run_stores_references() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     result = ContractCheckResult(
         status=ComparabilityStatus.WARN,
@@ -508,13 +509,19 @@ def test_upsert_monitoring_run_stores_reference_run_ids() -> None:
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
-        reference_run_ids={"baseline": "train-run-baseline", "lkg": "run-lkg"},
+        references=(
+            MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+            MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+        ),
     )
 
     stored = gateway.get_monitoring_run("churn_model", "monitoring-run-1")
 
     assert stored is not None
-    assert stored.reference_run_ids == {"baseline": "train-run-baseline", "lkg": "run-lkg"}
+    assert stored.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+        MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+    )
 
 
 def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_status_changes() -> None:
@@ -536,7 +543,10 @@ def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_statu
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
-        reference_run_ids={"baseline": "train-run-baseline", "lkg": "run-lkg"},
+        references=(
+            MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+            MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+        ),
     )
 
     gateway.upsert_monitoring_run(
@@ -552,7 +562,10 @@ def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_statu
     assert stored.lifecycle_status is LifecycleStatus.CLOSED
     assert stored.comparability_status is ComparabilityStatus.FAIL
     assert stored.contract_check_result == result
-    assert stored.reference_run_ids == {"baseline": "train-run-baseline", "lkg": "run-lkg"}
+    assert stored.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+        MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+    )
 
 
 def test_upsert_monitoring_run_rejects_changed_sequence_index() -> None:

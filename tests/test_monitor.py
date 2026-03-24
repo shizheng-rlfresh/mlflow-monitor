@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 
 import pytest
 
@@ -13,9 +13,13 @@ from mlflow_monitor.domain import (
     ContractCheckReason,
     ContractCheckResult,
     LifecycleStatus,
+    MonitoringRunReference,
 )
 from mlflow_monitor.errors import GatewayConsistencyViolation
-from mlflow_monitor.gateway import GatewayConfig, InMemoryMonitoringGateway
+from mlflow_monitor.gateway import (
+    GatewayConfig,
+    InMemoryMonitoringGateway,
+)
 from mlflow_monitor.orchestration import run_orchestration
 
 
@@ -91,7 +95,7 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
-        reference_run_ids: Mapping[str, str] | None = None,
+        references: tuple[MonitoringRunReference, ...] | None = None,
     ) -> None:
         if lifecycle_status is LifecycleStatus.PREPARED:
             raise GatewayConsistencyViolation(
@@ -104,7 +108,7 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
             lifecycle_status=lifecycle_status,
             sequence_index=sequence_index,
             contract_check_result=contract_check_result,
-            reference_run_ids=reference_run_ids,
+            references=references,
         )
 
 
@@ -158,7 +162,9 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
     assert result.lifecycle_status is LifecycleStatus.CHECKED
     assert result.comparability_status is ComparabilityStatus.PASS
     assert result.timeline_id == "timeline-churn_model"
-    assert result.reference_run_ids == {"baseline": "train-run-baseline"}
+    assert result.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+    )
     assert result.finding_ids == ()
     assert result.diff_ids == ()
     assert result.summary is None
@@ -206,7 +212,9 @@ def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
 
     assert first.lifecycle_status is LifecycleStatus.CHECKED
     assert second.lifecycle_status is LifecycleStatus.CHECKED
-    assert second.reference_run_ids["baseline"] == "train-run-baseline"
+    assert second.references[0] == MonitoringRunReference(
+        kind="baseline", reference_run_id="train-run-baseline"
+    )
 
 
 def test_run_orchestration_non_comparable_check_still_returns_checked_result() -> None:
@@ -504,11 +512,13 @@ def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> N
     assert second.monitoring_run_id == first.monitoring_run_id
     assert second.lifecycle_status is LifecycleStatus.CHECKED
     assert second.comparability_status is ComparabilityStatus.PASS
-    assert second.reference_run_ids == {"baseline": "train-run-baseline"}
+    assert second.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+    )
     assert second.error is None
 
 
-def test_run_orchestration_checked_rerun_preserves_reference_run_ids() -> None:
+def test_run_orchestration_checked_rerun_preserves_references() -> None:
     gateway = make_gateway()
     factory = monitoring_run_id_factory()
     gateway.set_active_lkg_monitoring_run_id("churn_model", "monitoring-run-lkg")
@@ -530,12 +540,12 @@ def test_run_orchestration_checked_rerun_preserves_reference_run_ids() -> None:
         monitoring_run_id_factory=factory,
     )
 
-    assert first.reference_run_ids == {
-        "baseline": "train-run-baseline",
-        "lkg": "monitoring-run-lkg",
-    }
+    assert first.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+        MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+    )
     assert second.monitoring_run_id == first.monitoring_run_id
-    assert second.reference_run_ids == first.reference_run_ids
+    assert second.references == first.references
     assert second.error is None
 
 

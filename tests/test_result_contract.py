@@ -2,7 +2,7 @@
 
 import pytest
 
-from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus
+from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus, MonitoringRunReference
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 
 
@@ -17,7 +17,7 @@ def test_monitor_run_result_success_envelope_construction() -> None:
         summary={"status": "ok"},
         finding_ids=("finding-1",),
         diff_ids=("diff-1",),
-        reference_run_ids={"baseline": "train-run-1"},
+        references=(MonitoringRunReference(kind="baseline", reference_run_id="train-run-1"),),
     )
 
     assert result.monitoring_run_id == "monitoring-run-1"
@@ -28,7 +28,9 @@ def test_monitor_run_result_success_envelope_construction() -> None:
     assert result.summary == {"status": "ok"}
     assert result.finding_ids == ("finding-1",)
     assert result.diff_ids == ("diff-1",)
-    assert result.reference_run_ids == {"baseline": "train-run-1"}
+    assert result.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-1"),
+    )
     assert result.error is None
 
 
@@ -49,7 +51,7 @@ def test_monitor_run_result_failure_envelope_construction() -> None:
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        reference_run_ids={},
+        references=(),
         error=error,
     )
 
@@ -75,7 +77,7 @@ def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
         summary={"outcome": "failed"},
         finding_ids=("finding-2",),
         diff_ids=("diff-2",),
-        reference_run_ids={"baseline": "train-run-2"},
+        references=(MonitoringRunReference(kind="baseline", reference_run_id="train-run-2"),),
         error=error,
     )
 
@@ -89,6 +91,7 @@ def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
         "stage": "check",
         "details": {"checker": "default"},
     }
+    assert serialized["references"] == [{"kind": "baseline", "reference_run_id": "train-run-2"}]
 
 
 def test_monitor_run_result_to_dict_stable_keys_for_success_and_failure() -> None:
@@ -102,7 +105,7 @@ def test_monitor_run_result_to_dict_stable_keys_for_success_and_failure() -> Non
         summary={"status": "ok"},
         finding_ids=(),
         diff_ids=(),
-        reference_run_ids={},
+        references=(),
     )
     failure = MonitorRunResult(
         monitoring_run_id="monitoring-run-failure",
@@ -113,7 +116,7 @@ def test_monitor_run_result_to_dict_stable_keys_for_success_and_failure() -> Non
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        reference_run_ids={},
+        references=(),
         error=MonitorRunError(
             code="persist_error",
             message="Persistence write failed.",
@@ -142,7 +145,7 @@ def test_monitor_run_result_failed_requires_error() -> None:
             summary=None,
             finding_ids=(),
             diff_ids=(),
-            reference_run_ids={},
+            references=(),
             error=None,
         )
 
@@ -162,7 +165,7 @@ def test_monitor_run_result_non_failed_forbids_error() -> None:
             summary={"status": "warn"},
             finding_ids=(),
             diff_ids=(),
-            reference_run_ids={},
+            references=(),
             error=MonitorRunError(
                 code="unexpected_error",
                 message="Should not be set for non-failed lifecycle states.",
@@ -189,7 +192,7 @@ def test_monitor_run_error_details_are_immutable_after_construction() -> None:
 def test_monitor_run_result_collections_are_immutable_after_construction() -> None:
     """Result collection fields should be copied defensively and immutable."""
     summary = {"status": "ok"}
-    reference_run_ids = {"baseline": "train-run-1"}
+    references = [MonitoringRunReference(kind="baseline", reference_run_id="train-run-1")]
     finding_ids = ["finding-1"]
     diff_ids = ["diff-1"]
     result = MonitorRunResult(
@@ -201,20 +204,22 @@ def test_monitor_run_result_collections_are_immutable_after_construction() -> No
         summary=summary,
         finding_ids=tuple(finding_ids),
         diff_ids=tuple(diff_ids),
-        reference_run_ids=reference_run_ids,
+        references=tuple(references),
     )
 
     summary["status"] = "mutated"
-    reference_run_ids["baseline"] = "mutated"
+    references.append(MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-1"))
     finding_ids.append("finding-2")
     diff_ids.append("diff-2")
 
     assert result.summary == {"status": "ok"}
-    assert result.reference_run_ids == {"baseline": "train-run-1"}
+    assert result.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-1"),
+    )
     assert result.finding_ids == ("finding-1",)
     assert result.diff_ids == ("diff-1",)
 
     with pytest.raises(TypeError):
         result.summary["status"] = "x"  # type: ignore[index]
-    with pytest.raises(TypeError):
-        result.reference_run_ids["baseline"] = "x"  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        result.references += ()  # type: ignore[operator]
