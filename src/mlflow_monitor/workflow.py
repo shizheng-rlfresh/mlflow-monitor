@@ -55,7 +55,12 @@ _ALLOWED_TRANSITIONS = {
 
 @dataclass(frozen=True, slots=True)
 class BaselineResolutionResult:
-    """Result of baseline source run resolution for prepare-stage context."""
+    """Result of baseline source run resolution for prepare-stage context.
+
+    Attributes:
+        baseline_source_run_id: Resolved baseline source run id.
+        requires_bootstrap: Whether the baseline source run must be bootstrapped.
+    """
 
     baseline_source_run_id: str
     requires_bootstrap: bool
@@ -63,9 +68,28 @@ class BaselineResolutionResult:
 
 @dataclass(frozen=True, slots=True)
 class PreparedContext:
-    """Resolved prepare-stage context required before contract checking."""
+    """Resolved prepare-stage context required before contract checking.
 
-    run_id: str
+    Attributes:
+        monitoring_run_id: Stable monitoring run identifier.
+        subject_id: Stable monitored subject identifier.
+        recipe_id: Stable recipe identifier.
+        recipe_version: Stable recipe version.
+        contract_id: Stable contract identifier.
+        run_selector: Compiled run selector.
+        source_experiment: Optional source experiment name.
+        timeline_id: Stable timeline identifier.
+        baseline_source_run_id: Resolved baseline source run id.
+        previous_monitoring_run_id: Resolved previous monitoring run id.
+        active_lkg_monitoring_run_id: Resolved active LKG monitoring run id.
+        custom_reference_monitoring_run_id: Resolved custom reference monitoring run id.
+        source_run_id: Resolved source training run id.
+        contract: Resolved contract.
+        required_metrics: Sequence of required metric names.
+        required_artifacts: Sequence of required artifact names.
+    """
+
+    monitoring_run_id: str
     subject_id: str
     recipe_id: str
     recipe_version: str
@@ -74,9 +98,9 @@ class PreparedContext:
     source_experiment: str | None
     timeline_id: str
     baseline_source_run_id: str
-    previous_run_id: str | None
-    active_lkg_run_id: str | None
-    custom_reference_run_id: str | None
+    previous_monitoring_run_id: str | None
+    active_lkg_monitoring_run_id: str | None
+    custom_reference_monitoring_run_id: str | None
     source_run_id: str
     contract: Contract
     required_metrics: tuple[str, ...]
@@ -110,7 +134,7 @@ def transition_run(run: Run, to_status: LifecycleStatus) -> Run:
 
 def prepare_run_context(
     *,
-    run_id: str,
+    monitoring_run_id: str,
     subject_id: str,
     compiled_plan: CompiledRunPlan,
     resolved_contract: Contract,
@@ -121,7 +145,7 @@ def prepare_run_context(
     """Resolve prepare-stage references and validate required source-run inputs.
 
     Args:
-        run_id: Monitoring run identifier being prepared.
+        monitoring_run_id: Monitoring run identifier being prepared.
         subject_id: Stable monitored subject identifier.
         compiled_plan: Workflow-facing compiled recipe plan.
         resolved_contract: Effective resolved contract for the run.
@@ -177,7 +201,7 @@ def prepare_run_context(
         )
 
     missing_metrics = gateway.get_missing_source_run_metrics(
-        run_id=source_run_id,
+        source_run_id=source_run_id,
         required_metrics=compiled_plan.input.required_metrics,
     )
     if missing_metrics:
@@ -189,7 +213,7 @@ def prepare_run_context(
         )
 
     missing_artifacts = gateway.get_missing_source_run_artifacts(
-        run_id=source_run_id,
+        source_run_id=source_run_id,
         required_artifacts=compiled_plan.input.required_artifacts,
     )
     if missing_artifacts:
@@ -202,16 +226,18 @@ def prepare_run_context(
             details=(("source_run_id", source_run_id), ("artifact", missing_artifact)),
         )
 
-    custom_reference_run_id = compiled_plan.input.custom_reference_run_id
-    if custom_reference_run_id is not None:
-        custom_reference_run_id = gateway.resolve_timeline_run_id(
+    custom_reference_monitoring_run_id = compiled_plan.input.custom_reference_monitoring_run_id
+    if custom_reference_monitoring_run_id is not None:
+        custom_reference_monitoring_run_id = gateway.resolve_timeline_monitoring_run_id(
             subject_id,
-            custom_reference_run_id,
+            custom_reference_monitoring_run_id,
         )
-        if custom_reference_run_id is None:
+        if custom_reference_monitoring_run_id is None:
             raise PrepareStageError(
                 code="prepare_custom_reference_not_found",
-                message=("Custom reference run could not be resolved on the subject timeline."),
+                message=(
+                    "Custom reference monitoring run could not be resolved on the subject timeline."
+                ),
                 details=(("subject_id", subject_id),),
             )
 
@@ -278,11 +304,11 @@ def prepare_run_context(
             details=(("subject_id", subject_id),),
         )
 
-    timeline_runs = gateway.list_timeline_runs(subject_id, exclude_failed=True)
-    previous_run_id = timeline_runs[-1].run_id if timeline_runs else None
+    timeline_runs = gateway.list_timeline_monitoring_runs(subject_id, exclude_failed=True)
+    previous_monitoring_run_id = timeline_runs[-1].monitoring_run_id if timeline_runs else None
 
     return PreparedContext(
-        run_id=run_id,
+        monitoring_run_id=monitoring_run_id,
         subject_id=subject_id,
         recipe_id=compiled_plan.identity.recipe_id,
         recipe_version=compiled_plan.identity.recipe_version,
@@ -291,9 +317,9 @@ def prepare_run_context(
         source_experiment=compiled_plan.input.source_experiment,
         timeline_id=timeline_state.timeline_id,
         baseline_source_run_id=timeline_state.baseline_source_run_id,
-        previous_run_id=previous_run_id,
-        active_lkg_run_id=gateway.resolve_active_lkg_run_id(subject_id),
-        custom_reference_run_id=custom_reference_run_id,
+        previous_monitoring_run_id=previous_monitoring_run_id,
+        active_lkg_monitoring_run_id=gateway.resolve_active_lkg_monitoring_run_id(subject_id),
+        custom_reference_monitoring_run_id=custom_reference_monitoring_run_id,
         source_run_id=source_run_id,
         contract=resolved_contract,
         required_metrics=compiled_plan.input.required_metrics,
@@ -321,7 +347,7 @@ def execute_contract_check(
         Validated contract check result for the prepared context.
     """
     baseline_evidence = gateway.get_source_run_contract_evidence(
-        run_id=prepared_context.baseline_source_run_id,
+        source_run_id=prepared_context.baseline_source_run_id,
     )
     if baseline_evidence is None:
         raise CheckStageError(
@@ -331,7 +357,7 @@ def execute_contract_check(
         )
 
     current_evidence = gateway.get_source_run_contract_evidence(
-        run_id=prepared_context.source_run_id,
+        source_run_id=prepared_context.source_run_id,
     )
     if current_evidence is None:
         raise CheckStageError(
@@ -356,7 +382,7 @@ def execute_contract_check(
         raise CheckStageError(
             code="check_result_invalid",
             message="Contract checker produced an invalid contract check result.",
-            details=(("run_id", prepared_context.run_id),),
+            details=(("run_id", prepared_context.monitoring_run_id),),
         ) from exc
 
     return result

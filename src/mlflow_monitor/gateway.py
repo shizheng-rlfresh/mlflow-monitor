@@ -66,7 +66,7 @@ class MonitoringRunRecord:
     """Minimal monitoring run record stored by the in-memory gateway.
 
     Attributes:
-        run_id: Monitoring run identifier.
+        monitoring_run_id: Monitoring run identifier.
         sequence_index: Monotonic per-subject sequence index.
         lifecycle_status: Current lifecycle status.
         comparability_status: Optional comparability status for the run.
@@ -74,7 +74,7 @@ class MonitoringRunRecord:
         reference_run_ids: Reference kind to run ID mapping captured for the run.
     """
 
-    run_id: str
+    monitoring_run_id: str
     sequence_index: int
     lifecycle_status: LifecycleStatus
     comparability_status: ComparabilityStatus | None = None
@@ -122,9 +122,21 @@ class IdempotencyKey:
 
 @dataclass(frozen=True, slots=True)
 class SourceRunRecord:
-    """Minimal source training run record used by the in-memory gateway."""
+    """Minimal source training run record used by the in-memory gateway.
 
-    run_id: str
+    Attributes:
+        source_run_id: Source training run identifier.
+        subject_id: Monitored subject identifier.
+        source_experiment: Optional source experiment name for filtering.
+        metrics: Mapping of metric names to values for the source run.
+        artifacts: Sequence of artifact names logged in the source run.
+        environment: Mapping of environment variable names to values for the source run.
+        features: Sequence of feature names used in the source run.
+        schema: Mapping of schema field names to types for the source run.
+        data_scope: Optional string describing the data scope of the source run.
+    """
+
+    source_run_id: str
     subject_id: str
     source_experiment: str | None
     metrics: Mapping[str, float]
@@ -154,12 +166,12 @@ class TimelineInitializationResult:
 class MonitoringGateway(Protocol):
     """Protocol for gateway-mediated monitoring persistence operations."""
 
-    def get_or_create_idempotent_run_id(
+    def get_or_create_idempotent_monitoring_run_id(
         self,
         key: IdempotencyKey,
         factory: Callable[[], str],
     ) -> str:
-        """Return existing run id for the key, or create and bind a new run id."""
+        """Return existing monitoring run id for the key, or create and bind a new monitoring run id."""  # noqa: E501
         ...
 
     def initialize_timeline(
@@ -172,16 +184,18 @@ class MonitoringGateway(Protocol):
         """Reserve and return the next sequence index for a subject."""
         ...
 
-    def resolve_active_lkg_run_id(self, subject_id: str) -> str | None:
-        """Resolve the active LKG run id for a subject, if any."""
+    def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
+        """Resolve the active LKG monitoring run id for a subject, if any."""
 
-    def set_active_lkg_run_id(self, subject_id: str, run_id: str | None) -> None:
-        """Set or clear the active LKG run id for a subject."""
+    def set_active_lkg_monitoring_run_id(
+        self, subject_id: str, monitoring_run_id: str | None
+    ) -> None:
+        """Set or clear the active LKG monitoring run id for a subject."""
 
     def upsert_monitoring_run(
         self,
         subject_id: str,
-        run_id: str,
+        monitoring_run_id: str,
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
@@ -189,15 +203,17 @@ class MonitoringGateway(Protocol):
     ) -> None:
         """Persist minimal monitoring run metadata for a subject."""
 
-    def get_monitoring_run(self, subject_id: str, run_id: str) -> MonitoringRunRecord | None:
-        """Return the monitoring run record for a given subject and run id, if it exists."""
+    def get_monitoring_run(
+        self, subject_id: str, monitoring_run_id: str
+    ) -> MonitoringRunRecord | None:
+        """Return the monitoring run record for a given subject and monitoring run id if it exists."""  # noqa: E501
 
-    def list_timeline_runs(
+    def list_timeline_monitoring_runs(
         self,
         subject_id: str,
         exclude_failed: bool = False,
     ) -> tuple[MonitoringRunRecord, ...]:
-        """List timeline runs for a subject with visibility filtering."""
+        """List timeline monitoring runs for a subject with visibility filtering."""
         ...
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
@@ -216,7 +232,7 @@ class MonitoringGateway(Protocol):
 
     def get_missing_source_run_metrics(
         self,
-        run_id: str,
+        source_run_id: str,
         required_metrics: Sequence[str],
     ) -> tuple[str, ...]:
         """Return required metrics that are absent from the source run."""
@@ -224,17 +240,19 @@ class MonitoringGateway(Protocol):
 
     def get_missing_source_run_artifacts(
         self,
-        run_id: str,
+        source_run_id: str,
         required_artifacts: Sequence[str],
     ) -> tuple[str, ...]:
         """Return required artifacts that are absent from the source run."""
         ...
 
-    def resolve_timeline_run_id(self, subject_id: str, run_id: str) -> str | None:
+    def resolve_timeline_monitoring_run_id(
+        self, subject_id: str, monitoring_run_id: str
+    ) -> str | None:
         """Resolve one monitoring run id on the subject timeline."""
         ...
 
-    def get_source_run_contract_evidence(self, run_id: str) -> ContractEvidence | None:
+    def get_source_run_contract_evidence(self, source_run_id: str) -> ContractEvidence | None:
         """Return contract evidence for a source run, or None if the run is not found."""
         ...
 
@@ -256,7 +274,7 @@ class InMemoryMonitoringGateway:
         self._next_sequence_by_subject: dict[str, int] = {}
         self._idempotency_bindings: dict[IdempotencyKey, str] = {}
         self._active_lkg_by_subject: dict[str, str] = {}
-        self._runs_by_subject: dict[str, dict[str, MonitoringRunRecord]] = {}
+        self._monitoring_runs_by_subject: dict[str, dict[str, MonitoringRunRecord]] = {}
         self._source_runs_by_id: dict[str, SourceRunRecord] = {}
 
     @property
@@ -264,27 +282,27 @@ class InMemoryMonitoringGateway:
         """Return the gateway config."""
         return self._config
 
-    def get_or_create_idempotent_run_id(
+    def get_or_create_idempotent_monitoring_run_id(
         self,
         key: IdempotencyKey,
         factory: Callable[[], str],
     ) -> str:
-        """Return existing run id for the key, or create and bind a new run id.
+        """Return existing monitoring run id for the key, or create and bind a new monitoring run id.
 
         Args:
             key: Idempotency key representing the monitoring intent.
             factory: Factory function to generate a new run id if needed.
 
         Returns:
-            The existing or newly created run id bound to the key.
-        """
+            The existing or newly created monitoring run id bound to the key.
+        """  # noqa: E501
         self._validate_subject_id(key.subject_id)
-        existing_run_id = self._idempotency_bindings.get(key)
-        if existing_run_id is not None:
-            return existing_run_id
-        new_run_id = factory()
-        self._idempotency_bindings[key] = new_run_id
-        return new_run_id
+        existing_monitoring_run_id = self._idempotency_bindings.get(key)
+        if existing_monitoring_run_id is not None:
+            return existing_monitoring_run_id
+        new_monitoring_run_id = factory()
+        self._idempotency_bindings[key] = new_monitoring_run_id
+        return new_monitoring_run_id
 
     def initialize_timeline(
         self, subject_id: str, baseline_source_run_id: str
@@ -336,38 +354,40 @@ class InMemoryMonitoringGateway:
         self._next_sequence_by_subject[subject_id] = next_index + 1
         return next_index
 
-    def resolve_active_lkg_run_id(self, subject_id: str) -> str | None:
-        """Resolve the active LKG run id for a subject, if any.
+    def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
+        """Resolve the active LKG monitoring run id for a subject, if any.
 
         Args:
             subject_id: Monitored subject identifier.
 
         Returns:
-            The active LKG run id for the subject, or None if not set.
+            The active LKG monitoring run id for the subject, or None if not set.
         """
         self._validate_subject_id(subject_id)
         return self._active_lkg_by_subject.get(subject_id)
 
-    def set_active_lkg_run_id(self, subject_id: str, run_id: str | None) -> None:
-        """Set or clear the active LKG run id for a subject.
+    def set_active_lkg_monitoring_run_id(
+        self, subject_id: str, monitoring_run_id: str | None
+    ) -> None:
+        """Set or clear the active LKG monitoring run id for a subject.
 
         Args:
             subject_id: Monitored subject identifier.
-            run_id: Run id to set as active LKG, or None to clear.
+            monitoring_run_id: Monitoring run id to set as active LKG, or None to clear.
 
         Returns:
             None
         """
         self._validate_subject_id(subject_id)
-        if run_id is None:
+        if monitoring_run_id is None:
             self._active_lkg_by_subject.pop(subject_id, None)
             return
-        self._active_lkg_by_subject[subject_id] = run_id
+        self._active_lkg_by_subject[subject_id] = monitoring_run_id
 
     def upsert_monitoring_run(
         self,
         subject_id: str,
-        run_id: str,
+        monitoring_run_id: str,
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
@@ -377,7 +397,7 @@ class InMemoryMonitoringGateway:
 
         Args:
             subject_id: Monitored subject identifier.
-            run_id: Monitoring run identifier.
+            monitoring_run_id: Monitoring run identifier.
             lifecycle_status: Current lifecycle status of the run.
             sequence_index: Monotonic per-subject sequence index for ordering.
             contract_check_result: Optional contract check result to persist for the run.
@@ -397,12 +417,12 @@ class InMemoryMonitoringGateway:
             contract_check_result.status if contract_check_result else None
         )
 
-        subject_runs = self._runs_by_subject.setdefault(subject_id, {})
-        monitoring_run = subject_runs.get(run_id)
+        subject_runs = self._monitoring_runs_by_subject.setdefault(subject_id, {})
+        monitoring_run = subject_runs.get(monitoring_run_id)
 
         if monitoring_run is None:
-            subject_runs[run_id] = MonitoringRunRecord(
-                run_id=run_id,
+            subject_runs[monitoring_run_id] = MonitoringRunRecord(
+                monitoring_run_id=monitoring_run_id,
                 sequence_index=sequence_index,
                 lifecycle_status=lifecycle_status,
                 comparability_status=comparability_status,
@@ -421,7 +441,7 @@ class InMemoryMonitoringGateway:
         self._write_upsert_existing_monitoring_run(
             monitoring_run,
             subject_id,
-            run_id,
+            monitoring_run_id,
             lifecycle_status,
             comparability_status,
             contract_check_result,
@@ -430,12 +450,14 @@ class InMemoryMonitoringGateway:
 
         return
 
-    def get_monitoring_run(self, subject_id: str, run_id: str) -> MonitoringRunRecord | None:
+    def get_monitoring_run(
+        self, subject_id: str, monitoring_run_id: str
+    ) -> MonitoringRunRecord | None:
         """Return the monitoring run record for a given subject and run id, if it exists.
 
         Args:
             subject_id: Monitored subject identifier.
-            run_id: Monitoring run identifier.
+            monitoring_run_id: Monitoring run identifier.
 
         Raises:
             GatewayNamespaceViolation: If the subject_id is invalid or does not match the expected
@@ -446,10 +468,10 @@ class InMemoryMonitoringGateway:
         """
         self._validate_subject_id(subject_id)
         self._validate_monitoring_namespace(subject_id)
-        subject_runs = self._runs_by_subject.get(subject_id, {})
-        return subject_runs.get(run_id)
+        subject_runs = self._monitoring_runs_by_subject.get(subject_id, {})
+        return subject_runs.get(monitoring_run_id)
 
-    def list_timeline_runs(
+    def list_timeline_monitoring_runs(
         self,
         subject_id: str,
         exclude_failed: bool = False,
@@ -468,7 +490,7 @@ class InMemoryMonitoringGateway:
         self._validate_subject_id(subject_id)
         runs = tuple(
             sorted(
-                self._runs_by_subject.get(subject_id, {}).values(),
+                self._monitoring_runs_by_subject.get(subject_id, {}).values(),
                 key=lambda run: run.sequence_index,
             )
         )
@@ -485,7 +507,7 @@ class InMemoryMonitoringGateway:
         self,
         *,
         subject_id: str,
-        run_id: str,
+        source_run_id: str,
         source_experiment: str | None,
         metrics: Mapping[str, float],
         artifacts: Sequence[str],
@@ -498,7 +520,7 @@ class InMemoryMonitoringGateway:
 
         Args:
             subject_id: Monitored subject identifier.
-            run_id: Source training run identifier.
+            source_run_id: Source training run identifier.
             source_experiment: Optional source experiment name for filtering.
             metrics: Mapping of metric names to values for the source run.
             artifacts: Sequence of artifact names logged in the source run.
@@ -515,8 +537,8 @@ class InMemoryMonitoringGateway:
             None
         """
         self._validate_subject_id(subject_id)
-        self._source_runs_by_id[run_id] = SourceRunRecord(
-            run_id=run_id,
+        self._source_runs_by_id[source_run_id] = SourceRunRecord(
+            source_run_id=source_run_id,
             subject_id=subject_id,
             source_experiment=source_experiment,
             metrics=metrics,
@@ -551,38 +573,38 @@ class InMemoryMonitoringGateway:
             The resolved source run id if a matching run is found, or None if not found.
         """
         self._validate_subject_id(subject_id)
-        candidate_run_id = (
+        candidate_source_run_id = (
             runtime_source_run_id
             if run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
             else run_selector
         )
-        if not candidate_run_id:
+        if not candidate_source_run_id:
             return None
 
-        source_run = self._source_runs_by_id.get(candidate_run_id)
+        source_run = self._source_runs_by_id.get(candidate_source_run_id)
         if source_run is None:
             return None
         if source_run.subject_id != subject_id:
             return None
         if source_experiment is not None and source_experiment != source_run.source_experiment:
             return None
-        return source_run.run_id
+        return source_run.source_run_id
 
     def get_missing_source_run_metrics(
         self,
-        run_id: str,
+        source_run_id: str,
         required_metrics: Sequence[str],
     ) -> tuple[str, ...]:
         """Return required metrics that are absent from the source run.
 
         Args:
-            run_id: Identifier of the source training run.
+            source_run_id: Identifier of the source training run.
             required_metrics: Sequence of metric names required by the monitoring contract.
 
         Returns:
             Tuple of metric names that are required but not present in the source run.
         """
-        source_run = self._source_runs_by_id.get(run_id)
+        source_run = self._source_runs_by_id.get(source_run_id)
         if source_run is None:
             return tuple(dict.fromkeys(required_metrics))
         return tuple(
@@ -593,19 +615,19 @@ class InMemoryMonitoringGateway:
 
     def get_missing_source_run_artifacts(
         self,
-        run_id: str,
+        source_run_id: str,
         required_artifacts: Sequence[str],
     ) -> tuple[str, ...]:
         """Return required artifacts that are absent from the source run.
 
         Args:
-            run_id: Identifier of the source training run.
+            source_run_id: Identifier of the source training run.
             required_artifacts: Sequence of artifact names required by the monitoring contract.
 
         Returns:
             Tuple of artifact names that are required but not present in the source run.
         """
-        source_run = self._source_runs_by_id.get(run_id)
+        source_run = self._source_runs_by_id.get(source_run_id)
         if source_run is None:
             return tuple(dict.fromkeys(required_artifacts))
         source_artifacts = set(source_run.artifacts)
@@ -615,12 +637,14 @@ class InMemoryMonitoringGateway:
             if artifact_name not in source_artifacts
         )
 
-    def resolve_timeline_run_id(self, subject_id: str, run_id: str) -> str | None:
+    def resolve_timeline_monitoring_run_id(
+        self, subject_id: str, monitoring_run_id: str
+    ) -> str | None:
         """Resolve one monitoring run id on the subject timeline.
 
         Args:
             subject_id: Monitored subject identifier.
-            run_id: Candidate monitoring run identifier to resolve.
+            monitoring_run_id: Candidate monitoring run identifier to resolve.
 
         Raises:
             GatewayNamespaceViolation: If the subject_id is invalid or does not match the expected
@@ -631,16 +655,16 @@ class InMemoryMonitoringGateway:
             or None if not found.
         """
         self._validate_subject_id(subject_id)
-        subject_runs = self._runs_by_subject.get(subject_id, {})
-        if run_id not in subject_runs:
+        subject_runs = self._monitoring_runs_by_subject.get(subject_id, {})
+        if monitoring_run_id not in subject_runs:
             return None
-        return run_id
+        return monitoring_run_id
 
-    def mutate_training_run(self, run_id: str, updates: Mapping[str, str]) -> None:
+    def mutate_training_run(self, source_run_id: str, updates: Mapping[str, str]) -> None:
         """Reject any attempt to mutate training runs through the gateway.
 
         Args:
-            run_id: Identifier of the training run being mutated.
+            source_run_id: Identifier of the training run being mutated.
             updates: Mapping of fields being updated with their new values.
 
         Returns:
@@ -649,7 +673,7 @@ class InMemoryMonitoringGateway:
         raise TrainingRunMutationViolation(
             message=(
                 "Training runs are read-only in MLflow-Monitor; "
-                f"attempted mutation for run_id={run_id} with updates={dict(updates)}"
+                f"attempted mutation for source_run_id={source_run_id} with updates={dict(updates)}"
             )
         )
 
@@ -677,23 +701,23 @@ class InMemoryMonitoringGateway:
         """
         self._validate_subject_id(subject_id)
         bindings = {
-            (f"{key.source_run_id}|{key.recipe_id}|{key.recipe_version}"): run_id
-            for key, run_id in self._idempotency_bindings.items()
+            (f"{key.source_run_id}|{key.recipe_id}|{key.recipe_version}"): monitoring_run_id
+            for key, monitoring_run_id in self._idempotency_bindings.items()
             if key.subject_id == subject_id
         }
         return MappingProxyType(bindings)
 
-    def get_source_run_contract_evidence(self, run_id: str) -> ContractEvidence | None:
+    def get_source_run_contract_evidence(self, source_run_id: str) -> ContractEvidence | None:
         """Return contract evidence for a source run, or None if the run is not found.
 
         Args:
-            run_id: Identifier of the source training run.
+            source_run_id: Identifier of the source training run.
 
         Returns:
             ContractEvidence containing the source run's metrics, environment, features, schema,
             and data scope; or None if the run is not found.
         """
-        source_run = self._source_runs_by_id.get(run_id)
+        source_run = self._source_runs_by_id.get(source_run_id)
         if source_run is None:
             return None
         return ContractEvidence(
@@ -811,7 +835,7 @@ class InMemoryMonitoringGateway:
         self,
         monitoring_run: MonitoringRunRecord,
         subject_id: str,
-        run_id: str,
+        monitoring_run_id: str,
         lifecycle_status: LifecycleStatus,
         comparability_status: ComparabilityStatus | None,
         contract_check_result: ContractCheckResult | None,
@@ -822,7 +846,7 @@ class InMemoryMonitoringGateway:
         Args:
             monitoring_run: The existing monitoring run record being updated.
             subject_id: Monitored subject identifier.
-            run_id: Monitoring run identifier.
+            monitoring_run_id: Monitoring run identifier.
             lifecycle_status: Current lifecycle status of the run.
             comparability_status: Optional comparability status to persist for the run.
             contract_check_result: Optional contract check result to persist for the run.
@@ -844,8 +868,8 @@ class InMemoryMonitoringGateway:
         effective_reference_run_ids = (
             monitoring_run.reference_run_ids if reference_run_ids is None else reference_run_ids
         )
-        self._runs_by_subject[subject_id][run_id] = MonitoringRunRecord(
-            run_id=run_id,
+        self._monitoring_runs_by_subject[subject_id][monitoring_run_id] = MonitoringRunRecord(
+            monitoring_run_id=monitoring_run_id,
             sequence_index=monitoring_run.sequence_index,
             lifecycle_status=lifecycle_status,
             comparability_status=effective_comparability_status,

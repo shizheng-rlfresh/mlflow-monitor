@@ -61,7 +61,7 @@ def make_compiled_run_plan(
     source_experiment: str | None = "training/churn",
     required_metrics: tuple[str, ...] = ("f1", "auc"),
     required_artifacts: tuple[str, ...] = ("metrics.json",),
-    custom_reference_run_id: str | None = "run-custom-1",
+    custom_reference_monitoring_run_id: str | None = "monitoring-run-custom-1",
     recipe_id: str = "default",
     contract_id: str = "default",
 ) -> CompiledRunPlan:
@@ -73,7 +73,7 @@ def make_compiled_run_plan(
             "source_experiment": source_experiment,
             "required_metrics": list(required_metrics),
             "required_artifacts": list(required_artifacts),
-            "custom_reference_run_id": custom_reference_run_id,
+            "custom_reference_monitoring_run_id": custom_reference_monitoring_run_id,
         },
         "contract_binding": {"contract_id": contract_id},
         "metrics_slices": {"metrics": ["f1", "auc"], "slices": ["region", "segment"]},
@@ -97,19 +97,19 @@ def make_gateway_with_timeline() -> InMemoryMonitoringGateway:
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-prev",
+        monitoring_run_id="monitoring-run-prev",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        run_id="run-custom-1",
+        monitoring_run_id="monitoring-run-custom-1",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=1,
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json", "model.pkl"),
@@ -179,9 +179,9 @@ class AliasResolvingBaselineGateway(InMemoryMonitoringGateway):
         super().__init__(config)
         self._aliases: dict[str, str] = {}
 
-    def add_source_run_alias(self, alias: str, run_id: str) -> None:
+    def add_source_run_alias(self, alias: str, source_run_id: str) -> None:
         """Register an alias that resolves to a canonical source run id."""
-        self._aliases[alias] = run_id
+        self._aliases[alias] = source_run_id
 
     def resolve_source_run_id(
         self,
@@ -208,7 +208,7 @@ def make_run(
 ) -> Run:
     """Build a canonical run for workflow transition tests."""
     return Run(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         timeline_id="timeline-1",
         sequence_index=0,
         subject_id="churn_model",
@@ -258,7 +258,7 @@ def make_prepared_context(
 ) -> PreparedContext:
     """Build a prepared context aligned with the common workflow test subject."""
     return PreparedContext(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         recipe_id="default",
         recipe_version="v0",
@@ -267,9 +267,9 @@ def make_prepared_context(
         source_experiment="training/churn",
         timeline_id="timeline-churn_model",
         baseline_source_run_id=baseline_source_run_id,
-        previous_run_id=None,
-        active_lkg_run_id=None,
-        custom_reference_run_id=None,
+        previous_monitoring_run_id=None,
+        active_lkg_monitoring_run_id=None,
+        custom_reference_monitoring_run_id=None,
         source_run_id=source_run_id,
         contract=contract,
         required_metrics=("f1", "auc"),
@@ -358,25 +358,25 @@ def test_transition_run_preserves_comparability_fields() -> None:
 def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     """Prepare should resolve references and required source-run inputs."""
     gateway = make_gateway_with_timeline()
-    gateway.set_active_lkg_run_id("churn_model", "run-lkg")
+    gateway.set_active_lkg_monitoring_run_id("churn_model", "monitoring-run-lkg")
     compiled = make_compiled_run_plan()
 
     prepared = prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring_run-1",
         subject_id="churn_model",
         compiled_plan=compiled,
         resolved_contract=CONTRACT,
         gateway=gateway,
     )
 
-    assert prepared.run_id == "run-1"
+    assert prepared.monitoring_run_id == "monitoring_run-1"
     assert prepared.subject_id == "churn_model"
     assert prepared.timeline_id == "timeline-churn_model"
     assert prepared.source_run_id == "train-run-123"
     assert prepared.baseline_source_run_id == "train-run-baseline"
-    assert prepared.previous_run_id == "run-custom-1"
-    assert prepared.active_lkg_run_id == "run-lkg"
-    assert prepared.custom_reference_run_id == "run-custom-1"
+    assert prepared.previous_monitoring_run_id == "monitoring-run-custom-1"
+    assert prepared.active_lkg_monitoring_run_id == "monitoring-run-lkg"
+    assert prepared.custom_reference_monitoring_run_id == "monitoring-run-custom-1"
     assert prepared.contract is CONTRACT
     assert prepared.required_metrics == ("f1", "auc")
     assert prepared.required_artifacts == ("metrics.json",)
@@ -399,7 +399,7 @@ def test_execute_contract_check_returns_warn_result_for_environment_mismatch() -
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-baseline",
+        source_run_id="train-run-baseline",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -410,7 +410,7 @@ def test_execute_contract_check_returns_warn_result_for_environment_mismatch() -
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"f1": 0.89, "auc": 0.94},
         artifacts=("metrics.json",),
@@ -443,7 +443,7 @@ def test_execute_contract_check_fails_when_baseline_evidence_is_missing() -> Non
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -468,7 +468,7 @@ def test_execute_contract_check_fails_when_current_evidence_is_missing() -> None
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-baseline",
+        source_run_id="train-run-baseline",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -493,7 +493,7 @@ def test_execute_contract_check_propagates_checker_failures() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-baseline",
+        source_run_id="train-run-baseline",
         source_experiment="training/churn",
         metrics={"f1": 0.87, "auc": 0.93},
         artifacts=("metrics.json",),
@@ -504,7 +504,7 @@ def test_execute_contract_check_propagates_checker_failures() -> None:
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -527,7 +527,7 @@ def test_execute_contract_check_rejects_invalid_checker_result() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-baseline",
+        source_run_id="train-run-baseline",
         source_experiment="training/churn",
         metrics={"f1": 0.87, "auc": 0.93},
         artifacts=("metrics.json",),
@@ -538,7 +538,7 @@ def test_execute_contract_check_rejects_invalid_checker_result() -> None:
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -564,7 +564,7 @@ def test_prepare_run_context_succeeds_without_previous_run() -> None:
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -575,14 +575,14 @@ def test_prepare_run_context_succeeds_without_previous_run() -> None:
     )
 
     prepared = prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
-        compiled_plan=make_compiled_run_plan(custom_reference_run_id=None),
+        compiled_plan=make_compiled_run_plan(custom_reference_monitoring_run_id=None),
         resolved_contract=CONTRACT,
         gateway=gateway,
     )
 
-    assert prepared.previous_run_id is None
+    assert prepared.previous_monitoring_run_id is None
 
 
 def test_prepare_run_context_succeeds_without_active_lkg() -> None:
@@ -590,14 +590,14 @@ def test_prepare_run_context_succeeds_without_active_lkg() -> None:
     gateway = make_gateway_with_timeline()
 
     prepared = prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=make_compiled_run_plan(),
         resolved_contract=CONTRACT,
         gateway=gateway,
     )
 
-    assert prepared.active_lkg_run_id is None
+    assert prepared.active_lkg_monitoring_run_id is None
 
 
 def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
@@ -606,7 +606,7 @@ def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -617,11 +617,11 @@ def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
     )
 
     prepared = prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=make_compiled_run_plan(
             source_experiment=None,
-            custom_reference_run_id=None,
+            custom_reference_monitoring_run_id=None,
         ),
         resolved_contract=CONTRACT,
         gateway=gateway,
@@ -635,14 +635,14 @@ def test_prepare_run_context_preserves_omitted_custom_reference() -> None:
     gateway = make_gateway_with_timeline()
 
     prepared = prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoriing-run-1",
         subject_id="churn_model",
-        compiled_plan=make_compiled_run_plan(custom_reference_run_id=None),
+        compiled_plan=make_compiled_run_plan(custom_reference_monitoring_run_id=None),
         resolved_contract=CONTRACT,
         gateway=gateway,
     )
 
-    assert prepared.custom_reference_run_id is None
+    assert prepared.custom_reference_monitoring_run_id is None
 
 
 def test_prepare_run_context_fails_when_source_run_cannot_be_resolved() -> None:
@@ -652,9 +652,9 @@ def test_prepare_run_context_fails_when_source_run_cannot_be_resolved() -> None:
 
     with pytest.raises(PrepareStageError, match="Source training run could not be resolved"):
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
-            compiled_plan=make_compiled_run_plan(custom_reference_run_id=None),
+            compiled_plan=make_compiled_run_plan(custom_reference_monitoring_run_id=None),
             resolved_contract=CONTRACT,
             gateway=gateway,
         )
@@ -666,7 +666,7 @@ def test_prepare_run_context_fails_when_required_metric_is_missing() -> None:
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"auc": 0.95},
         artifacts=("metrics.json",),
@@ -678,11 +678,11 @@ def test_prepare_run_context_fails_when_required_metric_is_missing() -> None:
 
     with pytest.raises(PrepareStageError, match="missing required metric"):
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 required_metrics=("f1", "auc"),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -695,7 +695,7 @@ def test_prepare_run_context_fails_when_required_artifact_is_missing() -> None:
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("model.pkl",),
@@ -707,11 +707,11 @@ def test_prepare_run_context_fails_when_required_artifact_is_missing() -> None:
 
     with pytest.raises(PrepareStageError, match="missing required artifact"):
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -724,7 +724,7 @@ def test_prepare_run_context_uses_runtime_source_run_id_for_reserved_selector() 
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-runtime",
+        source_run_id="train-run-runtime",
         source_experiment=None,
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -735,12 +735,12 @@ def test_prepare_run_context_uses_runtime_source_run_id_for_reserved_selector() 
     )
 
     prepared = prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=make_compiled_run_plan(
             run_selector=SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
             source_experiment=None,
-            custom_reference_run_id=None,
+            custom_reference_monitoring_run_id=None,
             recipe_id=SYSTEM_DEFAULT_RECIPE_ID,
             contract_id=SYSTEM_DEFAULT_CONTRACT_ID,
         ),
@@ -766,7 +766,7 @@ def test_prepare_run_context_succeeds_for_resolved_system_default_recipe() -> No
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-runtime",
+        source_run_id="train-run-runtime",
         source_experiment=None,
         metrics={"f1": 0.91},
         artifacts=("metrics.json",),
@@ -788,7 +788,7 @@ def test_prepare_run_context_succeeds_for_resolved_system_default_recipe() -> No
     resolved_contract = resolve_contract_v0(compiled.contract.contract_id)
 
     prepared = prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=compiled,
         resolved_contract=resolved_contract,
@@ -808,7 +808,7 @@ def test_prepare_run_context_succeeds_for_resolved_system_default_recipe() -> No
     assert prepared.run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
     assert prepared.required_metrics == ()
     assert prepared.required_artifacts == ()
-    assert prepared.custom_reference_run_id is None
+    assert prepared.custom_reference_monitoring_run_id is None
 
 
 def test_prepare_run_context_allows_system_default_recipe_without_optional_evidence() -> None:
@@ -817,7 +817,7 @@ def test_prepare_run_context_allows_system_default_recipe_without_optional_evide
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-runtime",
+        source_run_id="train-run-runtime",
         source_experiment=None,
         metrics={},
         artifacts=(),
@@ -838,7 +838,7 @@ def test_prepare_run_context_allows_system_default_recipe_without_optional_evide
     compiled = compile_recipe_v0_lite(recipe)
 
     prepared = prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=compiled,
         resolved_contract=resolve_contract_v0(compiled.contract.contract_id),
@@ -848,7 +848,7 @@ def test_prepare_run_context_allows_system_default_recipe_without_optional_evide
 
     assert prepared.required_metrics == ()
     assert prepared.required_artifacts == ()
-    assert prepared.custom_reference_run_id is None
+    assert prepared.custom_reference_monitoring_run_id is None
     assert prepared.source_run_id == "train-run-runtime"
 
 
@@ -858,7 +858,7 @@ def test_prepare_run_context_fails_when_custom_reference_is_missing() -> None:
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-123",
+        source_run_id="train-run-123",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -868,11 +868,15 @@ def test_prepare_run_context_fails_when_custom_reference_is_missing() -> None:
         data_scope="validation:2026-03-01",
     )
 
-    with pytest.raises(PrepareStageError, match="Custom reference run could not be resolved"):
+    with pytest.raises(
+        PrepareStageError, match="Custom reference monitoring run could not be resolved"
+    ):
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
-            compiled_plan=make_compiled_run_plan(custom_reference_run_id="run-missing"),
+            compiled_plan=make_compiled_run_plan(
+                custom_reference_monitoring_run_id="monitoring-run-missing"
+            ),
             resolved_contract=CONTRACT,
             gateway=gateway,
         )
@@ -883,16 +887,20 @@ def test_prepare_run_context_fails_when_custom_reference_is_on_another_subject()
     gateway = make_gateway_with_timeline()
     gateway.upsert_monitoring_run(
         subject_id="fraud_model",
-        run_id="run-foreign",
+        monitoring_run_id="monitoring-run-foreign",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
 
-    with pytest.raises(PrepareStageError, match="Custom reference run could not be resolved"):
+    with pytest.raises(
+        PrepareStageError, match="Custom reference monitoring run could not be resolved"
+    ):
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
-            compiled_plan=make_compiled_run_plan(custom_reference_run_id="run-foreign"),
+            compiled_plan=make_compiled_run_plan(
+                custom_reference_monitoring_run_id="monitoring-run-foreign"
+            ),
             resolved_contract=CONTRACT,
             gateway=gateway,
         )
@@ -913,9 +921,9 @@ def test_prepare_run_context_fails_when_resolved_contract_mismatches_compiled_pl
 
     with pytest.raises(PrepareStageError, match="Resolved contract does not match compiled plan"):
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
-            compiled_plan=make_compiled_run_plan(custom_reference_run_id=None),
+            compiled_plan=make_compiled_run_plan(custom_reference_monitoring_run_id=None),
             resolved_contract=mismatched_contract,
             gateway=gateway,
         )
@@ -926,7 +934,7 @@ def test_prepare_run_context_succeeds_for_first_run_with_baseline_passed_in() ->
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -937,14 +945,14 @@ def test_prepare_run_context_succeeds_for_first_run_with_baseline_passed_in() ->
     )
 
     prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=make_compiled_run_plan(
             run_selector=BASELINE.source_run_id,
             source_experiment="training/churn",
             required_metrics=tuple(BASELINE.metric_snapshot.keys()),
             required_artifacts=("metrics.json",),
-            custom_reference_run_id=None,
+            custom_reference_monitoring_run_id=None,
         ),
         resolved_contract=CONTRACT,
         gateway=gateway,
@@ -964,14 +972,14 @@ def test_prepare_run_context_fails_for_first_run_with_no_baseline() -> None:
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector="train-run-123",
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -996,14 +1004,14 @@ def test_prepare_run_context_fails_for_first_run_with_empty_baseline() -> None:
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector="train-run-123",
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1028,7 +1036,7 @@ def test_prepare_run_context_fails_for_first_run_with_missing_baseline_run() -> 
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1040,14 +1048,14 @@ def test_prepare_run_context_fails_for_first_run_with_missing_baseline_run() -> 
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector=BASELINE.source_run_id,
                 source_experiment="training/churn",
                 required_metrics=tuple(BASELINE.metric_snapshot.keys()),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1073,7 +1081,7 @@ def test_prepare_run_context_does_not_persist_timeline_when_source_run_resolutio
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1085,14 +1093,14 @@ def test_prepare_run_context_does_not_persist_timeline_when_source_run_resolutio
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector="missing-source",
                 source_experiment="training/churn",
                 required_metrics=("f1",),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1108,7 +1116,7 @@ def test_prepare_run_context_does_not_persist_timeline_when_metric_validation_fa
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics={"auc": 0.95},
         artifacts=("metrics.json",),
@@ -1120,14 +1128,14 @@ def test_prepare_run_context_does_not_persist_timeline_when_metric_validation_fa
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector=BASELINE.source_run_id,
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1143,7 +1151,7 @@ def test_prepare_run_context_does_not_persist_timeline_when_artifact_validation_
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("model.pkl",),
@@ -1155,14 +1163,14 @@ def test_prepare_run_context_does_not_persist_timeline_when_artifact_validation_
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector=BASELINE.source_run_id,
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1178,7 +1186,7 @@ def test_prepare_run_context_does_not_persist_timeline_when_custom_reference_is_
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -1190,14 +1198,14 @@ def test_prepare_run_context_does_not_persist_timeline_when_custom_reference_is_
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector=BASELINE.source_run_id,
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id="run-missing",
+                custom_reference_monitoring_run_id="run-missing",
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1213,7 +1221,7 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_subject_baseline()
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1224,7 +1232,7 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_subject_baseline()
     )
     gateway.add_source_run(
         subject_id="fraud_model",
-        run_id="fraud-baseline",
+        source_run_id="fraud-baseline",
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1236,14 +1244,14 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_subject_baseline()
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector=BASELINE.source_run_id,
                 source_experiment="training/churn",
                 required_metrics=tuple(BASELINE.metric_snapshot.keys()),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1269,7 +1277,7 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_experiment_baselin
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1280,7 +1288,7 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_experiment_baselin
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="fraud-baseline",
+        source_run_id="fraud-baseline",
         source_experiment="validation/fraudeval",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1292,14 +1300,14 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_experiment_baselin
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector=BASELINE.source_run_id,
                 source_experiment="training/churn",
                 required_metrics=tuple(BASELINE.metric_snapshot.keys()),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1325,7 +1333,7 @@ def test_prepare_run_context_fails_when_timeline_init_does_not_materialize_state
     gateway = BrokenInitializeTimelineGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1337,14 +1345,14 @@ def test_prepare_run_context_fails_when_timeline_init_does_not_materialize_state
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector=BASELINE.source_run_id,
                 source_experiment="training/churn",
                 required_metrics=tuple(BASELINE.metric_snapshot.keys()),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1367,7 +1375,7 @@ def test_prepare_run_context_succeeds_when_competing_bootstrap_pins_same_baselin
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1378,14 +1386,14 @@ def test_prepare_run_context_succeeds_when_competing_bootstrap_pins_same_baselin
     )
 
     prepared = prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=make_compiled_run_plan(
             run_selector=BASELINE.source_run_id,
             source_experiment="training/churn",
             required_metrics=tuple(BASELINE.metric_snapshot.keys()),
             required_artifacts=("metrics.json",),
-            custom_reference_run_id=None,
+            custom_reference_monitoring_run_id=None,
         ),
         resolved_contract=CONTRACT,
         gateway=gateway,
@@ -1404,7 +1412,7 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1415,7 +1423,7 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-other",
+        source_run_id="train-run-other",
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1427,14 +1435,14 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector=BASELINE.source_run_id,
                 source_experiment="training/churn",
                 required_metrics=tuple(BASELINE.metric_snapshot.keys()),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1458,7 +1466,7 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
 
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id=BASELINE.source_run_id,
+        source_run_id=BASELINE.source_run_id,
         source_experiment="training/churn",
         metrics=BASELINE.metric_snapshot,
         artifacts=("metrics.json",),
@@ -1469,14 +1477,14 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
     )
 
     prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=make_compiled_run_plan(
             run_selector=BASELINE.source_run_id,
             source_experiment="training/churn",
             required_metrics=tuple(BASELINE.metric_snapshot.keys()),
             required_artifacts=("metrics.json",),
-            custom_reference_run_id=None,
+            custom_reference_monitoring_run_id=None,
         ),
         resolved_contract=CONTRACT,
         gateway=gateway,
@@ -1498,14 +1506,14 @@ def test_prepare_run_context_succeeds_with_existed_timeline_and_no_baseline() ->
     timeline_state = gateway.get_timeline_state("churn_model")
 
     prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=make_compiled_run_plan(
             run_selector="train-run-123",
             source_experiment="training/churn",
             required_metrics=("f1", "auc"),
             required_artifacts=("metrics.json",),
-            custom_reference_run_id=None,
+            custom_reference_monitoring_run_id=None,
         ),
         resolved_contract=CONTRACT,
         gateway=gateway,
@@ -1522,7 +1530,7 @@ def test_prepare_run_context_succeeds_with_created_timeline_matching_baseline() 
 
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-baseline",
+        source_run_id="train-run-baseline",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -1535,14 +1543,14 @@ def test_prepare_run_context_succeeds_with_created_timeline_matching_baseline() 
     timeline_state = gateway.get_timeline_state("churn_model")
 
     prepare_run_context(
-        run_id="run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=make_compiled_run_plan(
             run_selector="train-run-123",
             source_experiment="training/churn",
             required_metrics=("f1", "auc"),
             required_artifacts=("metrics.json",),
-            custom_reference_run_id=None,
+            custom_reference_monitoring_run_id=None,
         ),
         resolved_contract=CONTRACT,
         gateway=gateway,
@@ -1561,7 +1569,7 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
     # add source run that does not match the existing timeline baseline
     gateway.add_source_run(
         subject_id="churn_model",
-        run_id="train-run-other",
+        source_run_id="train-run-other",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
@@ -1578,14 +1586,14 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector="train-run-other",
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
@@ -1613,14 +1621,14 @@ def test_prepare_run_context_fail_with_no_timeline_and_invalid_baseline() -> Non
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_run_context(
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_plan=make_compiled_run_plan(
                 run_selector="train-run-baseline",
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
-                custom_reference_run_id=None,
+                custom_reference_monitoring_run_id=None,
             ),
             resolved_contract=CONTRACT,
             gateway=gateway,
