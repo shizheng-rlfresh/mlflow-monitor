@@ -100,10 +100,7 @@ class MonitorMLflowClient:
         """
         experiment = self._get_experiment_by_name(name)
         if experiment is not None:
-            if experiment.lifecycle_stage == "deleted":
-                # Monitoring experiments are system-owned timeline state, not
-                # disposable cache entries, so recover soft-deleted timelines.
-                self._client.restore_experiment(experiment.experiment_id)
+            self._restore_monitoring_experiment_if_deleted(name, experiment)
             return experiment.experiment_id
 
         try:
@@ -122,8 +119,7 @@ class MonitorMLflowClient:
                 f"Experiment {name!r} already exists but could not be resolved by name.",
                 error_code=RESOURCE_ALREADY_EXISTS,
             )
-        if experiment.lifecycle_stage == "deleted":
-            self._client.restore_experiment(experiment.experiment_id)
+        self._restore_monitoring_experiment_if_deleted(name, experiment)
         return experiment.experiment_id
 
     def get_monitoring_experiment_id_by_name(self, name: str) -> str | None:
@@ -325,6 +321,31 @@ class MonitorMLflowClient:
                 continue
             paths.append(artifact.path)
         return paths
+
+    def _restore_monitoring_experiment_if_deleted(
+        self,
+        name: str,
+        experiment: Experiment,
+    ) -> None:
+        """Restore a deleted monitoring experiment, tolerating one restore race."""
+        if experiment.lifecycle_stage != "deleted":
+            return
+
+        # Monitoring experiments are system-owned timeline state, not
+        # disposable cache entries, so recover soft-deleted timelines.
+        try:
+            self._client.restore_experiment(experiment.experiment_id)
+        except MlflowException as exc:
+            if _normalize_error_code(exc.error_code) != _RESOURCE_DOES_NOT_EXIST:
+                raise
+
+            restored = self._get_experiment_by_name(name)
+            if (
+                restored is None
+                or restored.experiment_id != experiment.experiment_id
+                or restored.lifecycle_stage != "active"
+            ):
+                raise exc
 
     def _get_experiment_by_name(self, name: str) -> Experiment | None:
         """Return the raw MLflow experiment for internal lifecycle-aware flows."""
