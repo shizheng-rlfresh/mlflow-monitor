@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import pytest
 
@@ -91,7 +91,7 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
-        reference_run_ids: dict[str, str] | None = None,
+        reference_run_ids: Mapping[str, str] | None = None,
     ) -> None:
         if lifecycle_status is LifecycleStatus.PREPARED:
             raise GatewayConsistencyViolation(
