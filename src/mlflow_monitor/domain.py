@@ -174,7 +174,7 @@ class Diff:
     Attributes:
         diff_id: Unique identifier for the diff record.
         monitoriing_run_id: The ID of the monitoring run this diff is associated with.
-        reference_rouce_run_id: The ID of the reference source run diff is comparing to.
+        reference_source_run_id: The ID of the reference source run diff is comparing to.
         reference_kind: The kind of reference used for this diff (e.g., baseline, previous, lkg).
         metric_deltas: A mapping of metric names to their delta values compared to the reference.
         metadata: A mapping of additional metadata keys to values providing context for the diff.

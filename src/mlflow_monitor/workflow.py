@@ -382,7 +382,7 @@ def execute_contract_check(
         raise CheckStageError(
             code="check_result_invalid",
             message="Contract checker produced an invalid contract check result.",
-            details=(("run_id", prepared_context.monitoring_run_id),),
+            details=(("monitoring_run_id", prepared_context.monitoring_run_id),),
         ) from exc
 
     return result
