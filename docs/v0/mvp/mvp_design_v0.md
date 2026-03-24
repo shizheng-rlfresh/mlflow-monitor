@@ -16,35 +16,38 @@ The MVP does not extend the M1 execution boundary. It replaces the persistence l
 
 ### In scope
 
+0. Naming cleanup (prerequisite) — rename ambiguous `run_id` to `monitoring_run_id` across M1 codebase so monitoring run IDs and training run IDs are never confused when both are real MLflow UUIDs.
 1. `MonitorMLflowClient` — thin adapter over `MlflowClient` encapsulating all raw MLflow API usage.
 2. `MLflowMonitoringGateway` — implements `MonitoringGateway` protocol, calls the adapter (never `MlflowClient` directly).
 3. Updated `monitor.py` — accepts optional gateway parameter, defaults to MLflow gateway.
 4. CLI entry point — `mlflow-monitor run --subject <id> --source-run <id>`.
 5. Demo setup script — seeds a local MLflow instance with synthetic training runs.
-6. Integration tests — create → prepare → check path against real local MLflow.
-7. Local development playground — `mlflow ui` + demo seeder + run loop for visual feedback.
+6. Integration tests — create → prepare → check path against a dedicated local MLflow store.
+7. Local development playground — dedicated local MLflow store directory with `mlflow ui` pointed at it for visual feedback.
 
 ### Out of scope
 
 1. Analyze, close, diff, finding, query, promotion (M2/M3).
-2. Retry hardening and concurrency safety (current code handles these minimally — acceptable for MVP).
+2. Retry hardening and concurrency safety (acceptable for MVP — single user, sequential runs).
 3. Flexible evidence mapping via recipe (post-MVP — for now, one fixed convention).
 4. Recipe file-format loading (JSON/YAML).
+5. `latest` run selector — caller always provides explicit `source_run_id`.
+6. Multiple recipes per subject — one experiment = one subject = one recipe in v0.
 
 ### Design posture
 
-Some of what we designed against the in-memory gateway may not survive contact with real MLflow. The MVP is explicitly a discovery exercise — if something is too strict or doesn't work at all, we change it. The contract evidence conventions, tag schema, and write patterns described below are our best starting point, not commitments.
+Some of what we designed against the in-memory gateway may not survive contact with real MLflow. The MVP is explicitly a discovery exercise — if something is too strict or doesn't work at all, we change it. This includes the M1 code (orchestration, gateway protocol, etc.) — not just the new adapter. The tag schema, evidence conventions, and write patterns described below are our best starting point, not commitments.
 
 ---
 
 ## 3. Architecture
 
-No layering changes to the core system. Two new modules in the MLflow integration layer:
+Two new modules in the MLflow integration layer. Core layering preserved but orchestration will likely need adjustment when hitting real MLflow:
 
 ```
 monitor.py (MODIFIED: gateway injection, MLflow default)
     ↓
-orchestration.py (unchanged)
+orchestration.py (LIKELY MODIFIED: idempotency and rerun logic may need changes)
     ↓
 workflow.py (unchanged)
     ↓
@@ -59,11 +62,11 @@ MlflowClient (from mlflow import MlflowClient)
 
 The separation:
 
-- **`mlflow_client.py`** — the only file that imports `MlflowClient`. Encapsulates pagination, get-or-create patterns, tag string serialization, error handling, and raw MLflow API quirks. Tested in isolation.
-- **`mlflow_gateway.py`** — implements the `MonitoringGateway` protocol. Speaks domain language (timelines, sentinel runs, evidence). Calls the adapter, never `MlflowClient` directly.
+- **`mlflow_client.py`** — the only file that imports `MlflowClient`. Encapsulates get-or-create patterns, tag read/write, run lifecycle, error handling, and MLflow API quirks. Tested in isolation.
+- **`mlflow_gateway.py`** — implements the `MonitoringGateway` protocol. Speaks domain language (timelines, baselines, evidence). Calls the adapter, never `MlflowClient` directly.
 - **`gateway.py`** — unchanged. Protocol definition + `InMemoryMonitoringGateway` for unit tests.
 
-If MLflow changes an API or we need to handle a new quirk, we fix `mlflow_client.py` only. The gateway and everything above it stay clean.
+When the MLflow gateway doesn't fit the existing M1 abstractions, we change whatever needs changing — the adapter, the gateway protocol, or the M1 code. No layer is frozen.
 
 ---
 
@@ -79,13 +82,15 @@ from mlflow import MlflowClient
 class MonitorMLflowClient:
     """Thin adapter over MlflowClient for mlflow-monitor.
 
-    Encapsulates pagination, get-or-create patterns, tag conventions,
+    Encapsulates get-or-create patterns, tag read/write,
     string serialization, and MLflow API error handling.
     """
 
     def __init__(self, tracking_uri: str | None = None):
         self._client = MlflowClient(tracking_uri=tracking_uri)
 ```
+
+No context manager — `MlflowClient` is stateless (each call is independent).
 
 ### 4.2 Operations
 
@@ -98,6 +103,12 @@ def get_or_create_experiment(self, name: str) -> str:
 
 def get_experiment_id_by_name(self, name: str) -> str | None:
     """Return experiment ID for a name, or None."""
+
+def get_experiment_tags(self, experiment_id: str) -> dict[str, str]:
+    """Return all tags on an experiment."""
+
+def set_experiment_tag(self, experiment_id: str, key: str, value: str) -> None:
+    """Set a single tag on an experiment."""
 ```
 
 **Run lifecycle:**
@@ -116,30 +127,17 @@ def get_run(self, run_id: str) -> Run | None:
     """Return a run or None if not found. Catches MlflowException on missing runs."""
 ```
 
-**Search (pagination built in):**
-
-```python
-def find_runs(
-    self, experiment_id: str, filter_string: str,
-    order_by: list[str] | None = None, max_results: int | None = None,
-) -> list[Run]:
-    """Search runs with automatic pagination. Returns all matching runs."""
-
-def find_single_run(self, experiment_id: str, filter_string: str) -> Run | None:
-    """Find exactly one run matching filter, or None. Convenience for sentinel/LKG lookups."""
-```
-
 **Read helpers:**
 
 ```python
 def get_run_metrics(self, run_id: str) -> dict[str, float]:
-    """Return metrics dict for a run."""
+    """Return run.data.metrics for a run."""
 
 def get_run_params(self, run_id: str) -> dict[str, str]:
-    """Return params dict for a run."""
+    """Return run.data.params for a run."""
 
 def get_run_tags(self, run_id: str) -> dict[str, str]:
-    """Return tags dict for a run."""
+    """Return run.data.tags for a run."""
 
 def list_artifact_paths(self, run_id: str) -> list[str]:
     """Return list of artifact paths for a run."""
@@ -154,17 +152,66 @@ def log_json_artifact(self, run_id: str, data: dict, path: str) -> None:
 
 ### 4.3 What the adapter owns
 
-- Pagination on `search_runs()` (loop until `.token` is None)
 - Get-or-create with race-condition try/except for experiments
-- String ↔ int serialization for tags like `sequence_index`
+- String ↔ int serialization for tags like `next_sequence_index`
 - `MlflowException` handling and normalization
 - The `from mlflow import MlflowClient` import — nowhere else in the codebase
 
 ---
 
-## 5. MLflowMonitoringGateway
+## 5. MLflow Tag Schema
 
-### 5.1 Structure
+### 5.1 Design principles
+
+- **No `search_runs()` for single-run lookups.** Experiment-level tags serve as the index for direct lookups.
+- **`search_runs()` only used for multi-run queries** (listing all monitoring runs in the timeline) — these are inherently multi-run operations.
+- **Tag prefix convention:** `training.*` for values pointing to training runs, `monitoring.*` for values about our monitoring runs. No outer `monitor.` prefix needed since the experiment `mlflow_monitor/{subject_id}` is already our namespace.
+- **No sentinel run.** The experiment IS the timeline. Experiment tags hold all timeline-level state directly.
+
+### 5.2 Experiment-level tags (timeline state)
+
+These tags live on the `mlflow_monitor/{subject_id}` experiment itself:
+
+| Tag key | Value type | Purpose |
+|---|---|---|
+| `training.baseline_run_id` | training run ID | The pinned baseline reference |
+| `monitoring.lkg_run_id` | monitoring run ID | Current LKG (absent if none promoted) |
+| `monitoring.latest_run_id` | monitoring run ID | Most recent monitoring run (for previous-run lookup) |
+| `monitoring.next_sequence_index` | integer as string | Next available sequence index |
+| `training.{source_run_id}.monitoring_run_id` | monitoring run ID | Idempotency: maps training run → its monitoring run |
+
+**Idempotency check:** To check if training run `abc123` was already monitored, read experiment tags and look for key `training.abc123.monitoring_run_id`. If present, fetch that monitoring run via `client.get_run()` and verify `monitoring.recipe_id` and `monitoring.recipe_version` match the current request. For MVP with one recipe, the match is always true.
+
+**Previous run lookup:** Read `monitoring.latest_run_id` from experiment tags. That's the previous monitoring run. After creating a new monitoring run, update this tag.
+
+### 5.3 Run-level tags (per monitoring run)
+
+These tags live on each monitoring run within the experiment:
+
+| Tag key | Value type | Purpose |
+|---|---|---|
+| `training.source_run_id` | training run ID | Which training run this monitoring run evaluated |
+| `monitoring.sequence_index` | integer as string | Position in timeline |
+| `monitoring.lifecycle_status` | status string | created / prepared / checked / failed |
+| `monitoring.comparability_status` | status string | pass / warn / fail (absent if not yet checked) |
+| `monitoring.recipe_id` | string | Which recipe was used |
+| `monitoring.recipe_version` | string | Which version of the recipe |
+
+### 5.4 Run-level artifacts (per monitoring run)
+
+One artifact, written once at the end of the run:
+
+| Artifact path | Content | Written when |
+|---|---|---|
+| `outputs/result.json` | Full `MonitorRunResult.to_dict()` — status, comparability, references, error if failed | Once, at end of run |
+
+Tags are upserted at each stage (MLflow tags are mutable, last write wins). The artifact captures the final state only.
+
+---
+
+## 6. MLflowMonitoringGateway
+
+### 6.1 Structure
 
 ```python
 class MLflowMonitoringGateway:
@@ -173,94 +220,50 @@ class MLflowMonitoringGateway:
         self._mlflow = MonitorMLflowClient(tracking_uri=tracking_uri)
 ```
 
-Gateway calls `self._mlflow.*` for all MLflow operations. No `MlflowClient` import here.
+Gateway calls `self._mlflow.*` for all MLflow operations.
 
-### 5.2 Where we READ (training experiments — read only)
+### 6.2 Where we READ (training experiments — read only)
 
-For MVP, one fixed convention per evidence type. If the data isn't there, the permissive default contract skips that dimension — no error, just no check.
+For MVP, one fixed convention per evidence type. If the data isn't there, the permissive default contract skips that dimension.
 
-| Evidence type | MLflow source | Convention | Fallback if absent |
-|---|---|---|---|
-| Metrics | `run.data.metrics` | Standard MLflow | Empty dict |
-| Environment | `run.data.tags` | Tags like `python_version`, `sklearn_version` | Empty dict — env check skipped |
-| Features | `run.data.params` or `run.data.tags` | Param or tag `feature_columns` (comma-separated) | Empty tuple — feature check skipped |
-| Schema | `run.data.tags` | Tags prefixed with `schema.` (e.g., `schema.age=float64`) | Empty dict — schema check skipped |
-| Data scope | `run.data.tags` | Tag `data_scope` (e.g., `"2024-Q1"`) | None — data scope check skipped |
+| Evidence type | MLflow source | Fallback if absent |
+|---|---|---|
+| Metrics | `run.data.metrics` | Empty dict |
+| Environment | `run.data.tags` (e.g., `python_version`, `sklearn_version`) | Empty dict — env check skipped |
+| Features | `run.data.params` or `run.data.tags` (`feature_columns`, comma-separated) | Empty tuple — feature check skipped |
+| Schema | `run.data.tags` prefixed with `schema.` | Empty dict — schema check skipped |
+| Data scope | `run.data.tags` (`data_scope`) | None — data scope check skipped |
 
-These conventions are our starting point. We may adjust them during implementation.
+These are the standard `run.data.metrics`, `run.data.params`, and `run.data.tags` accessors. If users log via `mlflow.log_metric()`, `mlflow.log_param()`, `mlflow.set_tag()`, we can read it. Anything stored as artifacts is not read for MVP.
 
 **We never write to training experiments.** The gateway enforces this.
 
-### 5.3 Where we WRITE (monitoring experiments)
+### 6.3 Where we WRITE (monitoring experiments)
 
-| What we write | MLflow primitive | Why |
-|---|---|---|
-| Sentinel run (baseline pointer) | Tags on a dedicated run | Queryable: `tags.monitor.role = "timeline_config"` |
-| Lifecycle status | Tag: `monitor.lifecycle_status` | Mutable, queryable |
-| Comparability status | Tag: `monitor.comparability_status` | Queryable |
-| Sequence index | Tag: `monitor.sequence_index` | Queryable for ordering (stored as string) |
-| Source run ID | Tag: `monitor.source_run_id` | Traceability |
-| Recipe ID + version | Tags: `monitor.recipe_id`, `monitor.recipe_version` | Traceability + idempotency |
-| Idempotency key | Tag: `monitor.idempotency_key` | Duplicate detection via search |
-| Contract check result | JSON artifact via `log_json_artifact()` | Too complex for tags |
-| LKG status | Tag: `monitor.lkg_status` | Queryable: `active` / `superseded` |
+All writes go to `{namespace_prefix}/{subject_id}` experiments. Tags for queryable state, artifacts for structured payloads. See §5 for full tag schema.
 
-Tags for queryable state, artifacts for structured payloads. All monitoring tags use `monitor.` prefix.
+### 6.4 Protocol method → implementation
 
-### 5.4 Protocol method → implementation sketch
-
-The gateway speaks domain language and delegates MLflow mechanics to the adapter:
-
-```python
-def get_timeline_state(self, subject_id):
-    exp_id = self._mlflow.get_experiment_id_by_name(
-        f"{self._config.namespace_prefix}/{subject_id}"
-    )
-    if exp_id is None:
-        return None
-    sentinel = self._mlflow.find_single_run(
-        exp_id, 'tags.monitor.role = "timeline_config"'
-    )
-    if sentinel is None:
-        return None
-    tags = self._mlflow.get_run_tags(sentinel.info.run_id)
-    return TimelineState(
-        timeline_id=exp_id,
-        baseline_source_run_id=tags["monitor.baseline_source_run_id"],
-    )
-
-def resolve_active_lkg_run_id(self, subject_id):
-    exp_id = self._resolve_monitoring_experiment_id(subject_id)
-    if exp_id is None:
-        return None
-    run = self._mlflow.find_single_run(
-        exp_id, 'tags.monitor.lkg_status = "active"'
-    )
-    return run.info.run_id if run else None
-```
-
-Full protocol mapping:
-
-| Protocol method | Adapter calls used |
+| Protocol method | How it works (no search_runs for single lookups) |
 |---|---|
-| `initialize_timeline` | `get_or_create_experiment`, `find_single_run`, `create_run`, `set_tags` |
-| `get_timeline_state` | `get_experiment_id_by_name`, `find_single_run`, `get_run_tags` |
-| `reserve_sequence_index` | `find_runs` (find max sequence_index), arithmetic |
-| `get_or_create_idempotent_run_id` | `find_single_run` (by idempotency_key tag) |
-| `upsert_monitoring_run` | `create_run` or `set_tags`, `log_json_artifact` |
-| `get_monitoring_run` | `get_run`, `get_run_tags` |
-| `list_timeline_runs` | `find_runs` (exclude sentinel, order by sequence_index) |
-| `resolve_source_run_id` | `get_run` or `find_runs` |
-| `get_missing_source_run_metrics` | `get_run_metrics` |
-| `get_missing_source_run_artifacts` | `list_artifact_paths` |
-| `get_source_run_contract_evidence` | `get_run_metrics`, `get_run_tags`, `get_run_params` |
-| `resolve_active_lkg_run_id` | `find_single_run` |
-| `set_active_lkg_run_id` | `find_single_run`, `set_tags` |
-| `mutate_training_run` | Raise unconditionally (no adapter call) |
+| `initialize_timeline(subject_id, baseline_id)` | Get-or-create experiment. Set experiment tags: `training.baseline_run_id`, `monitoring.next_sequence_index = "0"`. |
+| `get_timeline_state(subject_id)` | Get experiment by name. Read `training.baseline_run_id` from experiment tags. |
+| `reserve_sequence_index(subject_id)` | Read `monitoring.next_sequence_index` from experiment tags. Increment and write back. Return the read value. |
+| `get_or_create_idempotent_run_id(key, factory)` | Read experiment tag `training.{source_run_id}.monitoring_run_id`. If present, verify recipe match from run tags, return existing. If absent, call factory, store mapping, return new ID. |
+| `upsert_monitoring_run(...)` | Create MLflow run with run-level tags. Set experiment tag `training.{source_run_id}.monitoring_run_id`. Update `monitoring.latest_run_id`. Log `outputs/result.json` artifact at final stage. |
+| `get_monitoring_run(subject_id, run_id)` | `client.get_run(run_id)`, read run tags, build `MonitoringRunRecord`. |
+| `list_timeline_runs(subject_id, exclude_failed)` | This is the one case where we need `search_runs()` — listing all monitoring runs. Filter by `monitoring.lifecycle_status`, order by `monitoring.sequence_index`. |
+| `resolve_source_run_id(...)` | `client.get_run(source_run_id)` — direct lookup. No `latest` selector in MVP. |
+| `get_missing_source_run_metrics(...)` | Read `run.data.metrics`, check required keys. |
+| `get_missing_source_run_artifacts(...)` | `client.list_artifacts(run_id)`, check required paths. |
+| `get_source_run_contract_evidence(run_id)` | Read `run.data.metrics`, `run.data.tags`, `run.data.params`, build `ContractEvidence`. |
+| `resolve_active_lkg_run_id(subject_id)` | Read `monitoring.lkg_run_id` from experiment tags. Direct lookup. |
+| `set_active_lkg_run_id(subject_id, run_id)` | Set `monitoring.lkg_run_id` experiment tag. |
+| `mutate_training_run(...)` | Raise unconditionally. |
 
 ---
 
-## 6. Monitor API Update
+## 7. Monitor API Update
 
 ### SDK
 
@@ -292,55 +295,32 @@ mlflow-monitor run --subject churn_model --source-run def456
 mlflow-monitor run --subject churn_model --source-run abc123 --tracking-uri http://localhost:5000
 ```
 
-Outputs JSON to stdout. Non-zero exit on failure.
+Outputs JSON to stdout. Non-zero exit on failure. Lightweight wrapper — does not affect post-MVP development.
 
 ---
 
-## 7. Local MLflow Setup for Development
+## 8. Local MLflow Setup for Development
 
-You need a local MLflow instance to build and test against.
+### Dedicated local store
 
-### Option A: File-based (simplest, no server needed)
-
-```bash
-# No setup needed — MlflowClient defaults to ./mlruns when no tracking URI is set.
-# Just run the demo seeder and it writes to ./mlruns/ in the current directory.
-python -m mlflow_monitor.demo.setup
-
-# To browse results in the UI:
-mlflow ui --port 5000
-# Open http://localhost:5000
-```
-
-This is the fastest path for development. Integration tests use this approach with a temp directory.
-
-### Option B: Local tracking server (closer to production)
+Use a dedicated directory for MLflow data, separate from your project root:
 
 ```bash
-# Start a local tracking server with SQLite backend
-mlflow server --host 127.0.0.1 --port 5000 --backend-store-uri sqlite:///mlflow.db
+# Create a dedicated store directory
+mkdir -p .mlflow-dev
 
-# Point your code at it
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+# Set tracking URI to use it
+export MLFLOW_TRACKING_URI=sqlite:///.mlflow-dev/mlflow.db
 
-# Now all MlflowClient calls go through the server
-python -m mlflow_monitor.demo.setup
-mlflow-monitor run --subject churn_model --source-run <id> --baseline <id>
+# Or for file-based (simplest):
+export MLFLOW_TRACKING_URI=.mlflow-dev/mlruns
 ```
 
-This is useful for verifying the gateway works through the REST API, not just the file store.
-
-### Recommendation for development
-
-Start with Option A (file-based). It's zero-setup and the fastest iteration loop. Switch to Option B when you want to validate REST API behavior or test closer to how real users run MLflow.
-
----
-
-## 8. Local Development Playground
+### Development loop
 
 **Terminal 1:**
 ```bash
-mlflow ui --port 5000
+mlflow ui --port 5000 --backend-store-uri .mlflow-dev/mlruns
 ```
 
 **Terminal 2:**
@@ -353,19 +333,12 @@ mlflow-monitor run --subject churn_model --source-run <run_id_2>
 Open `http://localhost:5000` and see:
 
 - Training experiment with seeded runs (untouched)
-- Monitoring experiment `mlflow_monitor/churn_model` with sentinel + monitoring runs
-- Tags on monitoring runs showing lifecycle_status, comparability_status, sequence_index
-- JSON artifact on monitoring runs containing contract check result
+- Monitoring experiment `mlflow_monitor/churn_model` with monitoring runs
+- Experiment tags showing baseline, latest monitoring run, sequence index
+- Run tags showing lifecycle_status, comparability_status, source_run_id
+- `outputs/result.json` artifact on monitoring runs containing the full run result
 
-Convenience target:
-
-```makefile
-playground:
-	mlflow ui --port 5000 &
-	sleep 2
-	python -m mlflow_monitor.demo.setup
-	@echo "Open http://localhost:5000 to see results"
-```
+Integration tests use the same approach with a temp directory per test session.
 
 ---
 
@@ -386,7 +359,7 @@ playground:
 
 ```
 tests/integration/
-  conftest.py             # temp mlruns dir per session, cleanup
+  conftest.py             # dedicated temp mlflow store per session, cleanup
   test_mlflow_client.py   # MonitorMLflowClient adapter tests
   test_mlflow_gateway.py  # gateway protocol against real MLflow
   test_mlflow_e2e.py      # full monitor.run() against real MLflow
@@ -396,7 +369,7 @@ No running server needed — local file store only.
 
 Key scenarios:
 
-1. First-run bootstrap creates monitoring experiment + sentinel.
+1. First-run bootstrap creates monitoring experiment with correct experiment tags.
 2. Second run finds existing timeline, reuses baseline.
 3. Comparable run returns `pass`.
 4. Environment mismatch returns `warn`.
@@ -422,12 +395,11 @@ src/mlflow_monitor/demo/
 
 tests/integration/
   conftest.py                # NEW — MLflow fixtures
-  test_mlflow_client.py      # NEW — adapter unit tests
+  test_mlflow_client.py      # NEW — adapter tests
   test_mlflow_gateway.py     # NEW — gateway protocol tests
   test_mlflow_e2e.py         # NEW — end-to-end tests
 
 pyproject.toml               # MODIFIED — CLI entry point
-Makefile                     # NEW — playground convenience
 ```
 
 Entry point in `pyproject.toml`:
@@ -441,27 +413,28 @@ mlflow-monitor = "mlflow_monitor.cli:main"
 
 ## 12. Implementation Order
 
-Focused sequence, one week target:
+Focused sequence, one week target. Adapter and gateway built together since they co-evolve:
 
-1. **MonitorMLflowClient adapter** — all raw MLflow API usage in one place. ~1 day.
-2. **MLflowMonitoringGateway** — implement protocol against adapter. ~2 days.
-3. **Integration tests** — validate adapter and gateway against real MLflow. ~1 day.
-4. **Monitor API update** — gateway parameter injection. ~0.5 day.
-5. **Demo setup + playground** — seed data, Makefile, verify visual loop. ~0.5 day.
-6. **CLI** — thin wrapper, JSON output. ~0.5 day.
-7. **README + cleanup** — update Quick Start, verify all tests pass. ~0.5 day.
+0. **Rename `run_id` → `monitoring_run_id` in M1 codebase** — prerequisite before MVP work begins. Training run IDs (`source_run_id`, `baseline_source_run_id`) are already clear. Monitoring run IDs use plain `run_id` everywhere — `Run.run_id`, `MonitoringRunRecord.run_id`, `run_id` in orchestration, workflow, result_contract, and tests. Rename to `monitoring_run_id` so that when the MLflow gateway handles both types of real MLflow UUIDs, there is no ambiguity. Mechanical find-and-replace, no logic change. All existing tests must still pass after rename. ~0.5 day.
+1. **MonitorMLflowClient + MLflowMonitoringGateway** — build together, read-side first, then write-side. The adapter shapes emerge from what the gateway needs. ~3 days.
+2. **Integration tests** — validate adapter and gateway against real local MLflow. Run early. ~1 day.
+3. **Monitor API update** — gateway parameter injection. Small change. ~0.5 day.
+4. **Demo setup + playground** — seed data, verify visual loop in MLflow UI. ~0.5 day.
+5. **CLI** — thin wrapper, JSON output. ~0.5 day.
+6. **README + cleanup** — update Quick Start, verify all tests pass. ~0.5 day.
 
 ---
 
 ## 13. Risks and Known Limitations
 
 1. **Tag string serialization.** `sequence_index` is int in-memory, string in MLflow. Adapter owns serialization.
-2. **Search pagination.** `search_runs()` truncates at 1,000. Adapter paginates automatically.
-3. **Sequence index races.** Max + 1 can collide under concurrency. Acceptable for MVP.
-4. **Experiment name races.** Adapter handles get-or-create with try/except.
-5. **Tag size.** Keys ≤ 255 bytes, values ≤ 5,000 bytes. Contract check results go in artifacts.
-6. **Evidence conventions may need adjustment.** Starting point, not commitment.
-7. **Retry/concurrency not hardened.** Post-MVP concern.
+2. **Sequence index races.** Read + increment is not atomic. Acceptable for MVP (single user, sequential runs).
+3. **Experiment tag accumulation.** Idempotency mappings (`training.{id}.monitoring_run_id`) grow with each monitored training run. Fine for MVP scale. May need a different approach for large timelines.
+4. **Experiment name races.** `create_experiment` fails on duplicate. Adapter handles get-or-create with try/except.
+5. **Tag size.** Keys ≤ 255 bytes, values ≤ 5,000 bytes. Structured outputs go in `outputs/result.json` artifact, not tags.
+6. **Evidence conventions may need adjustment.** The read conventions are a starting point.
+7. **Orchestration may need refactoring.** Current idempotency/rerun logic was designed for in-memory — may not map cleanly to MLflow tag-based lookups.
+8. **`search_runs()` used for `list_timeline_runs` only.** This is the one multi-run query we can't avoid. Results should be deterministic since we control all the tags.
 
 ---
 
@@ -470,9 +443,9 @@ Focused sequence, one week target:
 MVP is done when:
 
 1. `mlflow-monitor run --subject churn_model --source-run <id>` returns JSON with comparability status.
-2. `mlflow_monitor/churn_model` experiment visible in MLflow UI with sentinel + monitoring runs.
+2. `mlflow_monitor/churn_model` experiment visible in MLflow UI with monitoring runs and correct tags.
 3. Training experiments never modified.
 4. Demo produces pass, warn, and fail results demonstrating all three comparability outcomes.
-5. All 183 existing unit tests still pass.
+5. All existing unit tests still pass against in-memory gateway.
 6. Integration tests pass against local file store.
 7. README reflects the real MLflow workflow.
