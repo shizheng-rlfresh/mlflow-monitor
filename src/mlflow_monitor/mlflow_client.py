@@ -27,7 +27,21 @@ from typing import Any
 from mlflow import MlflowClient
 from mlflow.entities import Experiment, Run
 from mlflow.exceptions import MlflowException
-from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS
+from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS, RESOURCE_DOES_NOT_EXIST
+
+_RESOURCE_ALREADY_EXISTS = "RESOURCE_ALREADY_EXISTS"
+_RESOURCE_DOES_NOT_EXIST = "RESOURCE_DOES_NOT_EXIST"
+
+
+def _normalize_error_code(error_code: object) -> str | None:
+    """Return the canonical MLflow error-code name for known inputs."""
+    if isinstance(error_code, str):
+        return error_code
+    if error_code == RESOURCE_ALREADY_EXISTS:
+        return _RESOURCE_ALREADY_EXISTS
+    if error_code == RESOURCE_DOES_NOT_EXIST:
+        return _RESOURCE_DOES_NOT_EXIST
+    return None
 
 
 class MonitorMLflowClient:
@@ -99,7 +113,7 @@ class MonitorMLflowClient:
             )
         except MlflowException as exc:
             # Duplicate-create races are normal for get-or-create semantics.
-            if exc.error_code != RESOURCE_ALREADY_EXISTS:
+            if _normalize_error_code(exc.error_code) != _RESOURCE_ALREADY_EXISTS:
                 raise
 
         experiment = self._get_experiment_by_name(name)
@@ -193,7 +207,7 @@ class MonitorMLflowClient:
             return self._client.get_run(run_id)
         except MlflowException as exc:
             # Missing runs are normalized to None; other MLflow failures bubble up.
-            if exc.error_code != "RESOURCE_DOES_NOT_EXIST":
+            if _normalize_error_code(exc.error_code) != _RESOURCE_DOES_NOT_EXIST:
                 raise
             return None
 

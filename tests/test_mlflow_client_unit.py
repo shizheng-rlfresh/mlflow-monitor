@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, call, patch
 
 from mlflow.entities import Experiment
 from mlflow.exceptions import MlflowException
-from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS
+from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS, RESOURCE_DOES_NOT_EXIST
 
 from mlflow_monitor.mlflow_client import MonitorMLflowClient
 
@@ -104,3 +104,54 @@ def test_get_or_create_monitoring_experiment_restores_deleted_experiment_after_d
         call("churn-monitoring"),
         call("churn-monitoring"),
     ]
+
+
+def test_get_or_create_monitoring_experiment_accepts_string_duplicate_error_code() -> None:
+    existing = Experiment(
+        experiment_id="123",
+        name="churn-monitoring",
+        artifact_location="/tmp/mlruns",
+        lifecycle_stage="active",
+        tags={},
+    )
+    exc = MlflowException(
+        "Experiment already exists.",
+        error_code=RESOURCE_ALREADY_EXISTS,
+    )
+    exc.error_code = "RESOURCE_ALREADY_EXISTS"
+    stub_client = MagicMock()
+    stub_client.create_experiment.side_effect = exc
+    stub_client.get_experiment_by_name.side_effect = [None, existing]
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    assert client.get_or_create_monitoring_experiment("churn-monitoring") == "123"
+
+
+def test_get_run_returns_none_for_proto_missing_run_error_code() -> None:
+    stub_client = MagicMock()
+    stub_client.get_run.side_effect = MlflowException(
+        "Run missing.",
+        error_code=RESOURCE_DOES_NOT_EXIST,
+    )
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    assert client.get_run("missing-run-id") is None
+
+
+def test_get_run_returns_none_for_string_missing_run_error_code() -> None:
+    exc = MlflowException(
+        "Run missing.",
+        error_code=RESOURCE_DOES_NOT_EXIST,
+    )
+    exc.error_code = "RESOURCE_DOES_NOT_EXIST"
+    stub_client = MagicMock()
+    stub_client.get_run.side_effect = exc
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    assert client.get_run("missing-run-id") is None
