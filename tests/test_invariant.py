@@ -49,7 +49,7 @@ BASELINE = Baseline(
 
 LAST_KNOWN_GOOD = LKG(
     timeline_id="timeline-1",
-    run_id="run-1",
+    monitoring_run_id="monitoring-run-1",
 )
 
 TIMELINE = Timeline(
@@ -57,13 +57,13 @@ TIMELINE = Timeline(
     subject_id="churn_model",
     monitoring_namespace="mlflow_monitor/churn_model",
     baseline=BASELINE,
-    run_ids=["run-1", "run-2"],
-    active_lkg_run_id="run-1",
+    monitoring_run_ids=["monitoring-run-1", "monitoring-run-2"],
+    active_lkg_monitoring_run_id="monitoring-run-1",
     active_contract=CONTRACT,
 )
 
 RUN = Run(
-    run_id="run-1",
+    monitoring_run_id="monitoring-run-1",
     timeline_id="timeline-1",
     sequence_index=0,
     subject_id="churn_model",
@@ -79,7 +79,7 @@ RUN = Run(
 
 FINDING = Finding(
     finding_id="finding-1",
-    run_id="run-2",
+    monitoring_run_id="monitoring-run-2",
     severity=FindingSeverity.HIGH,
     category="data_drift",
     summary="Significant data drift detected in feature 'age'",
@@ -92,8 +92,8 @@ FINDING = Finding(
 
 DIFF = Diff(
     diff_id="diff-1",
-    run_id="run-2",
-    reference_run_id="run-1",
+    monitoring_run_id="monitoring-run-2",
+    reference_monitoring_run_id="monitoring-run-1",
     reference_kind=DiffReferenceKind.BASELINE,
     metric_deltas={"kl": -0.05},
     metadata={"feature": "age"},
@@ -106,7 +106,7 @@ class TestInvariantTimelineOwnership:
 
     def test_timeline_run_ownership(self) -> None:
         run = Run(
-            run_id="run-2",
+            monitoring_run_id="monitoring-run-2",  # different monitoring_run_id="run-2",
             timeline_id="timeline-2",  # different timeline_id to trigger violation
             sequence_index=1,
             subject_id="churn_model",
@@ -160,7 +160,7 @@ class TestInvariantTimelineOwnership:
 
         lkg = LKG(
             timeline_id="timeline-2",  # different timeline_id to trigger violation
-            run_id="run-1",
+            monitoring_run_id="monitoring-run-1",
         )
 
         with pytest.raises(InvariantViolation) as exc_info:
@@ -204,14 +204,14 @@ class TestInvariantBaselineImmutability:
 
 class TestInvariantLKGMembership:
     def test_lkg_membership_valid(self) -> None:
-        """LKG with matching timeline_id and run_id should pass validation."""
+        """LKG with matching timeline_id and monitoring_run_id should pass validation."""
 
         validate_lkg_membership(TIMELINE, LAST_KNOWN_GOOD)
 
     def test_lkg_not_in_timeline_invalid(self) -> None:
-        """LKG with non-matching timeline_id or run_id should raise InvariantViolation."""
+        """LKG with non-matching timeline_id or monitoring_run_id should raise InvariantViolation."""  # noqa: E501
 
-        different_timeline_lkg = LKG(timeline_id="timeline-2", run_id="run-1")
+        different_timeline_lkg = LKG(timeline_id="timeline-2", monitoring_run_id="monitoring-run-1")
 
         with pytest.raises(InvariantViolation) as exc_info:
             validate_lkg_membership(TIMELINE, different_timeline_lkg)
@@ -225,30 +225,30 @@ class TestInvariantLKGMembership:
         )
 
     def test_lkg_in_timeline_but_not_in_runs_invalid(self) -> None:
-        """LKG with matching timeline_id but in run_ids should raise InvariantViolation."""
+        """LKG with matching timeline_id but in monitoring_run_ids should raise InvariantViolation."""  # noqa: E501
 
-        nonmember_lkg = LKG(timeline_id="timeline-1", run_id="run-3")
+        nonmember_lkg = LKG(timeline_id="timeline-1", monitoring_run_id="monitoring-run-3")
 
         with pytest.raises(InvariantViolation) as exc_info:
             validate_lkg_membership(TIMELINE, nonmember_lkg)
 
         error = exc_info.value
         assert error.code == "lkg_membership_violation"
-        assert error.field == "run_id"
+        assert error.field == "monitoring_run_id"
         assert error.entity == "LKG"
         assert error.message == f"LKG {nonmember_lkg} does not belong to Timeline {TIMELINE}"
 
     def test_lkg_in_timeline_but_not_active_lkg_invalid(self) -> None:
-        """LKG matching timeline_id but run_id not active lkg should raise InvariantViolation."""
+        """LKG matching timeline_id but monitoring_run_id not active lkg should raise InvariantViolation."""  # noqa: E501
 
-        non_active_lkg = LKG(timeline_id="timeline-1", run_id="run-2")
+        non_active_lkg = LKG(timeline_id="timeline-1", monitoring_run_id="monitoring-run-2")
 
         with pytest.raises(InvariantViolation) as exc_info:
             validate_lkg_membership(TIMELINE, non_active_lkg)
 
         error = exc_info.value
         assert error.code == "lkg_membership_violation"
-        assert error.field == "active_lkg_run_id"
+        assert error.field == "active_lkg_monitoring_run_id"
         assert error.entity == "LKG"
         assert error.message == f"LKG {non_active_lkg} does not belong to Timeline {TIMELINE}"
 
@@ -259,30 +259,31 @@ class TestInvariantFindingToDiffEvidence:
 
         validate_finding_to_diff_evidence(FINDING, DIFF)
 
-    def test_finding_to_diff_evidence_different_run_id_invalid(self) -> None:
-        """Diff with run_id different from Finding's run_id should raise InvariantViolation."""
+    def test_finding_to_diff_evidence_different_monitoring_run_id_invalid(self) -> None:
+        """Diff with monitoring_run_id different from Finding's monitoring_run_id should raise InvariantViolation."""  # noqa: E501
 
-        mismatch_run_id_diff = Diff(
+        mismatch_monitoring_run_id_diff = Diff(
             diff_id="diff-1",
-            run_id="run-3",
-            reference_run_id="run-3",
+            monitoring_run_id="monitoring-run-3",
+            reference_monitoring_run_id="monitoring-run-3",
             reference_kind=DiffReferenceKind.BASELINE,
             metric_deltas={"kl": -0.05},
             metadata={"feature": "age"},
         )
 
-        run_id = FINDING.run_id
+        monitoring_run_id = FINDING.monitoring_run_id
 
         with pytest.raises(InvariantViolation) as exc_info:
-            validate_finding_to_diff_evidence(FINDING, mismatch_run_id_diff)
+            validate_finding_to_diff_evidence(FINDING, mismatch_monitoring_run_id_diff)
 
         error = exc_info.value
         assert error.code == "finding_diff_evidence_violation"
-        assert error.field == "run_id"
+        assert error.field == "monitoring_run_id"
         assert error.entity == "Diff"
         assert (
             error.message
-            == f"Diff run_id {mismatch_run_id_diff.run_id} does not match Finding run_id {run_id}"
+            == f"Diff monitoring_run_id {mismatch_monitoring_run_id_diff.monitoring_run_id} "
+            f"does not match Finding monitoring_run_id {monitoring_run_id}"
         )
 
     def test_finding_to_diff_evidence_diff_id_not_in_evidence_invalid(self) -> None:
@@ -290,8 +291,8 @@ class TestInvariantFindingToDiffEvidence:
 
         non_evidence_diff = Diff(
             diff_id="diff-3",  # diff_id not in FINDING.evidence_diff_ids to trigger violation
-            run_id="run-2",
-            reference_run_id="run-1",
+            monitoring_run_id="monitoring-run-2",
+            reference_monitoring_run_id="monitoring-run-1",
             reference_kind=DiffReferenceKind.BASELINE,
             metric_deltas={"kl": -0.05},
             metadata={"feature": "age"},
