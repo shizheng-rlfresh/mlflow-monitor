@@ -92,6 +92,42 @@ def test_get_or_create_monitoring_experiment_restores_deleted_experiment(
     assert client.get_run(monitoring_run_id) is not None
 
 
+def test_get_or_create_monitoring_experiment_restores_deleted_experiment_after_duplicate_race(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
+    client = MonitorMLflowClient(tracking_uri=tracking_uri)
+    raw = MlflowClient(tracking_uri=tracking_uri)
+
+    experiment_id = raw.create_experiment(
+        "duplicate-recoverable-monitoring",
+        artifact_location=artifact_root_uri,
+    )
+    raw.delete_experiment(experiment_id)
+
+    # Simulate the lookup/create race path: first lookup misses, create sees duplicate,
+    # second lookup finds the deleted experiment that must be restored.
+    original_lookup = client._get_experiment_by_name
+    lookups = iter([None])
+
+    def race_then_real_lookup(name: str):  # type: ignore[no-untyped-def]
+        first = next(lookups, ...)
+        if first is not ...:
+            return first
+        return original_lookup(name)
+
+    client._get_experiment_by_name = race_then_real_lookup  # type: ignore[method-assign]
+
+    restored_experiment_id = client.get_or_create_monitoring_experiment(
+        "duplicate-recoverable-monitoring",
+        artifact_location="file:///ignored-after-restore",
+    )
+
+    restored = raw.get_experiment(restored_experiment_id)
+    assert restored_experiment_id == experiment_id
+    assert restored.lifecycle_stage == "active"
+
+
 def test_experiment_tag_round_trip(tracking_uri: str, artifact_root_uri: str) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
     experiment_id = client.get_or_create_monitoring_experiment(
