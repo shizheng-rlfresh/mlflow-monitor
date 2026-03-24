@@ -156,7 +156,7 @@ def _resolve_orchestration_state(
         resolved_contract=resolved_contract,
         monitoring_run_id=create_or_reuse_result.monitoring_run_id,
         existing_monitoring_run=create_or_reuse_result.existing_monitoring_run,
-        is_new_monitoring_run=create_or_reuse_result.created,
+        is_new_monitoring_run=create_or_reuse_result.existing_monitoring_run is None,
         sequence_index=create_or_reuse_result.sequence_index,
     )
     return _short_circuit_existing_monitoring_run(state, gateway)

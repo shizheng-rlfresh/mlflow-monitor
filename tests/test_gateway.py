@@ -33,11 +33,11 @@ def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:
     assert first.monitoring_run_id.startswith("monitoring-run-")
     assert first.sequence_index == 0
     assert first.existing_monitoring_run is None
-    assert first.created is True
+    assert first.allocated is True
     assert second.monitoring_run_id == first.monitoring_run_id
     assert second.sequence_index == first.sequence_index
     assert second.existing_monitoring_run is None
-    assert second.created is False
+    assert second.allocated is False
 
 
 def test_create_or_reuse_monitoring_run_diff_recipe_version_creates_new() -> None:
@@ -84,6 +84,26 @@ def test_create_or_reuse_monitoring_run_uses_dataclass_value_equality() -> None:
     assert monitoring_first.monitoring_run_id.startswith("monitoring-run-")
     assert monitoring_second.monitoring_run_id == monitoring_first.monitoring_run_id
     assert monitoring_second.sequence_index == monitoring_first.sequence_index
+
+
+def test_create_or_reuse_monitoring_run_can_replay_allocation_without_run_record() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    key = IdempotencyKey(
+        subject_id="churn_model",
+        source_run_id="train-run-1",
+        recipe_id="default",
+        recipe_version="v0",
+    )
+
+    first = gateway.create_or_reuse_monitoring_run(key)
+    second = gateway.create_or_reuse_monitoring_run(key)
+
+    assert first.allocated is True
+    assert first.existing_monitoring_run is None
+    assert second.allocated is False
+    assert second.monitoring_run_id == first.monitoring_run_id
+    assert second.sequence_index == first.sequence_index
+    assert second.existing_monitoring_run is None
 
 
 def test_create_or_reuse_monitoring_run_is_monotonic_per_subject() -> None:

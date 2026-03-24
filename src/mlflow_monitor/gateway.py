@@ -133,14 +133,16 @@ class CreateOrReuseMonitoringRunResult:
     Attributes:
         monitoring_run_id: Monitoring run identifier owned by the gateway.
         sequence_index: Monotonic per-subject sequence index.
-        existing_monitoring_run: Existing stored monitoring run record, if any.
-        created: Whether this call created a new monitoring-run allocation.
+        existing_monitoring_run: Existing stored monitoring run record, if any. This may be
+            None even when a prior idempotency binding already exists.
+        allocated: Whether this call created a new idempotency binding / monitoring-run
+            allocation.
     """
 
     monitoring_run_id: str
     sequence_index: int
     existing_monitoring_run: MonitoringRunRecord | None
-    created: bool
+    allocated: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,7 +194,12 @@ class MonitoringGateway(Protocol):
     def create_or_reuse_monitoring_run(
         self, key: IdempotencyKey
     ) -> CreateOrReuseMonitoringRunResult:
-        """Create a monitoring run allocation or return the existing idempotent one."""
+        """Create or reuse a monitoring-run allocation and return replay context.
+
+        The returned `existing_monitoring_run` reflects whether a persisted monitoring-run
+        record already exists. It may be None even when `allocated` is False if an earlier
+        allocation succeeded but the monitoring-run record has not been persisted yet.
+        """
         ...
 
     def initialize_timeline(
@@ -314,7 +321,7 @@ class InMemoryMonitoringGateway:
                 monitoring_run_id=existing_monitoring_run_id,
                 sequence_index=sequence_index,
                 existing_monitoring_run=existing_monitoring_run,
-                created=False,
+                allocated=False,
             )
 
         sequence_index = self._next_sequence_by_subject.get(key.subject_id, 0)
@@ -325,7 +332,7 @@ class InMemoryMonitoringGateway:
             monitoring_run_id=new_monitoring_run_id,
             sequence_index=sequence_index,
             existing_monitoring_run=None,
-            created=True,
+            allocated=True,
         )
 
     def initialize_timeline(

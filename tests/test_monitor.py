@@ -15,7 +15,9 @@ from mlflow_monitor.domain import (
 )
 from mlflow_monitor.errors import GatewayConsistencyViolation
 from mlflow_monitor.gateway import (
+    CreateOrReuseMonitoringRunResult,
     GatewayConfig,
+    IdempotencyKey,
     InMemoryMonitoringGateway,
 )
 from mlflow_monitor.orchestration import run_orchestration
@@ -132,6 +134,29 @@ class ReplaySensitiveGateway(InMemoryMonitoringGateway):
         return super().get_source_run_contract_evidence(source_run_id)
 
 
+class AllocationOnlyReplayGateway(InMemoryMonitoringGateway):
+    """Replay a prior allocation before any monitoring-run record is persisted."""
+
+    def __init__(self, config: GatewayConfig) -> None:
+        super().__init__(config)
+        self._replayed = False
+
+    def create_or_reuse_monitoring_run(
+        self, key: IdempotencyKey
+    ) -> CreateOrReuseMonitoringRunResult:
+        result = super().create_or_reuse_monitoring_run(key)
+        if self._replayed or not result.allocated:
+            return result
+        replayed = super().create_or_reuse_monitoring_run(key)
+        self._replayed = True
+        return CreateOrReuseMonitoringRunResult(
+            monitoring_run_id=replayed.monitoring_run_id,
+            sequence_index=replayed.sequence_index,
+            existing_monitoring_run=None,
+            allocated=False,
+        )
+
+
 def test_run_orchestration_first_run_persists_checked_state() -> None:
     gateway = make_gateway()
 
@@ -161,6 +186,40 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
     assert stored.comparability_status is ComparabilityStatus.PASS
     assert stored.contract_check_result is not None
     assert stored.contract_check_result.status is ComparabilityStatus.PASS
+
+
+def test_run_orchestration_upserts_created_when_allocation_exists_without_run_record() -> None:
+    gateway = AllocationOnlyReplayGateway(make_gateway().config)
+    for source_run_id, metrics in (
+        ("train-run-baseline", {"f1": 0.87}),
+        ("train-run-current", {"f1": 0.91}),
+    ):
+        gateway.add_source_run(
+            subject_id="churn_model",
+            source_run_id=source_run_id,
+            source_experiment=None,
+            metrics=metrics,
+            artifacts=("metrics.json",),
+            environment={"python": "3.12"},
+            features=("age",),
+            schema={"age": "int"},
+            data_scope="validation:2026-03-01",
+        )
+
+    result = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    stored = gateway.get_monitoring_run("churn_model", result.monitoring_run_id)
+
+    assert result.lifecycle_status is LifecycleStatus.CHECKED
+    assert stored is not None
+    assert stored.sequence_index == 0
+    assert stored.lifecycle_status is LifecycleStatus.CHECKED
 
 
 def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
