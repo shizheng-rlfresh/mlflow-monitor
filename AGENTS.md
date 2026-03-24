@@ -18,6 +18,7 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 - Look for relevant local skills under `.codex/skills/` before starting implementation or review work.
 - Use the local `tdd` skill for behavior-changing work; skip it for docs-only or formatting-only edits.
 - Use the local `seeking-design-truth` skill for ticket-driven work, design questions, behavior clarification, and other tasks that need grounding in the repo's design docs before implementation or review.
+- Until the MVP is shipped, use `docs/v0/mvp/mvp_design_v0.md` and `docs/v0/mvp/mvp_tickets.md` as the primary planning and ticket source for MVP work; use older v0 docs only as background context, historical reference, or to resolve contradictions with current code and tests.
 - Use the local `commit-discipline` skill for commit follow-through after green ticket slices.
 - Commit very frequently by default.
 - Do not log PII.

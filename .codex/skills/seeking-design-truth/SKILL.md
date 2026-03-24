@@ -29,11 +29,12 @@ Skip this skill when:
 
 ### 1. Ground In Planning And Design Docs
 
-1. Read `docs/v0/mvp_design_v0.md` for the MVP work.
-2. Read `docs/v0/design_doc_v0.md` for the intended architecture and design decisions from original and full scope design.
-3. For recaping M1 cycle work, read `docs/v0/m1_closeout_v0.md` to understand the intended M1 scope and what is already considered "done" for M1; read `docs/vo/tickets_m1_v0.md` for specific M1 ticket details and execution order.
-4. For ticket-related work, read `docs/v0/ticket_breakdown_v0.md`.
-5. Read only the additional docs needed for the specific task.
+1. For current MVP work, start with `docs/v0/mvp/mvp_design_v0.md`.
+2. For current MVP tickets, read `docs/v0/mvp/mvp_tickets.md`.
+3. Read `docs/v0/m1_closeout_v0.md` to understand the intended M1 scope and what is already considered "done" for M1.
+4. Read broader v0 docs such as `docs/v0/design_doc_v0.md` and `docs/v0/ticket_breakdown_v0.md` only as supporting context, historical reference, or contradiction checks.
+5. Read `docs/v0/tickets_m1_v0.md` only when you need specific M1 ticket details and execution order.
+6. Read only the additional docs needed for the specific task.
 
 
 ### 2. Inspect Current Implementation
@@ -54,10 +55,12 @@ Skip this skill when:
 1. Treat code, tests, and docs as separate evidence sources that may disagree.
 2. Surface contradictions explicitly.
 3. When sources conflict, distinguish between:
-   - intended design in repo docs
+   - intended design in current MVP docs
+   - intended design in older repo docs
    - current behavior in code
    - enforced behavior in tests
-4. If the conflict changes implementation risk, stop and call it out.
+4. For MVP tickets, treat `docs/v0/mvp/` as the current intended source unless code/tests clearly enforce something else.
+5. If the conflict changes implementation risk, stop and call it out.
 
 ### 5. Report Clearly
 
@@ -70,6 +73,8 @@ Outputs using this skill should include:
 ## References
 
 - `docs/v0/ticket_breakdown_v0.md`: ticket list, scope boundaries, and where to find the relevant ticket.
+- `docs/v0/mvp/mvp_design_v0.md`: current MVP design and execution boundary.
+- `docs/v0/mvp/mvp_tickets.md`: current MVP ticket list and sequencing.
 - `docs/v0/tickets_m1_v0.md`: M1 cycle ticket details and execution order.
 - `docs/v0/design_doc_v0.md`: intended architecture and monitoring semantics.
 - `docs/v0/workflow_v0.md`: lifecycle and workflow behavior.
