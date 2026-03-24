@@ -24,39 +24,41 @@ def artifact_root_uri(tmp_path: Path) -> str:
     return (tmp_path / "artifacts").as_uri()
 
 
-def test_get_experiment_id_by_name_returns_none_before_creation(tracking_uri: str) -> None:
+def test_get_monitoring_experiment_id_by_name_returns_none_before_creation(
+    tracking_uri: str,
+) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
 
-    assert client.get_experiment_id_by_name("churn-monitoring") is None
+    assert client.get_monitoring_experiment_id_by_name("churn-monitoring") is None
 
 
-def test_get_or_create_experiment_creates_then_reuses(
+def test_get_or_create_monitoring_experiment_creates_then_reuses(
     tracking_uri: str,
     artifact_root_uri: str,
 ) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
 
-    first = client.get_or_create_experiment(
+    first = client.get_or_create_monitoring_experiment(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    second = client.get_or_create_experiment(
+    second = client.get_or_create_monitoring_experiment(
         "churn-monitoring",
         artifact_location="file:///ignored-on-reuse",
     )
 
     assert first == second
-    assert client.get_experiment_id_by_name("churn-monitoring") == first
+    assert client.get_monitoring_experiment_id_by_name("churn-monitoring") == first
 
 
-def test_get_or_create_experiment_sets_explicit_artifact_location(
+def test_get_or_create_monitoring_experiment_sets_explicit_artifact_location(
     tracking_uri: str,
     artifact_root_uri: str,
 ) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
     raw = MlflowClient(tracking_uri=tracking_uri)
 
-    experiment_id = client.get_or_create_experiment(
+    experiment_id = client.get_or_create_monitoring_experiment(
         "artifact-rooted-monitoring",
         artifact_location=artifact_root_uri,
     )
@@ -65,20 +67,20 @@ def test_get_or_create_experiment_sets_explicit_artifact_location(
     assert experiment.artifact_location == artifact_root_uri
 
 
-def test_get_or_create_experiment_restores_deleted_experiment(
+def test_get_or_create_monitoring_experiment_restores_deleted_experiment(
     tracking_uri: str,
     artifact_root_uri: str,
 ) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
     raw = MlflowClient(tracking_uri=tracking_uri)
 
-    experiment_id = client.get_or_create_experiment(
+    experiment_id = client.get_or_create_monitoring_experiment(
         "recoverable-monitoring",
         artifact_location=artifact_root_uri,
     )
     raw.delete_experiment(experiment_id)
 
-    restored_experiment_id = client.get_or_create_experiment(
+    restored_experiment_id = client.get_or_create_monitoring_experiment(
         "recoverable-monitoring",
         artifact_location="file:///ignored-after-restore",
     )
@@ -92,20 +94,22 @@ def test_get_or_create_experiment_restores_deleted_experiment(
 
 def test_experiment_tag_round_trip(tracking_uri: str, artifact_root_uri: str) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment(
+    experiment_id = client.get_or_create_monitoring_experiment(
         "fraud-monitoring",
         artifact_location=artifact_root_uri,
     )
 
-    client.set_experiment_tag(experiment_id, "monitoring.latest_run_id", "run-123")
+    client.set_monitoring_experiment_tag(experiment_id, "monitoring.latest_run_id", "run-123")
 
-    assert client.get_experiment_tags(experiment_id) == {"monitoring.latest_run_id": "run-123"}
+    assert client.get_monitoring_experiment_tags(experiment_id) == {
+        "monitoring.latest_run_id": "run-123"
+    }
 
 
 def test_create_run_and_read_run_data(tracking_uri: str, artifact_root_uri: str) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
     raw = MlflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment(
+    experiment_id = client.get_or_create_monitoring_experiment(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
@@ -137,7 +141,7 @@ def test_get_run_returns_none_for_missing_run(tracking_uri: str) -> None:
 
 def test_set_tags_updates_run_tags(tracking_uri: str, artifact_root_uri: str) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment(
+    experiment_id = client.get_or_create_monitoring_experiment(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
@@ -163,7 +167,7 @@ def test_terminate_run_sets_expected_status(
     status: str,
 ) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment(
+    experiment_id = client.get_or_create_monitoring_experiment(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
@@ -181,7 +185,7 @@ def test_terminate_run_rejects_unknown_status(
     artifact_root_uri: str,
 ) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment(
+    experiment_id = client.get_or_create_monitoring_experiment(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
@@ -199,7 +203,7 @@ def test_list_artifact_paths_returns_recursive_sorted_paths(
     artifact_root_uri: str,
 ) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment(
+    experiment_id = client.get_or_create_monitoring_experiment(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
@@ -228,7 +232,7 @@ def test_log_json_artifact_writes_requested_json_path(
 ) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
     raw = MlflowClient(tracking_uri=tracking_uri)
-    experiment_id = client.get_or_create_experiment(
+    experiment_id = client.get_or_create_monitoring_experiment(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )

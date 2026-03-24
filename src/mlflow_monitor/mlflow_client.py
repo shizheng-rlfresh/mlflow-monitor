@@ -52,12 +52,12 @@ class MonitorMLflowClient:
         """
         self._client = MlflowClient(tracking_uri=tracking_uri)
 
-    def get_or_create_experiment(
+    def get_or_create_monitoring_experiment(
         self,
         name: str,
         artifact_location: str | None = None,
     ) -> str:
-        """Return an experiment id, creating the experiment if needed.
+        """Return a monitoring experiment id, creating it if needed.
 
         This wrapper normalizes the common create race where another actor
         creates the experiment between the local existence check and the
@@ -70,7 +70,7 @@ class MonitorMLflowClient:
         existing artifact root and the provided `artifact_location` is ignored.
 
         Args:
-            name: Experiment name to fetch or create.
+            name: Monitoring experiment name to fetch or create.
             artifact_location: Optional MLflow artifact root to apply on first
                 creation. This is mainly useful for callers that need local
                 artifact placement to stay inside a dedicated temp directory,
@@ -102,7 +102,7 @@ class MonitorMLflowClient:
             if exc.error_code != "RESOURCE_ALREADY_EXISTS":
                 raise
 
-        experiment_id = self.get_experiment_id_by_name(name)
+        experiment_id = self.get_monitoring_experiment_id_by_name(name)
         if experiment_id is None:
             raise MlflowException(
                 f"Experiment {name!r} already exists but could not be resolved by name.",
@@ -110,11 +110,11 @@ class MonitorMLflowClient:
             )
         return experiment_id
 
-    def get_experiment_id_by_name(self, name: str) -> str | None:
-        """Return an active experiment id for a name, or `None` if unavailable.
+    def get_monitoring_experiment_id_by_name(self, name: str) -> str | None:
+        """Return an active monitoring experiment id for a name, or `None`.
 
         Args:
-            name: Experiment name to resolve.
+            name: Monitoring experiment name to resolve.
 
         Returns:
             The experiment id if MLflow resolves the name to an active
@@ -127,11 +127,11 @@ class MonitorMLflowClient:
             return None
         return experiment.experiment_id
 
-    def get_experiment_tags(self, experiment_id: str) -> dict[str, str]:
-        """Return experiment tags as a detached plain mapping.
+    def get_monitoring_experiment_tags(self, experiment_id: str) -> dict[str, str]:
+        """Return monitoring experiment tags as a detached plain mapping.
 
         Args:
-            experiment_id: Experiment identifier to read.
+            experiment_id: Monitoring experiment identifier to read.
 
         Returns:
             A copied dictionary of experiment tags. The caller may mutate the
@@ -140,11 +140,16 @@ class MonitorMLflowClient:
         experiment = self._client.get_experiment(experiment_id)
         return dict(experiment.tags)
 
-    def set_experiment_tag(self, experiment_id: str, key: str, value: str) -> None:
-        """Set one tag on an experiment.
+    def set_monitoring_experiment_tag(
+        self,
+        experiment_id: str,
+        key: str,
+        value: str,
+    ) -> None:
+        """Set one tag on a monitoring experiment.
 
         Args:
-            experiment_id: Experiment identifier to update.
+            experiment_id: Monitoring experiment identifier to update.
             key: Tag key.
             value: Tag value.
         """
