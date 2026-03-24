@@ -10,6 +10,7 @@ from mlflow_monitor.domain import (
     ContractCheckReason,
     ContractCheckResult,
     Diff,
+    DiffReference,
     DiffReferenceKind,
     Finding,
     FindingSeverity,
@@ -93,8 +94,10 @@ FINDING = Finding(
 DIFF = Diff(
     diff_id="diff-1",
     monitoring_run_id="monitoring-run-2",
-    reference_id="training-run-1",
-    reference_kind=DiffReferenceKind.BASELINE,
+    reference=DiffReference(
+        kind=DiffReferenceKind.BASELINE,
+        reference_id="training-run-1",
+    ),
     metric_deltas={"kl": -0.05},
     metadata={"feature": "age"},
 )
@@ -265,8 +268,10 @@ class TestInvariantFindingToDiffEvidence:
         mismatch_monitoring_run_id_diff = Diff(
             diff_id="diff-1",
             monitoring_run_id="monitoring-run-3",
-            reference_id="train-run-3",
-            reference_kind=DiffReferenceKind.BASELINE,
+            reference=DiffReference(
+                kind=DiffReferenceKind.BASELINE,
+                reference_id="train-run-3",
+            ),
             metric_deltas={"kl": -0.05},
             metadata={"feature": "age"},
         )
@@ -292,8 +297,10 @@ class TestInvariantFindingToDiffEvidence:
         non_evidence_diff = Diff(
             diff_id="diff-3",  # diff_id not in FINDING.evidence_diff_ids to trigger violation
             monitoring_run_id="monitoring-run-2",
-            reference_id="train-run-1",
-            reference_kind=DiffReferenceKind.BASELINE,
+            reference=DiffReference(
+                kind=DiffReferenceKind.BASELINE,
+                reference_id="train-run-1",
+            ),
             metric_deltas={"kl": -0.05},
             metadata={"feature": "age"},
         )

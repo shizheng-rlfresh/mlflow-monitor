@@ -168,25 +168,49 @@ class Baseline:
 
 
 @dataclass(frozen=True, slots=True)
+class DiffReference:
+    """Reference descriptor for one diff comparison target.
+
+    Attributes:
+        kind: The reference kind for this diff (e.g., baseline, previous, lkg).
+        reference_id: The ID of the reference entity this diff is comparing to.
+            For `baseline`, this is the pinned baseline `source_run_id`.
+            For `previous`, `lkg`, and `custom`, this is a monitoring run ID.
+            Structural references must omit the ID.
+    """
+
+    kind: DiffReferenceKind
+    reference_id: str | None
+
+    def __post_init__(self) -> None:
+        """Validate that reference identity presence matches the reference kind."""
+        if self.kind is DiffReferenceKind.STRUCTURAL:
+            if self.reference_id is not None:
+                raise ValueError("DiffReference with kind='structural' must not set reference_id.")
+            return
+
+        if self.reference_id is None or not self.reference_id.strip():
+            raise ValueError(
+                f"DiffReference with kind={self.kind.value!r} "
+                "requires a non-empty reference_id."
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class Diff:
     """Objective change record between a run and one reference point.
 
     Attributes:
         diff_id: Unique identifier for the diff record.
         monitoring_run_id: The ID of the monitoring run this diff is associated with.
-        reference_id: The ID of the reference entity this diff is comparing to.
-            For `baseline`, this is the pinned baseline `source_run_id`.
-            For `previous`, `lkg`, and `custom`, this is a monitoring run ID.
-            The concrete ID space is determined by `reference_kind`.
-        reference_kind: The kind of reference used for this diff (e.g., baseline, previous, lkg).
+        reference: Reference descriptor containing both reference kind and reference id.
         metric_deltas: A mapping of metric names to their delta values compared to the reference.
         metadata: A mapping of additional metadata keys to values providing context for the diff.
     """
 
     diff_id: str
     monitoring_run_id: str
-    reference_id: str | None
-    reference_kind: DiffReferenceKind
+    reference: DiffReference
     metric_deltas: dict[str, float]
     metadata: dict[str, str]
 

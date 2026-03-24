@@ -1,5 +1,7 @@
 """Unit tests for domain models in mlflow_monitor."""
 
+import pytest
+
 from mlflow_monitor.domain import (
     LKG,
     Baseline,
@@ -8,6 +10,7 @@ from mlflow_monitor.domain import (
     ContractCheckReason,
     ContractCheckResult,
     Diff,
+    DiffReference,
     DiffReferenceKind,
     Finding,
     FindingSeverity,
@@ -60,8 +63,10 @@ def test_canonical_entities_can_be_constructed() -> None:
     diff = Diff(
         diff_id="diff-1",
         monitoring_run_id="monitoring-run-1",
-        reference_id="train-run-0",
-        reference_kind=DiffReferenceKind.BASELINE,
+        reference=DiffReference(
+            kind=DiffReferenceKind.BASELINE,
+            reference_id="train-run-0",
+        ),
         metric_deltas={"f1": -0.02},
         metadata={"window": "full"},
     )
@@ -93,7 +98,7 @@ def test_canonical_entities_can_be_constructed() -> None:
     assert timeline.baseline.source_run_id == "train-run-1"
     assert run.contract_check_result is not None
     assert run.contract_check_result.status is ComparabilityStatus.WARN
-    assert diff.reference_kind is DiffReferenceKind.BASELINE
+    assert diff.reference.kind is DiffReferenceKind.BASELINE
     assert finding.evidence_diff_ids == ("diff-1",)
     assert lkg.monitoring_run_id == "monitoring-run-1"
 
@@ -174,6 +179,24 @@ def test_finding_references_one_or_more_diffs() -> None:
     )
 
     assert finding.evidence_diff_ids == ("diff-1", "diff-2")
+
+
+def test_diff_requires_reference_id_for_non_structural_reference_kinds() -> None:
+    """Non-structural diff references should require a concrete reference id."""
+    with pytest.raises(ValueError, match="requires a non-empty reference_id"):
+        DiffReference(
+            kind=DiffReferenceKind.BASELINE,
+            reference_id=None,
+        )
+
+
+def test_diff_structural_reference_kind_forbids_reference_id() -> None:
+    """Structural diffs should not carry a concrete reference id."""
+    with pytest.raises(ValueError, match="must not set reference_id"):
+        DiffReference(
+            kind=DiffReferenceKind.STRUCTURAL,
+            reference_id="train-run-0",
+        )
 
 
 def test_baseline_carries_snapshot_context() -> None:
