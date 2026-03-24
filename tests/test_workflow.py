@@ -362,7 +362,7 @@ def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     compiled = make_compiled_run_plan()
 
     prepared = prepare_run_context(
-        monitoring_run_id="monitoring_run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=compiled,
         resolved_contract=CONTRACT,
@@ -635,7 +635,7 @@ def test_prepare_run_context_preserves_omitted_custom_reference() -> None:
     gateway = make_gateway_with_timeline()
 
     prepared = prepare_run_context(
-        monitoring_run_id="monitoriing-run-1",
+        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_plan=make_compiled_run_plan(custom_reference_monitoring_run_id=None),
         resolved_contract=CONTRACT,
