@@ -82,7 +82,7 @@ def test_get_or_create_experiment_restores_deleted_experiment(
         "recoverable-monitoring",
         artifact_location="file:///ignored-after-restore",
     )
-    monitoring_run_id = client.create_run(restored_experiment_id, tags={})
+    monitoring_run_id = client.create_monitoring_run(restored_experiment_id, tags={})
     restored = raw.get_experiment(restored_experiment_id)
 
     assert restored_experiment_id == experiment_id
@@ -109,7 +109,7 @@ def test_create_run_and_read_run_data(tracking_uri: str, artifact_root_uri: str)
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_run(
+    monitoring_run_id = client.create_monitoring_run(
         experiment_id,
         tags={"training.source_run_id": "train-run-1"},
     )
@@ -141,9 +141,9 @@ def test_set_tags_updates_run_tags(tracking_uri: str, artifact_root_uri: str) ->
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_run(experiment_id, tags={})
+    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
 
-    client.set_tags(
+    client.set_monitoring_run_tags(
         monitoring_run_id,
         {
             "monitoring.lifecycle_status": "prepared",
@@ -167,9 +167,9 @@ def test_terminate_run_sets_expected_status(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_run(experiment_id, tags={})
+    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
 
-    client.terminate_run(monitoring_run_id, status)
+    client.terminate_monitoring_run(monitoring_run_id, status)
 
     run = client.get_run(monitoring_run_id)
     assert run is not None
@@ -185,10 +185,13 @@ def test_terminate_run_rejects_unknown_status(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_run(experiment_id, tags={})
+    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
 
     with pytest.raises(ValueError, match="FINISHED or FAILED"):
-        client.terminate_run(monitoring_run_id, RunStatus.to_string(RunStatus.RUNNING))
+        client.terminate_monitoring_run(
+            monitoring_run_id,
+            RunStatus.to_string(RunStatus.RUNNING),
+        )
 
 
 def test_list_artifact_paths_returns_recursive_sorted_paths(
@@ -200,10 +203,18 @@ def test_list_artifact_paths_returns_recursive_sorted_paths(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_run(experiment_id, tags={})
+    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
 
-    client.log_json_artifact(monitoring_run_id, {"value": 1}, "outputs/result.json")
-    client.log_json_artifact(monitoring_run_id, {"value": 2}, "nested/data.json")
+    client.log_monitoring_run_json_artifact(
+        monitoring_run_id,
+        {"value": 1},
+        "outputs/result.json",
+    )
+    client.log_monitoring_run_json_artifact(
+        monitoring_run_id,
+        {"value": 2},
+        "nested/data.json",
+    )
 
     assert client.list_artifact_paths(monitoring_run_id) == [
         "nested/data.json",
@@ -221,9 +232,13 @@ def test_log_json_artifact_writes_requested_json_path(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_run(experiment_id, tags={})
+    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
 
-    client.log_json_artifact(monitoring_run_id, {"status": "ok"}, "outputs/result.json")
+    client.log_monitoring_run_json_artifact(
+        monitoring_run_id,
+        {"status": "ok"},
+        "outputs/result.json",
+    )
 
     artifact_dir = Path(raw.download_artifacts(monitoring_run_id, "outputs"))
     payload = json.loads((artifact_dir / "result.json").read_text())

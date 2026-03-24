@@ -150,21 +150,21 @@ class MonitorMLflowClient:
         """
         self._client.set_experiment_tag(experiment_id, key, value)
 
-    def create_run(self, experiment_id: str, tags: Mapping[str, str]) -> str:
-        """Create a monitoring run and return its MLflow run id.
+    def create_monitoring_run(self, experiment_id: str, tags: Mapping[str, str]) -> str:
+        """Create a monitoring-owned run and return its MLflow run id.
 
         Args:
             experiment_id: Experiment that will own the run.
             tags: Initial run tags to apply at create time.
 
         Returns:
-            The MLflow-assigned run id for the created run.
+            The MLflow-assigned `monitoring_run_id` for the created run.
         """
         run = self._client.create_run(experiment_id, tags=dict(tags))
         return run.info.run_id
 
     def get_run(self, run_id: str) -> Run | None:
-        """Return a run, or `None` when MLflow reports it as missing.
+        """Return any MLflow run, or `None` when MLflow reports it as missing.
 
         This method is the main missing-run normalization point. Later gateway
         code can treat `None` as the deterministic absent-run signal without
@@ -174,7 +174,9 @@ class MonitorMLflowClient:
             run_id: Run identifier to fetch.
 
         Returns:
-            The raw MLflow `Run` when it exists, otherwise `None`.
+            The raw MLflow `Run` when it exists, otherwise `None`. The supplied
+            `run_id` may belong to either a source training run or a
+            monitoring-owned run.
 
         Raises:
             MlflowException: If MLflow raises an error other than
@@ -188,11 +190,11 @@ class MonitorMLflowClient:
                 raise
             return None
 
-    def terminate_run(self, run_id: str, status: str) -> None:
-        """Terminate a run with one of the MVP-supported final statuses.
+    def terminate_monitoring_run(self, monitoring_run_id: str, status: str) -> None:
+        """Terminate a monitoring-owned run with a final MVP status.
 
         Args:
-            run_id: Run identifier to terminate.
+            monitoring_run_id: Monitoring run identifier to terminate.
             status: Final MLflow run status. MVP supports only `FINISHED` and
                 `FAILED`.
 
@@ -201,23 +203,27 @@ class MonitorMLflowClient:
         """
         if status not in {"FINISHED", "FAILED"}:
             raise ValueError("status must be FINISHED or FAILED")
-        self._client.set_terminated(run_id, status=status)
+        self._client.set_terminated(monitoring_run_id, status=status)
 
-    def set_tags(self, run_id: str, tags: Mapping[str, str]) -> None:
-        """Set multiple tags on an existing run.
+    def set_monitoring_run_tags(
+        self,
+        monitoring_run_id: str,
+        tags: Mapping[str, str],
+    ) -> None:
+        """Set multiple tags on an existing monitoring-owned run.
 
         Args:
-            run_id: Run identifier to update.
+            monitoring_run_id: Monitoring run identifier to update.
             tags: Tags to write.
         """
         for key, value in tags.items():
-            self._client.set_tag(run_id, key, value)
+            self._client.set_tag(monitoring_run_id, key, value)
 
     def get_run_metrics(self, run_id: str) -> dict[str, float]:
         """Return run metrics as a plain dictionary.
 
         Args:
-            run_id: Run identifier to inspect.
+            run_id: Training or monitoring run identifier to inspect.
 
         Returns:
             A copied metric mapping. Missing runs normalize to `{}`.
@@ -231,7 +237,7 @@ class MonitorMLflowClient:
         """Return run params as a plain dictionary.
 
         Args:
-            run_id: Run identifier to inspect.
+            run_id: Training or monitoring run identifier to inspect.
 
         Returns:
             A copied param mapping. Missing runs normalize to `{}`.
@@ -245,7 +251,7 @@ class MonitorMLflowClient:
         """Return run tags as a plain dictionary.
 
         Args:
-            run_id: Run identifier to inspect.
+            run_id: Training or monitoring run identifier to inspect.
 
         Returns:
             A copied tag mapping. Missing runs normalize to `{}`.
@@ -263,7 +269,7 @@ class MonitorMLflowClient:
         relative file paths.
 
         Args:
-            run_id: Run identifier to inspect.
+            run_id: Training or monitoring run identifier to inspect.
 
         Returns:
             Sorted relative artifact file paths. Missing runs normalize to `[]`.
@@ -272,15 +278,21 @@ class MonitorMLflowClient:
             return []
         return sorted(self._list_artifact_paths_recursive(run_id, path=None))
 
-    def log_json_artifact(self, run_id: str, data: dict[str, Any], path: str) -> None:
-        """Log one dictionary payload as a JSON artifact on a run.
+    def log_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        data: dict[str, Any],
+        path: str,
+    ) -> None:
+        """Log one dictionary payload as a JSON artifact on a monitoring run.
 
         Args:
-            run_id: Run identifier that will own the artifact.
+            monitoring_run_id: Monitoring run identifier that will own the
+                artifact.
             data: JSON-serializable dictionary payload.
             path: Artifact path such as `outputs/result.json`.
         """
-        self._client.log_dict(run_id, data, path)
+        self._client.log_dict(monitoring_run_id, data, path)
 
     def _list_artifact_paths_recursive(self, run_id: str, path: str | None) -> list[str]:
         """Collect file artifact paths under one optional artifact prefix."""
