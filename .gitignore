@@ -69,7 +69,7 @@ instance/
 .scrapy
 
 # documentation
-# docs/v0/
+docs/site/
 
 # PyBuilder
 .pybuilder/
@@ -227,3 +227,4 @@ mlruns/
 # temp file types
 .csv
 .pdf
+.vscode/launch.json
