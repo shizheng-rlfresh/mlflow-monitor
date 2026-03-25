@@ -659,7 +659,9 @@ class MLflowMonitoringGateway:
         string-valued.
         """
         raw_next_sequence_index = experiment_tags.get(_NEXT_SEQUENCE_TAG)
-        return 0 if raw_next_sequence_index in {None, ""} else int(raw_next_sequence_index)
+        if raw_next_sequence_index is None or raw_next_sequence_index == "":
+            return 0
+        return int(raw_next_sequence_index)
 
     def _resolve_sequence_index(
         self,
@@ -705,9 +707,7 @@ class MLflowMonitoringGateway:
             reference_run_id = run_tags.get(f"{_REFERENCE_TAG_PREFIX}{kind}")
             if not reference_run_id:
                 continue
-            references.append(
-                MonitoringRunReference(kind=kind, reference_run_id=reference_run_id)
-            )
+            references.append(MonitoringRunReference(kind=kind, reference_run_id=reference_run_id))
         return tuple(references)
 
     def _validate_namespace_prefix(self, prefix: str) -> None:
