@@ -310,6 +310,125 @@ def test_mlflow_gateway_resolve_source_run_id_honors_source_experiment_filter(
     )
 
 
+def test_mlflow_gateway_resolve_source_run_id_rejects_monitoring_owned_runs(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    baseline_run_id = _create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="baseline",
+        metrics={"f1": 0.87},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    current_run_id = _create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="current",
+        metrics={"f1": 0.91},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+
+    result = run_orchestration(
+        subject_id="churn_model",
+        source_run_id=current_run_id,
+        baseline_source_run_id=baseline_run_id,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert (
+        gateway.resolve_source_run_id(
+            subject_id="churn_model",
+            source_experiment=None,
+            run_selector=result.monitoring_run_id,
+        )
+        is None
+    )
+
+
+def test_mlflow_gateway_rejects_monitoring_run_id_as_source_run_input(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    baseline_run_id = _create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="baseline",
+        metrics={"f1": 0.87},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    current_run_id = _create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="current",
+        metrics={"f1": 0.91},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+
+    first_result = run_orchestration(
+        subject_id="churn_model",
+        source_run_id=current_run_id,
+        baseline_source_run_id=baseline_run_id,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    invalid_result = run_orchestration(
+        subject_id="churn_model",
+        source_run_id=first_result.monitoring_run_id,
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    invalid_monitoring_run = raw.get_run(invalid_result.monitoring_run_id)
+    payload_dir = Path(raw.download_artifacts(invalid_result.monitoring_run_id, "outputs"))
+    payload = json.loads((payload_dir / "result.json").read_text())
+
+    assert invalid_result.lifecycle_status is LifecycleStatus.FAILED
+    assert invalid_result.error is not None
+    assert invalid_result.error.code == "prepare_source_run_not_found"
+    assert invalid_monitoring_run.info.status == "FAILED"
+    assert payload["error"]["code"] == "prepare_source_run_not_found"
+
+
 def test_mlflow_gateway_create_or_reuse_allocates_new_run_for_recipe_version_change(
     tracking_uri: str,
     artifact_root_uri: str,

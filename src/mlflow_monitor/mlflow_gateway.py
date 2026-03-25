@@ -453,9 +453,11 @@ class MLflowMonitoringGateway:
             return None
         if self._mlflow.get_run(candidate_source_run_id) is None:
             return None
+        experiment_name = self._mlflow.get_run_experiment_name(candidate_source_run_id)
+        if experiment_name == self.build_monitoring_namespace(subject_id):
+            return None
         if source_experiment is None:
             return candidate_source_run_id
-        experiment_name = self._mlflow.get_run_experiment_name(candidate_source_run_id)
         return candidate_source_run_id if experiment_name == source_experiment else None
 
     def get_missing_source_run_metrics(
