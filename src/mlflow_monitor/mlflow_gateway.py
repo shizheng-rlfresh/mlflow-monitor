@@ -454,7 +454,9 @@ class MLflowMonitoringGateway:
         if self._mlflow.get_run(candidate_source_run_id) is None:
             return None
         experiment_name = self._mlflow.get_run_experiment_name(candidate_source_run_id)
-        if experiment_name == self.build_monitoring_namespace(subject_id):
+        if experiment_name is not None and experiment_name.startswith(
+            f"{self._config.namespace_prefix}/"
+        ):
             return None
         if source_experiment is None:
             return candidate_source_run_id
