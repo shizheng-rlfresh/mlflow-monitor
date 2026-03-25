@@ -7,12 +7,16 @@ small, documented boundary instead of spreading MLflow-specific behavior across
 the codebase.
 
 What belongs here:
+-------------------
+
 - Thin wrappers around the concrete MLflow client operations required by MVP-03
 - Deterministic normalization of a few MLflow-specific quirks
 - Read helpers that expose plain Python values where that reduces MLflow
   leakage into later gateway code
 
 What does not belong here:
+--------------------------
+
 - Workflow or orchestration logic
 - Monitoring domain policy
 - Broader query functionality such as run search
