@@ -238,13 +238,18 @@ def _run_prepare_monitoring_run_slice(
             lifecycle_status=LifecycleStatus.FAILED,
             sequence_index=state.sequence_index,
         )
-        return _build_failure_monitoring_run_result(
+        result = _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
             stage="prepare",
             error=exc,
             gateway=gateway,
         )
+        gateway.finalize_monitoring_run_result(
+            monitoring_run_id=state.monitoring_run_id,
+            result=result,
+        )
+        return result
 
     if (
         state.existing_monitoring_run is None
@@ -290,13 +295,18 @@ def _run_check_monitoring_run_slice(
             lifecycle_status=LifecycleStatus.FAILED,
             sequence_index=state.sequence_index,
         )
-        return _build_failure_monitoring_run_result(
+        result = _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
             stage="check",
             error=exc,
             gateway=gateway,
         )
+        gateway.finalize_monitoring_run_result(
+            monitoring_run_id=state.monitoring_run_id,
+            result=result,
+        )
+        return result
 
     gateway.upsert_monitoring_run(
         subject_id=state.subject_id,
@@ -306,13 +316,18 @@ def _run_check_monitoring_run_slice(
         contract_check_result=contract_check_result,
         references=_build_monitoring_run_references(prepared_context),
     )
-    return _build_success_monitoring_run_result(
+    result = _build_success_monitoring_run_result(
         subject_id=state.subject_id,
         monitoring_run_id=state.monitoring_run_id,
         prepared_context=prepared_context,
         contract_check_result=contract_check_result,
         gateway=gateway,
     )
+    gateway.finalize_monitoring_run_result(
+        monitoring_run_id=state.monitoring_run_id,
+        result=result,
+    )
+    return result
 
 
 def _build_success_monitoring_run_result(
