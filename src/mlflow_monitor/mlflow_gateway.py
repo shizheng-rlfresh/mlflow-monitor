@@ -437,12 +437,11 @@ class MLflowMonitoringGateway:
         Notes:
             The current MVP path always provides an explicit source run id and
             does not rely on broader selector semantics. This implementation
-            therefore resolves by direct run lookup only. `source_experiment`
-            is accepted to preserve protocol shape, but is not currently used
-            as an additional filter in the real-MLflow path.
+            therefore resolves by direct run lookup, then applies the optional
+            `source_experiment` filter against the owning MLflow experiment
+            name of that run.
         """
         self._validate_subject_id(subject_id)
-        _ = source_experiment
         candidate_source_run_id = (
             runtime_source_run_id
             if run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
@@ -450,11 +449,12 @@ class MLflowMonitoringGateway:
         )
         if not candidate_source_run_id:
             return None
-        return (
-            candidate_source_run_id
-            if self._mlflow.get_run(candidate_source_run_id) is not None
-            else None
-        )
+        if self._mlflow.get_run(candidate_source_run_id) is None:
+            return None
+        if source_experiment is None:
+            return candidate_source_run_id
+        experiment_name = self._mlflow.get_run_experiment_name(candidate_source_run_id)
+        return candidate_source_run_id if experiment_name == source_experiment else None
 
     def get_missing_source_run_metrics(
         self,

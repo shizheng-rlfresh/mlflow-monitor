@@ -267,3 +267,45 @@ def test_mlflow_gateway_owned_failure_terminates_failed_and_leaves_training_runs
     assert baseline_after.data.metrics == baseline_before.data.metrics
     assert baseline_after.data.params == baseline_before.data.params
     assert baseline_after.data.tags == baseline_before.data.tags
+
+
+def test_mlflow_gateway_resolve_source_run_id_honors_source_experiment_filter(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    training_run_id = _create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="current",
+        metrics={"f1": 0.91},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+
+    assert (
+        gateway.resolve_source_run_id(
+            subject_id="churn_model",
+            source_experiment="training/churn",
+            run_selector=training_run_id,
+        )
+        == training_run_id
+    )
+    assert (
+        gateway.resolve_source_run_id(
+            subject_id="churn_model",
+            source_experiment="training/other",
+            run_selector=training_run_id,
+        )
+        is None
+    )
