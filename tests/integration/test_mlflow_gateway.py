@@ -10,7 +10,7 @@ from mlflow import MlflowClient
 
 from mlflow_monitor.contract_checker import DefaultContractChecker
 from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus, MonitoringRunReference
-from mlflow_monitor.gateway import GatewayConfig
+from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
 
@@ -308,3 +308,54 @@ def test_mlflow_gateway_resolve_source_run_id_honors_source_experiment_filter(
         )
         is None
     )
+
+
+def test_mlflow_gateway_create_or_reuse_allocates_new_run_for_recipe_version_change(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    training_run_id = _create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="current",
+        metrics={"f1": 0.91},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+
+    first = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id=training_run_id,
+            recipe_id="system_default",
+            recipe_version="v0",
+        )
+    )
+    second = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id=training_run_id,
+            recipe_id="system_default",
+            recipe_version="v1",
+        )
+    )
+
+    experiment = raw.get_experiment_by_name("mlflow_monitor/churn_model")
+    assert experiment is not None
+    assert first.allocated is True
+    assert second.allocated is True
+    assert second.monitoring_run_id != first.monitoring_run_id
+    assert second.sequence_index == first.sequence_index + 1
+    assert experiment.tags["monitoring.run.0"] == first.monitoring_run_id
+    assert experiment.tags["monitoring.run.1"] == second.monitoring_run_id

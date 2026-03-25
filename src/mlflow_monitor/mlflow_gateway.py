@@ -131,22 +131,24 @@ class MLflowMonitoringGateway:
         idempotency_tag = self._idempotency_tag(key.source_run_id)
         existing_monitoring_run_id = experiment_tags.get(idempotency_tag)
         if existing_monitoring_run_id:
-            # The index may outlive a fully reconstructed MonitoringRunRecord,
-            # for example if allocation succeeded but later persistence did not.
-            existing_monitoring_run = self.get_monitoring_run(
-                key.subject_id, existing_monitoring_run_id
-            )
-            sequence_index = (
-                existing_monitoring_run.sequence_index
-                if existing_monitoring_run is not None
-                else self._resolve_sequence_index(experiment_tags, existing_monitoring_run_id)
-            )
-            return CreateOrReuseMonitoringRunResult(
+            existing_monitoring_run, recipe_identity_matches = self._resolve_existing_binding(
+                subject_id=key.subject_id,
                 monitoring_run_id=existing_monitoring_run_id,
-                sequence_index=sequence_index,
-                existing_monitoring_run=existing_monitoring_run,
-                allocated=False,
+                recipe_id=key.recipe_id,
+                recipe_version=key.recipe_version,
             )
+            if recipe_identity_matches:
+                sequence_index = (
+                    existing_monitoring_run.sequence_index
+                    if existing_monitoring_run is not None
+                    else self._resolve_sequence_index(experiment_tags, existing_monitoring_run_id)
+                )
+                return CreateOrReuseMonitoringRunResult(
+                    monitoring_run_id=existing_monitoring_run_id,
+                    sequence_index=sequence_index,
+                    existing_monitoring_run=existing_monitoring_run,
+                    allocated=False,
+                )
 
         sequence_index = self._read_next_sequence_index(experiment_tags)
         # MLflow assigns the monitoring run id, so the gateway has to create the
@@ -709,6 +711,32 @@ class MLflowMonitoringGateway:
                 continue
             references.append(MonitoringRunReference(kind=kind, reference_run_id=reference_run_id))
         return tuple(references)
+
+    def _resolve_existing_binding(
+        self,
+        *,
+        subject_id: str,
+        monitoring_run_id: str,
+        recipe_id: str,
+        recipe_version: str,
+    ) -> tuple[MonitoringRunRecord | None, bool]:
+        """Return the bound run plus whether its recipe identity still matches.
+
+        Experiment-tag idempotency is keyed only by source run id, so a bound
+        monitoring run must be checked for matching recipe identity before it
+        can be safely replayed.
+        """
+        # The binding may outlive a fully reconstructed MonitoringRunRecord, for
+        # example if allocation succeeded but later persistence did not.
+        existing_monitoring_run = self.get_monitoring_run(subject_id, monitoring_run_id)
+        run_tags = self._mlflow.get_run_tags(monitoring_run_id)
+        if not run_tags:
+            return existing_monitoring_run, False
+        return (
+            existing_monitoring_run,
+            run_tags.get(_RECIPE_ID_TAG) == recipe_id
+            and run_tags.get(_RECIPE_VERSION_TAG) == recipe_version,
+        )
 
     def _validate_namespace_prefix(self, prefix: str) -> None:
         """Validate namespace prefix can safely compose a monitoring namespace."""
