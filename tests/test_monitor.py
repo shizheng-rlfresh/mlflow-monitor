@@ -272,12 +272,8 @@ def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
     assert first.lifecycle_status is LifecycleStatus.CHECKED
     assert second.lifecycle_status is LifecycleStatus.CHECKED
     assert second.references == (
-        MonitoringRunReference(
-            kind="baseline", reference_run_id="train-run-baseline"
-        ),
-        MonitoringRunReference(
-            kind="previous", reference_run_id=first.monitoring_run_id
-        ),
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+        MonitoringRunReference(kind="previous", reference_run_id=first.monitoring_run_id),
     )
 
 

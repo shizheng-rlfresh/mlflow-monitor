@@ -534,9 +534,7 @@ class InMemoryMonitoringGateway:
             LifecycleStatus.CLOSED,
         }
         if exclude_failed:
-            return tuple(
-                run for run in runs if run.lifecycle_status in visible_non_failed_statuses
-            )
+            return tuple(run for run in runs if run.lifecycle_status in visible_non_failed_statuses)
         return tuple(
             run
             for run in runs

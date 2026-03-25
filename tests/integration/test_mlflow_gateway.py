@@ -119,8 +119,7 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     assert experiment.tags["monitoring.next_sequence_index"] == "1"
     assert experiment.tags["monitoring.run.0"] == result.monitoring_run_id
     assert (
-        experiment.tags[f"training.{current_run_id}.monitoring_run_id"]
-        == result.monitoring_run_id
+        experiment.tags[f"training.{current_run_id}.monitoring_run_id"] == result.monitoring_run_id
     )
 
     monitoring_run = raw.get_run(result.monitoring_run_id)
