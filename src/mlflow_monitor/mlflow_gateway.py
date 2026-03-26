@@ -326,12 +326,17 @@ class MLflowMonitoringGateway:
         if lifecycle_status_value is None or sequence_index_value is None:
             return None
 
-        comparability_status_value = run_tags.get(_COMPARABILITY_STATUS_TAG)
-        comparability_status = (
-            None
-            if not comparability_status_value
-            else ComparabilityStatus(comparability_status_value)
-        )
+        try:
+            comparability_status_value = run_tags.get(_COMPARABILITY_STATUS_TAG)
+            comparability_status = (
+                None
+                if not comparability_status_value
+                else ComparabilityStatus(comparability_status_value)
+            )
+            sequence_index = int(sequence_index_value)
+            lifecycle_status = LifecycleStatus(lifecycle_status_value)
+        except ValueError:
+            return None
         # MVP persistence stores the comparability outcome, not the original
         # reason list. Replay paths only need the terminal status.
         contract_check_result = (
@@ -342,8 +347,8 @@ class MLflowMonitoringGateway:
 
         return MonitoringRunRecord(
             monitoring_run_id=monitoring_run_id,
-            sequence_index=int(sequence_index_value),
-            lifecycle_status=LifecycleStatus(lifecycle_status_value),
+            sequence_index=sequence_index,
+            lifecycle_status=lifecycle_status,
             comparability_status=comparability_status,
             contract_check_result=contract_check_result,
             references=self._parse_references(run_tags),
@@ -668,7 +673,15 @@ class MLflowMonitoringGateway:
         raw_next_sequence_index = experiment_tags.get(_NEXT_SEQUENCE_TAG)
         if raw_next_sequence_index is None or raw_next_sequence_index == "":
             return 0
-        return int(raw_next_sequence_index)
+        try:
+            return int(raw_next_sequence_index)
+        except ValueError as exc:
+            raise GatewayNamespaceViolation(
+                message=(
+                    "monitoring.next_sequence_index must be an integer string; "
+                    f"got {raw_next_sequence_index!r}."
+                )
+            ) from exc
 
     def _resolve_sequence_index(
         self,

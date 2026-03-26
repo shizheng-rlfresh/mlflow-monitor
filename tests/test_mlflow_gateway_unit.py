@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from mlflow_monitor.domain import LifecycleStatus
+from mlflow_monitor.errors import GatewayNamespaceViolation
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
@@ -142,3 +143,96 @@ def test_finalize_monitoring_run_result_persists_artifact_and_termination(
         "monitoring-run-1",
         expected_mlflow_status,
     )
+
+
+@pytest.mark.parametrize(
+    ("tag_key", "tag_value"),
+    [
+        ("monitoring.comparability_status", "unknown"),
+        ("monitoring.sequence_index", "not-an-int"),
+        ("monitoring.lifecycle_status", "not-a-status"),
+    ],
+)
+def test_get_monitoring_run_returns_none_for_malformed_persisted_tags(
+    tag_key: str,
+    tag_value: str,
+) -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.0": "monitoring-run-1",
+    }
+    stub_client.get_run_tags.return_value = {
+        "monitoring.sequence_index": "0",
+        "monitoring.lifecycle_status": "checked",
+        "monitoring.comparability_status": "pass",
+        tag_key: tag_value,
+    }
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    assert gateway.get_monitoring_run("churn_model", "monitoring-run-1") is None
+
+
+def test_list_timeline_monitoring_runs_skips_malformed_reconstructed_run() -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.next_sequence_index": "2",
+        "monitoring.run.0": "monitoring-run-bad",
+        "monitoring.run.1": "monitoring-run-good",
+    }
+    stub_client.get_run_tags.side_effect = [
+        {
+            "monitoring.sequence_index": "not-an-int",
+            "monitoring.lifecycle_status": "checked",
+        },
+        {
+            "monitoring.sequence_index": "1",
+            "monitoring.lifecycle_status": "checked",
+            "monitoring.comparability_status": "pass",
+        },
+    ]
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    runs = gateway.list_timeline_monitoring_runs("churn_model")
+
+    assert tuple(run.monitoring_run_id for run in runs) == ("monitoring-run-good",)
+
+
+def test_list_timeline_monitoring_runs_raises_for_malformed_next_sequence_index() -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.next_sequence_index": "not-an-int",
+    }
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayNamespaceViolation, match="monitoring.next_sequence_index"):
+        gateway.list_timeline_monitoring_runs("churn_model")
+
+
+def test_create_or_reuse_monitoring_run_raises_for_malformed_next_sequence_index() -> None:
+    stub_client = MagicMock()
+    stub_client.get_or_create_monitoring_experiment.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.next_sequence_index": "not-an-int",
+    }
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayNamespaceViolation, match="monitoring.next_sequence_index"):
+        gateway.create_or_reuse_monitoring_run(
+            IdempotencyKey(
+                subject_id="churn_model",
+                source_run_id="train-run-1",
+                recipe_id="system_default",
+                recipe_version="v0",
+            )
+        )
