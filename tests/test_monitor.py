@@ -827,6 +827,7 @@ def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun
 def test_public_run_is_a_thin_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     expected = object()
     captured: dict[str, object] = {}
+    gateway = object()
 
     def fakerun_orchestrationing(**kwargs: object) -> object:
         captured.update(kwargs)
@@ -838,10 +839,71 @@ def test_public_run_is_a_thin_facade(monkeypatch: pytest.MonkeyPatch) -> None:
         subject_id="churn_model",
         source_run_id="train-run-current",
         baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
     )
 
     assert result is expected
     assert captured["subject_id"] == "churn_model"
     assert captured["source_run_id"] == "train-run-current"
     assert captured["baseline_source_run_id"] == "train-run-baseline"
+    assert captured["gateway"] is gateway
     assert "monitoring_run_id_factory" not in captured
+
+
+def test_public_run_defaults_to_mlflow_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
+    expected = object()
+    captured: dict[str, object] = {}
+    constructed_gateways: list[object] = []
+
+    def fake_mlflow_gateway(config: GatewayConfig) -> object:
+        constructed_gateways.append(config)
+        return expected
+
+    def fake_run_orchestration(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return "result"
+
+    monkeypatch.setattr(monitor, "MLflowMonitoringGateway", fake_mlflow_gateway)
+    monkeypatch.setattr(monitor, "run_orchestration", fake_run_orchestration)
+
+    result = monitor.run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+    )
+
+    assert result == "result"
+    assert len(constructed_gateways) == 1
+    assert isinstance(constructed_gateways[0], GatewayConfig)
+    assert captured["gateway"] is expected
+
+
+def test_public_run_constructs_fresh_mlflow_gateway_per_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    orchestration_gateways: list[object] = []
+
+    def fake_mlflow_gateway(config: GatewayConfig) -> object:
+        assert isinstance(config, GatewayConfig)
+        return object()
+
+    def fake_run_orchestration(**kwargs: object) -> object:
+        orchestration_gateways.append(kwargs["gateway"])
+        return object()
+
+    monkeypatch.setattr(monitor, "MLflowMonitoringGateway", fake_mlflow_gateway)
+    monkeypatch.setattr(monitor, "run_orchestration", fake_run_orchestration)
+
+    monitor.run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+    )
+    monitor.run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+    )
+
+    assert len(orchestration_gateways) == 2
+    assert orchestration_gateways[0] is not orchestration_gateways[1]

@@ -6,7 +6,7 @@
 
 ### Workflow & Naming
 
-**MVP-01: Rename monitoring-side `run_id` to `monitoring_run_id`** (P0)
+**MVP-01: Rename monitoring-side `run_id` to `monitoring_run_id`** (P0) **DONE**
 
 Goal:
 Remove identifier ambiguity before real MLflow integration introduces both training run IDs and monitoring run IDs into the same execution path.
@@ -33,7 +33,7 @@ Acceptance criteria:
 
 Dependencies: none
 
-**MVP-02: Refit gateway/orchestration contract for MLflow-assigned monitoring run IDs** (P0)
+**MVP-02: Refit gateway/orchestration contract for MLflow-assigned monitoring run IDs** (P0) **DONE**
 
 Goal:
 Change the current in-memory-shaped protocol so the gateway can own create-or-reuse of monitoring runs when the backing store assigns the monitoring run ID at persistence time.
@@ -66,7 +66,7 @@ Dependencies: MVP-01
 
 ### Persistence Gateway
 
-**MVP-03: Add `MonitorMLflowClient` adapter** (P0)
+**MVP-03: Add `MonitorMLflowClient` adapter** (P0) **DONE**
 
 Goal:
 Introduce one thin MLflow client adapter that encapsulates all direct `MlflowClient` usage needed by the MVP slice.
@@ -92,7 +92,7 @@ Acceptance criteria:
 
 Dependencies: MVP-02
 
-**MVP-04: Implement `MLflowMonitoringGateway` with direct experiment-tag indexing** (P0)
+**MVP-04: Implement `MLflowMonitoringGateway` with direct experiment-tag indexing** (P0) **DONE**
 
 Goal:
 Provide a real-MLflow gateway implementation for the existing M1 create -> prepare -> check slice using direct lookup and experiment-tag indexing only.
@@ -125,7 +125,7 @@ Dependencies: MVP-02, MVP-03
 
 ### SDK & Validation
 
-**MVP-05: Update the SDK default path to real MLflow** (P0)
+**MVP-05: Update the SDK default path to real MLflow** (P0) **DONE**
 
 Goal:
 Make `monitor.run(...)` use the MLflow-backed gateway by default while preserving explicit gateway injection for tests and controlled use.
