@@ -60,8 +60,10 @@ def _create_training_run(
 def test_monitor_run_defaults_to_real_mlflow_gateway(
     tracking_uri: str,
     artifact_root_uri: str,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     raw = MlflowClient(tracking_uri=tracking_uri)
     baseline_run_id = _create_training_run(
         raw=raw,
