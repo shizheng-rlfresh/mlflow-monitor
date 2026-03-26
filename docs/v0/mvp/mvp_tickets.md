@@ -125,7 +125,7 @@ Dependencies: MVP-02, MVP-03
 
 ### SDK & Validation
 
-**MVP-05: Update the SDK default path to real MLflow** (P0)
+**MVP-05: Update the SDK default path to real MLflow** (P0) **DONE**
 
 Goal:
 Make `monitor.run(...)` use the MLflow-backed gateway by default while preserving explicit gateway injection for tests and controlled use.
