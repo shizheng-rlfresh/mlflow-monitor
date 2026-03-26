@@ -63,7 +63,7 @@ def test_monitor_run_defaults_to_real_mlflow_gateway(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)  # ensure we don't pollute the current directory with ./mlruns
     raw = MlflowClient(tracking_uri=tracking_uri)
     baseline_run_id = _create_training_run(
         raw=raw,
