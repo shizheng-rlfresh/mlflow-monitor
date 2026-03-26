@@ -236,3 +236,32 @@ def test_create_or_reuse_monitoring_run_raises_for_malformed_next_sequence_index
                 recipe_version="v0",
             )
         )
+
+
+def test_create_or_reuse_monitoring_run_raises_for_malformed_index_tag_key() -> None:
+    stub_client = MagicMock()
+    stub_client.get_or_create_monitoring_experiment.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "training.train-run-1.monitoring_run_id": "monitoring-run-1",
+        "monitoring.run.latest": "monitoring-run-1",
+    }
+    stub_client.get_run_tags.side_effect = [
+        {},
+        {
+            "monitoring.recipe_id": "system_default",
+            "monitoring.recipe_version": "v0",
+        },
+    ]
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayNamespaceViolation, match="monitoring.run.latest"):
+        gateway.create_or_reuse_monitoring_run(
+            IdempotencyKey(
+                subject_id="churn_model",
+                source_run_id="train-run-1",
+                recipe_id="system_default",
+                recipe_version="v0",
+            )
+        )

@@ -697,7 +697,15 @@ class MLflowMonitoringGateway:
         for key, value in experiment_tags.items():
             if not key.startswith(_RUN_TAG_PREFIX) or value != monitoring_run_id:
                 continue
-            return int(key.removeprefix(_RUN_TAG_PREFIX))
+            try:
+                return int(key.removeprefix(_RUN_TAG_PREFIX))
+            except ValueError as exc:
+                raise GatewayNamespaceViolation(
+                    message=(
+                        "Monitoring timeline index tag must end with an integer sequence; "
+                        f"got key={key!r} value={value!r}."
+                    )
+                ) from exc
         raise GatewayNamespaceViolation(
             message=(
                 f"Monitoring run {monitoring_run_id!r} is not indexed on the experiment timeline."
