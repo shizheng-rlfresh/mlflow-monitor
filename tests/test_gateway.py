@@ -211,15 +211,21 @@ def test_list_timeline_runs_excludes_failed_when_requested() -> None:
     subject_id = "churn_model"
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
+        monitoring_run_id="monitoring-run-checked",
+        lifecycle_status=LifecycleStatus.CHECKED,
+        sequence_index=0,
+    )
+    gateway.upsert_monitoring_run(
+        subject_id=subject_id,
         monitoring_run_id="monitoring-run-1",
         lifecycle_status=LifecycleStatus.CLOSED,
-        sequence_index=0,
+        sequence_index=1,
     )
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
         monitoring_run_id="monitoring-run-2",
         lifecycle_status=LifecycleStatus.FAILED,
-        sequence_index=1,
+        sequence_index=2,
     )
 
     monitoring_run_ids = tuple(
@@ -230,7 +236,7 @@ def test_list_timeline_runs_excludes_failed_when_requested() -> None:
         )
     )
 
-    assert monitoring_run_ids == ("monitoring-run-1",)
+    assert monitoring_run_ids == ("monitoring-run-checked", "monitoring-run-1")
 
 
 def test_namespace_violation_raises_on_invalid_monitoring_write() -> None:

@@ -282,6 +282,27 @@ class MonitorMLflowClient:
             return {}
         return dict(run.data.tags)
 
+    def get_run_experiment_name(self, run_id: str) -> str | None:
+        """Return the owning experiment name for a run, or `None`.
+
+        Args:
+            run_id: Training or monitoring run identifier to inspect.
+
+        Returns:
+            The owning experiment name when both the run and experiment can be
+            resolved; otherwise `None`.
+        """
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        try:
+            experiment = self._client.get_experiment(run.info.experiment_id)
+        except MlflowException as exc:
+            if _normalize_error_code(exc.error_code) != _RESOURCE_DOES_NOT_EXIST:
+                raise
+            return None
+        return None if experiment is None else experiment.name
+
     def list_artifact_paths(self, run_id: str) -> list[str]:
         """Return all artifact file paths for a run in deterministic order.
 

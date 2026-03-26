@@ -21,6 +21,7 @@ from mlflow_monitor.gateway import (
     InMemoryMonitoringGateway,
 )
 from mlflow_monitor.orchestration import run_orchestration
+from mlflow_monitor.result_contract import MonitorRunResult
 
 
 def make_gateway() -> InMemoryMonitoringGateway:
@@ -157,6 +158,23 @@ class AllocationOnlyReplayGateway(InMemoryMonitoringGateway):
         )
 
 
+class FinalizingGateway(InMemoryMonitoringGateway):
+    """Capture terminal result finalization calls from orchestration."""
+
+    def __init__(self, config: GatewayConfig) -> None:
+        super().__init__(config)
+        self.finalized_results: list[MonitorRunResult] = []
+
+    def finalize_monitoring_run_result(
+        self,
+        *,
+        monitoring_run_id: str,
+        result: MonitorRunResult,
+    ) -> None:
+        assert monitoring_run_id == result.monitoring_run_id
+        self.finalized_results.append(result)
+
+
 def test_run_orchestration_first_run_persists_checked_state() -> None:
     gateway = make_gateway()
 
@@ -253,9 +271,110 @@ def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
 
     assert first.lifecycle_status is LifecycleStatus.CHECKED
     assert second.lifecycle_status is LifecycleStatus.CHECKED
-    assert second.references[0] == MonitoringRunReference(
-        kind="baseline", reference_run_id="train-run-baseline"
+    assert second.references == (
+        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+        MonitoringRunReference(kind="previous", reference_run_id=first.monitoring_run_id),
     )
+
+
+def test_run_orchestration_finalizes_newly_checked_run_once() -> None:
+    gateway = FinalizingGateway(GatewayConfig())
+    for source_run_id, metrics in (
+        ("train-run-baseline", {"f1": 0.87}),
+        ("train-run-current", {"f1": 0.91}),
+    ):
+        gateway.add_source_run(
+            subject_id="churn_model",
+            source_run_id=source_run_id,
+            source_experiment=None,
+            metrics=metrics,
+            artifacts=("metrics.json",),
+            environment={"python": "3.12"},
+            features=("age",),
+            schema={"age": "int"},
+            data_scope="validation:2026-03-01",
+        )
+
+    result = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert [finalized.monitoring_run_id for finalized in gateway.finalized_results] == [
+        result.monitoring_run_id
+    ]
+    assert gateway.finalized_results[0].lifecycle_status is LifecycleStatus.CHECKED
+
+
+def test_run_orchestration_checked_rerun_does_not_finalize_again() -> None:
+    gateway = FinalizingGateway(GatewayConfig())
+    for source_run_id, metrics in (
+        ("train-run-baseline", {"f1": 0.87}),
+        ("train-run-current", {"f1": 0.91}),
+    ):
+        gateway.add_source_run(
+            subject_id="churn_model",
+            source_run_id=source_run_id,
+            source_experiment=None,
+            metrics=metrics,
+            artifacts=("metrics.json",),
+            environment={"python": "3.12"},
+            features=("age",),
+            schema={"age": "int"},
+            data_scope="validation:2026-03-01",
+        )
+
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert second.monitoring_run_id == first.monitoring_run_id
+    assert [finalized.monitoring_run_id for finalized in gateway.finalized_results] == [
+        first.monitoring_run_id
+    ]
+
+
+def test_run_orchestration_finalizes_owned_failure_once() -> None:
+    gateway = FinalizingGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-baseline",
+        source_experiment=None,
+        metrics={"f1": 0.87},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-01",
+    )
+
+    result = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-missing",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert result.lifecycle_status is LifecycleStatus.FAILED
+    assert [finalized.monitoring_run_id for finalized in gateway.finalized_results] == [
+        result.monitoring_run_id
+    ]
+    assert gateway.finalized_results[0].lifecycle_status is LifecycleStatus.FAILED
 
 
 def test_run_orchestration_non_comparable_check_still_returns_checked_result() -> None:

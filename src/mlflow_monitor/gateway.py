@@ -54,6 +54,7 @@ from mlflow_monitor.errors import (
     TrainingRunMutationViolation,
 )
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
+from mlflow_monitor.result_contract import MonitorRunResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +279,15 @@ class MonitoringGateway(Protocol):
 
     def get_source_run_contract_evidence(self, source_run_id: str) -> ContractEvidence | None:
         """Return contract evidence for a source run, or None if the run is not found."""
+        ...
+
+    def finalize_monitoring_run_result(
+        self,
+        *,
+        monitoring_run_id: str,
+        result: MonitorRunResult,
+    ) -> None:
+        """Persist final result payloads and terminal monitoring-run state."""
         ...
 
 
@@ -519,12 +529,16 @@ class InMemoryMonitoringGateway:
             )
         )
 
+        visible_non_failed_statuses = {
+            LifecycleStatus.CHECKED,
+            LifecycleStatus.CLOSED,
+        }
         if exclude_failed:
-            return tuple(run for run in runs if run.lifecycle_status is LifecycleStatus.CLOSED)
+            return tuple(run for run in runs if run.lifecycle_status in visible_non_failed_statuses)
         return tuple(
             run
             for run in runs
-            if run.lifecycle_status in {LifecycleStatus.FAILED, LifecycleStatus.CLOSED}
+            if run.lifecycle_status in visible_non_failed_statuses | {LifecycleStatus.FAILED}
         )
 
     def add_source_run(
@@ -751,6 +765,15 @@ class InMemoryMonitoringGateway:
             schema=source_run.schema,
             data_scope=source_run.data_scope,
         )
+
+    def finalize_monitoring_run_result(
+        self,
+        *,
+        monitoring_run_id: str,
+        result: MonitorRunResult,
+    ) -> None:
+        """No-op finalization hook for the in-memory test gateway."""
+        _ = (monitoring_run_id, result)
 
     def _validate_namespace_prefix(self, prefix: str) -> None:
         """Validate namespace prefix can safely compose a monitoring namespace.
