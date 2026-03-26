@@ -252,3 +252,19 @@ def test_get_run_returns_none_for_string_missing_run_error_code() -> None:
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_run("missing-run-id") is None
+
+
+def test_get_run_experiment_name_returns_none_when_experiment_cannot_be_resolved() -> None:
+    stub_run = MagicMock()
+    stub_run.info.experiment_id = "missing-experiment"
+    stub_client = MagicMock()
+    stub_client.get_run.return_value = stub_run
+    stub_client.get_experiment.side_effect = MlflowException(
+        "Experiment missing.",
+        error_code=RESOURCE_DOES_NOT_EXIST,
+    )
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    assert client.get_run_experiment_name("run-123") is None

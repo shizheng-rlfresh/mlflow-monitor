@@ -295,7 +295,12 @@ class MonitorMLflowClient:
         run = self.get_run(run_id)
         if run is None:
             return None
-        experiment = self._client.get_experiment(run.info.experiment_id)
+        try:
+            experiment = self._client.get_experiment(run.info.experiment_id)
+        except MlflowException as exc:
+            if _normalize_error_code(exc.error_code) != _RESOURCE_DOES_NOT_EXIST:
+                raise
+            return None
         return None if experiment is None else experiment.name
 
     def list_artifact_paths(self, run_id: str) -> list[str]:

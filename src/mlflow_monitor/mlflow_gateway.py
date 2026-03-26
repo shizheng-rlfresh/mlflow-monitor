@@ -166,10 +166,10 @@ class MLflowMonitoringGateway:
         self._set_experiment_tags(
             experiment_id,
             {
-                idempotency_tag: monitoring_run_id,
                 f"{_RUN_TAG_PREFIX}{sequence_index}": monitoring_run_id,
                 _LATEST_TAG: monitoring_run_id,
                 _NEXT_SEQUENCE_TAG: str(sequence_index + 1),
+                idempotency_tag: monitoring_run_id,
             },
         )
         return CreateOrReuseMonitoringRunResult(
@@ -603,6 +603,12 @@ class MLflowMonitoringGateway:
         Raises:
             ValueError: If called with a non-terminal lifecycle status.
         """
+        if monitoring_run_id != result.monitoring_run_id:
+            raise ValueError("monitoring_run_id must match result.monitoring_run_id.")
+        if result.lifecycle_status not in {LifecycleStatus.CHECKED, LifecycleStatus.FAILED}:
+            raise ValueError(
+                "finalize_monitoring_run_result supports only CHECKED and FAILED terminal results."
+            )
         self._mlflow.log_monitoring_run_json_artifact(
             monitoring_run_id,
             result.to_dict(),
@@ -611,12 +617,7 @@ class MLflowMonitoringGateway:
         if result.lifecycle_status is LifecycleStatus.CHECKED:
             self._mlflow.terminate_monitoring_run(monitoring_run_id, "FINISHED")
             return
-        if result.lifecycle_status is LifecycleStatus.FAILED:
-            self._mlflow.terminate_monitoring_run(monitoring_run_id, "FAILED")
-            return
-        raise ValueError(
-            "finalize_monitoring_run_result supports only CHECKED and FAILED terminal results."
-        )
+        self._mlflow.terminate_monitoring_run(monitoring_run_id, "FAILED")
 
     def build_monitoring_namespace(self, subject_id: str) -> str:
         """Build the monitoring experiment name for one subject.
