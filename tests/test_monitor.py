@@ -827,7 +827,7 @@ def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun
 def test_public_run_is_a_thin_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     expected = object()
     captured: dict[str, object] = {}
-    gateway = object()
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
 
     def fakerun_orchestrationing(**kwargs: object) -> object:
         captured.update(kwargs)
