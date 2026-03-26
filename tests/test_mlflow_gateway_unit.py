@@ -175,6 +175,37 @@ def test_get_monitoring_run_returns_none_for_malformed_persisted_tags(
     assert gateway.get_monitoring_run("churn_model", "monitoring-run-1") is None
 
 
+def test_resolve_timeline_monitoring_run_id_ignores_malformed_index_tag_keys() -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.latest": "monitoring-run-1",
+    }
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    assert gateway.resolve_timeline_monitoring_run_id("churn_model", "monitoring-run-1") is None
+
+
+def test_get_monitoring_run_returns_none_for_malformed_index_tag_key() -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.latest": "monitoring-run-1",
+    }
+    stub_client.get_run_tags.return_value = {
+        "monitoring.sequence_index": "0",
+        "monitoring.lifecycle_status": "checked",
+        "monitoring.comparability_status": "pass",
+    }
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    assert gateway.get_monitoring_run("churn_model", "monitoring-run-1") is None
+
+
 def test_list_timeline_monitoring_runs_skips_malformed_reconstructed_run() -> None:
     stub_client = MagicMock()
     stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
@@ -245,13 +276,10 @@ def test_create_or_reuse_monitoring_run_raises_for_malformed_index_tag_key() -> 
         "training.train-run-1.monitoring_run_id": "monitoring-run-1",
         "monitoring.run.latest": "monitoring-run-1",
     }
-    stub_client.get_run_tags.side_effect = [
-        {},
-        {
-            "monitoring.recipe_id": "system_default",
-            "monitoring.recipe_version": "v0",
-        },
-    ]
+    stub_client.get_run_tags.return_value = {
+        "monitoring.recipe_id": "system_default",
+        "monitoring.recipe_version": "v0",
+    }
 
     with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())

@@ -714,11 +714,16 @@ class MLflowMonitoringGateway:
 
     def _indexed_monitoring_run_ids(self, experiment_tags: Mapping[str, str]) -> set[str]:
         """Return the set of monitoring run ids indexed on an experiment."""
-        return {
-            value
-            for key, value in experiment_tags.items()
-            if key.startswith(_RUN_TAG_PREFIX) and value
-        }
+        indexed_run_ids: set[str] = set()
+        for key, value in experiment_tags.items():
+            if not key.startswith(_RUN_TAG_PREFIX) or not value:
+                continue
+            try:
+                int(key.removeprefix(_RUN_TAG_PREFIX))
+            except ValueError:
+                continue
+            indexed_run_ids.add(value)
+        return indexed_run_ids
 
     def _idempotency_tag(self, source_run_id: str) -> str:
         """Return the experiment-tag key for one source-run idempotency binding."""
