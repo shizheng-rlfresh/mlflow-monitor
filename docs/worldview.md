@@ -38,7 +38,7 @@ It is why the system is baseline-aware. It is why comparability comes before met
 </p>
 
 The system is easiest to understand as a set of first-class citizens
-that work together. The diagram below captures the precise relationships
+that work together. The diagram below captures the canonical conceptual map
 between them.
 
 ```mermaid
@@ -85,9 +85,9 @@ This is not just a data-flow diagram. It is the system's conceptual universe. So
 
 **Contract** is the law of comparability. It addresses a question that many ML systems leave implicit: under what conditions is comparison valid? The contract governs whether schema changes, feature identity, data scope, or environment context invalidate a comparison before metrics are ever examined. And it produces a machine-readable outcome (`pass`, `warn`, `fail`), not a vague feeling. A workflow can succeed while still declaring that the comparison should be treated with caution or blocked entirely.
 
-**Recipe** is where monitoring intent lives. It defines how the system should bind inputs, contracts, metrics, references, and output preferences into one versioned execution shape. Recipe is not just configuration syntax. It gives us a way to express monitoring intent declaratively, makes runs traceable to the exact monitoring configuration that produced them, and keeps customization separate from the core semantics of the monitoring world.
+**Recipe** is where monitoring intent lives. In the broader design, it defines how the system should bind inputs, contracts, metrics, references, and output preferences into one versioned execution shape. Recipe is not just configuration syntax. It gives us a way to express monitoring intent declaratively, ties runs to the monitoring configuration that produced them, and keeps customization separate from the core semantics of the monitoring world.
 
-**Evidence** is what the system actually observed. Metrics, environment state, schema shape, feature identity, data scope: these are the raw materials of monitoring. Evidence is collected before any interpretation happens, and it is preserved in full so that downstream layers never have to guess what the system was looking at when it reached a conclusion. The principle is straightforward: if we cannot show what we saw, we cannot defend what we concluded.
+**Evidence** is what the system actually observed. Metrics, environment state, schema shape, feature identity, data scope: these are the raw materials of monitoring. Evidence is collected before any interpretation happens, and the design aims to keep that evidence inspectable instead of collapsing it immediately into a verdict. The principle is straightforward: if we cannot show what we saw, we cannot defend what we concluded.
 
 **Diff** answers "what changed?" It compares evidence across reference points (baseline, previous run, LKG) and produces structured, machine-readable deltas. Diff is not interpretation. It is the factual record of movement.
 
@@ -117,9 +117,9 @@ Well-designed ML systems do not just produce conclusions. They make those conclu
 
 That matters for engineering review when we need to understand why a model was promoted or held back. It matters for incident investigation when something goes wrong in production and the question is "what did we know, and when did we know it?" It matters for organizational trust when stakeholders outside the ML team need confidence that model decisions are grounded in evidence rather than intuition. And it can matter for compliance and governance when auditors or internal policies ask for a defensible chain of reasoning.
 
-The combination of timeline, baseline, recipe, contract, evidence, and monitoring state creates that chain. For any monitoring run, the system can show us: which subject was monitored, which baseline was pinned, which training run was evaluated, which contract governed comparability, which recipe shaped execution intent, what evidence was collected, what result was produced, and what state the system trusted before and after.
+The combination of timeline, baseline, recipe, contract, evidence, and monitoring state creates that chain. For any monitoring run, the system should let us show: which subject was monitored, which baseline was pinned, which training run was evaluated, which contract governed comparability, which recipe shaped execution intent, what result was produced, and what state the system trusted before and after. In the current runtime, that traceability is strongest around references, lifecycle, comparability, and persisted run outputs; the broader evidence-first model is the design direction.
 
-MLflow-Monitor does not claim to solve compliance on its own. But explicit references, versioned intent, preserved evidence, durable outputs, and inspectable monitoring history put a team in a better position than ad hoc notebooks, tribal memory, or scattered CI artifacts tend to offer.
+MLflow-Monitor does not claim to solve compliance on its own. But explicit references, versioned intent, durable outputs, and inspectable monitoring history put a team in a better position than ad hoc notebooks, tribal memory, or scattered CI artifacts tend to offer.
 
 ## Current Runtime
 
