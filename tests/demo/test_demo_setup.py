@@ -80,7 +80,9 @@ def test_seed_demo_training_runs_creates_four_terminal_training_runs(
 
     assert experiment is not None
     assert len(seeded.training_runs) == 4
-    assert tuple(run.scenario_name for run in seeded.training_runs) == demo_setup_module.SCENARIO_NAMES
+    assert (
+        tuple(run.scenario_name for run in seeded.training_runs) == demo_setup_module.SCENARIO_NAMES
+    )
 
     for seeded_run in seeded.training_runs:
         run = client.get_run(seeded_run.run_id)
