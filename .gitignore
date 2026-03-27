@@ -7,6 +7,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Local environment files
+.env
+.env.*
+
 # Build outputs
 build/
 dist/

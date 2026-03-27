@@ -56,6 +56,8 @@ def _load_seeded_run_ids(tracking_uri: str | None = None) -> dict[str, str]:
     )
     run_id_by_name: dict[str, str] = {}
     for run in runs:
+        if run.info.status != "FINISHED":
+            continue
         run_name = run.data.tags.get("mlflow.runName", "")
         if run_name and run_name not in run_id_by_name:
             run_id_by_name[run_name] = run.info.run_id
