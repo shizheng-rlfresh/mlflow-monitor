@@ -27,10 +27,10 @@ FEATURE_COLUMNS = (
     "chargeback_rate_30d",
 )
 SCENARIO_RUN_NAMES = {
-    "baseline": "fraud-model-baseline-v1",
-    "comparable_candidate": "fraud-model-candidate-v2",
-    "warning_candidate": "fraud-model-env-shift-v3",
-    "non_comparable_candidate": "fraud-model-schema-shift-v4",
+    "baseline": "fraud-model-v1",
+    "comparable_candidate": "fraud-model-v2",
+    "warning_candidate": "fraud-model-v3",
+    "non_comparable_candidate": "fraud-model-v4",
 }
 ASSET_ROOT = Path(__file__).resolve().parent / "seed_assets"
 
@@ -68,7 +68,7 @@ def _scenario_configs() -> tuple[dict[str, Any], ...]:
             "model_params": {
                 "model_type": "pyfunc_fraud_score",
                 "score_threshold": 0.55,
-                "model_revision": "baseline-v1",
+                "model_revision": "v1",
             },
             "environment_tags": {
                 "python_version": "3.12",
@@ -90,7 +90,7 @@ def _scenario_configs() -> tuple[dict[str, Any], ...]:
             "model_params": {
                 "model_type": "pyfunc_fraud_score",
                 "score_threshold": 0.56,
-                "model_revision": "candidate-v2",
+                "model_revision": "v2",
             },
             "environment_tags": {
                 "python_version": "3.12",
@@ -112,7 +112,7 @@ def _scenario_configs() -> tuple[dict[str, Any], ...]:
             "model_params": {
                 "model_type": "pyfunc_fraud_score",
                 "score_threshold": 0.57,
-                "model_revision": "env-shift-v3",
+                "model_revision": "v3",
             },
             "environment_tags": {
                 "python_version": "3.13",
@@ -134,7 +134,7 @@ def _scenario_configs() -> tuple[dict[str, Any], ...]:
             "model_params": {
                 "model_type": "pyfunc_fraud_score",
                 "score_threshold": 0.54,
-                "model_revision": "schema-shift-v4",
+                "model_revision": "v4",
             },
             "environment_tags": {
                 "python_version": "3.12",
