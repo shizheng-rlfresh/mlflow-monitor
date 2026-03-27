@@ -5,7 +5,7 @@ Baseline-aware model monitoring on top of MLflow.
 MLflow-Monitor reads existing MLflow training runs, checks whether they are comparable to a trusted baseline, and stores monitoring state in a separate MLflow namespace. Training runs stay read-only; monitoring history gets its own timeline.
 
 <p align="center">
-  <img src="assets/system_diagram_v0.png" alt="MLflow-Monitor overview" width="250">
+  <img src="assets/system_diagram_v1.png" alt="MLflow-Monitor overview" width="500">
 </p>
 
 ## What It Adds Beyond MLflow
