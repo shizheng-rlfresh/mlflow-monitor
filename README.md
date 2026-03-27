@@ -2,6 +2,8 @@
 
 Baseline-aware model monitoring on top of MLflow.
 
+Early alpha for teams who want monitoring semantics without leaving MLflow.
+
 MLflow-Monitor reads existing MLflow training runs, checks whether they are comparable to a trusted baseline, and stores monitoring state in a separate MLflow namespace. Training runs stay read-only; monitoring history gets its own timeline.
 
 <p align="center">
@@ -41,16 +43,31 @@ The current shipped workflow covers synchronous monitoring through create, prepa
 
 Later workflow stages are not part of the current runtime yet.
 
+This is a repo-first alpha right now: the clearest way to use it today is to clone the repository, sync the environment with `uv`, and run the demo or SDK from source.
+
 ## Try It
 
 The fastest way to see the system working is the repo-level fraud demo:
 
 ```bash
+git clone https://github.com/shizheng-rlfresh/mlflow-monitor.git
+cd mlflow-monitor
 uv sync --extra demo
 uv run mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
 ```
 
 Then follow the walkthrough in [demo/README.md](demo/README.md) for the setup and monitoring commands.
+
+## Packaging Status
+
+The project already builds as a Python package, but the primary supported workflow today is still repo-first:
+
+- clone the repo
+- sync dependencies with `uv`
+- run the demo locally
+- use the Python SDK from the checked-out source tree
+
+A cleaner public installation story can come later without changing the core monitoring model.
 
 ## Python SDK
 
