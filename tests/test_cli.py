@@ -61,9 +61,7 @@ def test_main_run_command_prints_canonical_json_and_returns_zero(
 
     monkeypatch.setattr(cli.monitor, "run", fake_run)
 
-    exit_code = cli.main(
-        ["run", "--subject", "fraud_model", "--source-run", "source-run-123"]
-    )
+    exit_code = cli.main(["run", "--subject", "fraud_model", "--source-run", "source-run-123"])
 
     captured = capsys.readouterr()
 
@@ -114,9 +112,7 @@ def test_main_run_command_returns_non_zero_for_failed_result(
     expected = _failed_result()
     monkeypatch.setattr(cli.monitor, "run", lambda **_: expected)
 
-    exit_code = cli.main(
-        ["run", "--subject", "fraud_model", "--source-run", "source-run-123"]
-    )
+    exit_code = cli.main(["run", "--subject", "fraud_model", "--source-run", "source-run-123"])
 
     captured = capsys.readouterr()
 
@@ -151,9 +147,7 @@ def test_main_dispatches_run_command(
 
     monkeypatch.setattr(cli, "_execute_run_command", fake_execute)
 
-    exit_code = cli.main(
-        ["run", "--subject", "fraud_model", "--source-run", "source-run-123"]
-    )
+    exit_code = cli.main(["run", "--subject", "fraud_model", "--source-run", "source-run-123"])
 
     assert exit_code == 0
     assert called["count"] == 1
