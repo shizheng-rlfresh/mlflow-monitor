@@ -184,8 +184,8 @@ def test_run_demo_monitoring_uses_effective_tracking_uri_for_monitoring_store(
 
         assert len(results) == 3
         assert monitoring_experiment is not None
-        assert monitoring_experiment.artifact_location == (
-            demo_root / "artifacts"
-        ).resolve().as_uri()
+        assert (
+            monitoring_experiment.artifact_location == (demo_root / "artifacts").resolve().as_uri()
+        )
     finally:
         mlflow.set_tracking_uri(previous_tracking_uri)

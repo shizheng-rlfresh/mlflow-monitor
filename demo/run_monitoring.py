@@ -48,19 +48,14 @@ def _load_seeded_run_ids(tracking_uri: str | None = None) -> dict[str, str]:
     client = MlflowClient(tracking_uri=effective_tracking_uri)
     experiment = client.get_experiment_by_name(DEMO_EXPERIMENT_NAME)
     if experiment is None:
-        raise RuntimeError(
-            "Demo training experiment not found. Run `uv run demo/setup.py` first."
-        )
+        raise RuntimeError("Demo training experiment not found. Run `uv run demo/setup.py` first.")
 
     runs = client.search_runs(
         experiment_ids=[experiment.experiment_id],
         order_by=["attribute.start_time ASC"],
         max_results=100,
     )
-    run_id_by_name = {
-        run.data.tags.get("mlflow.runName", ""): run.info.run_id
-        for run in runs
-    }
+    run_id_by_name = {run.data.tags.get("mlflow.runName", ""): run.info.run_id for run in runs}
 
     resolved: dict[str, str] = {}
     for scenario_name, run_name in SCENARIO_RUN_NAMES.items():
