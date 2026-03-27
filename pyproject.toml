@@ -17,6 +17,9 @@ dev = [
     "ruff",
     "pytest",
 ]
+demo = [
+    "scikit-learn",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mlflow_monitor"]
@@ -53,4 +56,3 @@ known-first-party = ["mlflow_monitor"]
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-v"
-
