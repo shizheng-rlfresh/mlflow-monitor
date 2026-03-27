@@ -1,145 +1,90 @@
 # MLflow-Monitor
 
-**Baseline-aware model monitoring for MLflow.**
+ML monitoring as a first-class workflow, built on MLflow.
 
-MLflow-Monitor reads your existing MLflow training runs, checks whether they are actually comparable, computes structured diffs against trusted reference points, and returns actionable findings — without modifying your training runs or adding new infrastructure.
+MLflow-Monitor treats monitoring as a structured, traceable process rather than ad hoc metric checks. It reads existing MLflow training runs, validates the conditions that make comparison meaningful, and stores monitoring state in its own namespace. Training runs stay read-only.
 
-```python
-from mlflow_monitor import monitor
+What that means in practice:
 
-# First monitoring run for a subject: baseline is required
-result = monitor.run(
-    subject_id="churn_model",
-    source_run_id="run_103",
-    baseline_source_run_id="run_101",
-)
+- Evidence-based comparability checks before any metric interpretation
+- Baseline-pinned timelines with structured monitoring lifecycle
+- Traceable state from evidence gathering through findings
+- Monitoring history persisted in MLflow, separate from training
 
-print(result.lifecycle_status)      # created / prepared / checked / ...
-print(result.comparability_status)  # pass / warn / fail / None
-```
-
-Implementation note:
-The long-term v0 design includes analyze, diffs, findings, close, query, and promotion flows. The implemented M1 slice is narrower: `monitor.run(...)` resolves baseline and comparability context, executes the contract check, persists minimal run/check state, and returns the synchronous result envelope. Engineering readers can find the closeout summary in [docs/v0/m1_closeout_v0.md](docs/v0/m1_closeout_v0.md).
-
-## Why it exists
-
-MLflow tracks experiments well, but it does not answer questions like:
-
-- Is this run actually better than our trusted baseline?
-- Are these two runs even comparable?
-- What changed since the last good state?
-- Where is the audit trail for that conclusion?
-
-Teams usually answer these with ad hoc notebooks, one-off scripts, or memory. Baselines drift, invalid comparisons slip through, and metric deltas lose context.
-
-MLflow-Monitor fills that gap.
-
-## What it does
-
-- **Checks comparability first**  
-  Detects schema, feature, data-scope, and environment mismatches before comparing metrics.
-
-- **Compares against the right references**  
-  Every run can be compared against:
-  - the **baseline** for long-term drift
-  - the **previous run** for iteration-to-iteration changes
-  - the **last known good (LKG)** for distance from trusted state
-
-- **Produces structured diffs and findings**  
-  Diffs are raw evidence. Findings are interpreted issues with severity, category, and guidance.
-
-- **Maintains a monitoring timeline**  
-  Monitoring runs are stored in a system-owned namespace, giving each subject a durable history and queryable trajectory.
-
-- **Supports promotion workflows**  
-  Promotion happens after monitoring closes, aligning monitoring with the practical question: *is this good enough to trust or promote?*
-
-## How it works
+For the design philosophy and world model behind these choices, see [docs/worldview.md](docs/worldview.md).
 
 <p align="center">
-  <img src="assets/system_diagram_v0.png" alt="system_diagram" width="250">
+  <img src="assets/system_diagram.png" alt="MLflow-Monitor overview" width="500">
 </p>
 
-MLflow-Monitor **reads from training experiments in MLflow** and **writes only to its own monitoring namespace**. Your training history remains untouched.
+## Current Status
 
-## Why this design
+Early alpha. The shipped runtime covers the first three stages of the monitoring lifecycle: create, prepare, and check. This means:
 
-- **No new infrastructure**  
-  Uses your existing MLflow instance as the persistence layer.
+- First-run bootstrap with an explicit baseline
+- Later runs that reuse the pinned baseline
+- Comparability verdicts of `pass`, `warn`, and `fail` against real MLflow
+- Persisted monitoring runs with `outputs/result.json` artifacts
+- Read-only treatment of training experiments throughout
 
-- **Training runs stay immutable**  
-  MLflow-Monitor never writes to or mutates training runs.
+The later lifecycle stages (analyze, close, diff, findings, LKG promotion) are designed but not yet in the runtime.
 
-- **Zero-config by default**  
-  Ships with a default recipe and permissive contract/profile so you can start with what MLflow already has.
+This is a repo-first alpha: clone the repository, sync the environment with `uv`, and run the demo or SDK from source.
 
-- **Deterministic system-owned storage**  
-  Monitoring state lives under `{namespace_prefix}/{subject_id}` (`mlflow_monitor` by default).
+## Architecture
 
-- **Baseline is explicit and durable**  
-  On the first run for a subject, the caller chooses the baseline. After that, the timeline owns it.
+For a closer look at how the system is structured, including the layering between orchestration, workflow, and the MLflow gateway, see [docs/architecture.md](docs/architecture.md).
 
-## Quick start
+## Try It
+
+Clone the repo and sync the environment:
+
+```bash
+git clone https://github.com/shizheng-rlfresh/mlflow-monitor.git
+cd mlflow-monitor
+uv sync
+```
+
+Start a local MLflow UI in one terminal:
+
+```bash
+uv run mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
+```
+
+Then follow the walkthrough in [demo/README.md](demo/README.md) for the full setup and monitoring commands.
+
+## Python SDK
 
 ```python
 from mlflow_monitor import monitor
 
-# First run for a subject
 result = monitor.run(
-    subject_id="churn_model",
-    source_run_id="run_103",
-    baseline_source_run_id="run_101",
+    subject_id="fraud_model",
+    source_run_id="training_run_id",
+    baseline_source_run_id="baseline_run_id",
 )
 
-print(result.lifecycle_status)      # expected M1 outcome: checked
-print(result.comparability_status)  # pass / warn / fail
-
-# Later runs reuse the pinned baseline from timeline state
-result = monitor.run(
-    subject_id="churn_model",
-    source_run_id="run_104",
-)
+print(result.lifecycle_status)
+print(result.comparability_status)
 ```
+
+The `baseline_source_run_id` is required on the first run for a subject. Later runs reuse the pinned baseline automatically.
+
+## Development Setup
 
 ```bash
-mlflow-monitor run \
-  --subject churn_model \
-  --source-run run_103 \
-  --baseline-run run_101
+uv sync --extra dev
+uv run pytest
+uv run ruff check .
 ```
 
-## Core concepts
+## Why This Project Exists
 
-- **Subject** — the model or training line being monitored
-- **Timeline** — the ordered history of monitoring runs for a subject
-- **Baseline** — the pinned reference point for that timeline
-- **LKG** — the most recent trusted monitoring state
-- **Contract** — the rules that determine whether runs are comparable
-- **Diff** — objective evidence of what changed
-- **Finding** — prioritized interpretation of those diffs
-- **Recipe** — optional configuration for monitoring behavior
+MLflow does a good job tracking training runs, metrics, params, and artifacts. What it doesn't provide is a structured layer for what happens after training: deciding whether a new run is actually comparable to the one you trust, and building a traceable record of that evaluation over time.
 
-## What’s in v0
+In practice, teams fill this gap with ad hoc scripts, naming conventions, and manual checks. That works for a while. At scale, the naming conventions drift, the comparability logic scatters across notebooks and pipelines, and the monitoring history lives nowhere durable.
 
-Planned v0 capabilities:
-
-- Single timeline per subject
-- Baseline / previous / LKG comparison
-- Contract-based comparability checks
-- Structured diffs and findings
-- LKG promotion
-- Anchor-window trajectory queries
-- Default recipe for low-setup usage
-- SDK and CLI entry points
-- Configurable monitoring namespace prefix
-
-Current M1 slice:
-
-- SDK entry point with a small public API
-- Default recipe and internal contract resolution
-- Prepare-stage context resolution
-- Contract-based comparability checks
-- Minimal persisted run/check state in the monitoring namespace
+MLflow-Monitor exists to close that gap. It treats monitoring as a repeatable workflow with its own lifecycle, its own state, and its own namespace inside MLflow. The training side stays untouched. The monitoring side is structured enough to answer questions like: is this run comparable to the baseline? What happened on the last monitoring check? What changed?
 
 ## License
 

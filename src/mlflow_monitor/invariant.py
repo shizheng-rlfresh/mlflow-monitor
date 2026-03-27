@@ -1,4 +1,4 @@
-"""Invariant checks for the MLflow-Monitor v0 system."""
+"""Invariant checks for the MLflow-Monitor runtime."""
 
 from collections.abc import Sequence
 
@@ -171,7 +171,7 @@ def validate_finding_to_diff_evidence(finding: Finding, diff: Diff) -> None:
 
 
 def validate_contract_check_result(result: ContractCheckResult) -> None:
-    """Validate a contract-check result against the v0 reason taxonomy.
+    """Validate a contract-check result against the current reason taxonomy.
 
     Args:
         result: The contract-check result to validate.
@@ -191,7 +191,7 @@ def validate_contract_check_result(result: ContractCheckResult) -> None:
 
 
 def validate_contract_check_reason(reason: ContractCheckReason) -> None:
-    """Validate a single contract-check reason against the v0 taxonomy.
+    """Validate a single contract-check reason against the current taxonomy.
 
     Args:
         reason: The contract-check reason to validate.
@@ -205,7 +205,7 @@ def validate_contract_check_reason(reason: ContractCheckReason) -> None:
     if reason.code not in ContractCheckReasonCode:
         raise InvariantViolation(
             code="contract_check_reason_code_unknown",
-            message=f"Contract check reason code {reason.code!r} is not supported in v0.",
+            message=f"Contract check reason code {reason.code!r} is not supported.",
             entity="ContractCheckReason",
             field="code",
         )

@@ -1,7 +1,7 @@
-"""Recipe schema and parser for MLflow-Monitor v0-lite.
+"""Recipe schema and parser for the current built-in recipe format.
 
 This module defines the canonical in-memory recipe representation used by the
-M1 recipe pipeline. It accepts only mapping inputs and intentionally excludes
+current recipe pipeline. It accepts only mapping inputs and intentionally excludes
 file-format parsing (for example JSON/YAML text decoding), which is deferred.
 """
 
@@ -143,7 +143,7 @@ class RecipeOutputBinding:
 
 @dataclass(frozen=True, slots=True)
 class RecipeV0Lite:
-    """Canonical v0-lite recipe runtime model.
+    """Canonical runtime model for the built-in recipe format.
 
     Attributes:
         identity: Recipe identity and version metadata.
@@ -166,10 +166,10 @@ def validate_recipe_v0_lite(
     raw: Mapping[str, object],
     references: RecipeReferenceCatalog,
 ) -> RecipeV0Lite:
-    """Validate and parse one v0-lite recipe payload.
+    """Validate and parse one recipe payload.
 
     Args:
-        raw: Raw recipe mapping containing v0-lite top-level sections.
+        raw: Raw recipe mapping containing the expected top-level sections.
         references: Allowlisted reference IDs for recipe bindings.
 
     Returns:
@@ -204,7 +204,7 @@ def validate_recipe_v0_lite(
 
 
 def get_system_default_recipe_v0_lite() -> RecipeV0Lite:
-    """Return the built-in system default recipe for v0-lite."""
+    """Return the built-in system default recipe."""
     return parse_recipe_v0_lite(build_system_default_recipe_raw())
 
 
@@ -219,10 +219,10 @@ def resolve_recipe_v0_lite(
 
 
 def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
-    """Parse a mapping into the canonical v0-lite recipe model.
+    """Parse a mapping into the canonical recipe model.
 
     Args:
-        raw: Raw recipe mapping containing v0-lite top-level sections.
+        raw: Raw recipe mapping containing the expected top-level sections.
 
     Returns:
         Parsed recipe model with strongly typed section objects.
@@ -356,7 +356,7 @@ def _collect_reference_issues(
 
 
 def _collect_constraint_issues(recipe: RecipeV0Lite) -> list[RecipeValidationIssue]:
-    """Collect issues for v0 recipe constraints independent of external systems."""
+    """Collect issues for recipe constraints independent of external systems."""
     issues: list[RecipeValidationIssue] = []
 
     run_selector = recipe.input_binding.run_selector

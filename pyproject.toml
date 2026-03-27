@@ -53,4 +53,3 @@ known-first-party = ["mlflow_monitor"]
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-v"
-

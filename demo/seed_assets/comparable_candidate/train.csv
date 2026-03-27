@@ -1,0 +1,7 @@
+transaction_amount,account_age_days,merchant_risk_score,device_velocity_24h,country_match,chargeback_rate_30d,is_fraud
+132.15,615,0.09,1.0,1,0.01,0
+910.35,52,0.71,5.0,0,0.17,1
+64.80,940,0.04,1.0,1,0.00,0
+438.25,205,0.31,2.0,1,0.04,0
+1495.60,16,0.90,8.0,0,0.27,1
+246.90,342,0.17,1.0,1,0.02,0

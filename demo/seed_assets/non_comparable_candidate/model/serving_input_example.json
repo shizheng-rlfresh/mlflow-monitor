@@ -1,0 +1,30 @@
+{
+  "dataframe_split": {
+    "columns": [
+      "transaction_amount",
+      "account_age_days",
+      "merchant_risk_score",
+      "device_velocity_24h",
+      "country_match",
+      "chargeback_rate_30d"
+    ],
+    "data": [
+      [
+        99,
+        710,
+        0.07,
+        1.0,
+        1,
+        0.01
+      ],
+      [
+        1198,
+        20,
+        0.87,
+        7.0,
+        0,
+        0.24
+      ]
+    ]
+  }
+}

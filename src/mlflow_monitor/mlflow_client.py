@@ -1,7 +1,7 @@
 """Thin MLflow client adapter for the monitoring runtime.
 
 This module is the single runtime bridge between MLflow-Monitor and the
-external MLflow tracking system for the MVP slice. All direct `MlflowClient`
+external MLflow tracking system for the current runtime workflow. All direct `MlflowClient`
 usage is intentionally centralized here so later gateway code can depend on a
 small, documented boundary instead of spreading MLflow-specific behavior across
 the codebase.
@@ -9,7 +9,7 @@ the codebase.
 What belongs here:
 -------------------
 
-- Thin wrappers around the concrete MLflow client operations required by MVP-03
+- Thin wrappers around the concrete MLflow client operations required today
 - Deterministic normalization of a few MLflow-specific quirks
 - Read helpers that expose plain Python values where that reduces MLflow
   leakage into later gateway code
