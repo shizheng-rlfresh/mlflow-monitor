@@ -165,6 +165,27 @@ def test_run_demo_monitoring_restores_previous_tracking_uri(tmp_path: Path) -> N
     assert mlflow.get_tracking_uri() == previous_tracking_uri
 
 
+def test_run_demo_monitoring_uses_newest_seeded_runs_after_many_reseeds(tmp_path: Path) -> None:
+    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+
+    latest_seed = None
+    for _ in range(26):
+        latest_seed = seed_demo_training_runs(tracking_uri=tracking_uri)
+
+    assert latest_seed is not None
+    latest_run_id_by_scenario = {
+        run.scenario_name: run.run_id for run in latest_seed.training_runs
+    }
+
+    results = run_demo_monitoring(tracking_uri=tracking_uri)
+
+    assert [result.source_run_id for result in results] == [
+        latest_run_id_by_scenario["comparable_candidate"],
+        latest_run_id_by_scenario["warning_candidate"],
+        latest_run_id_by_scenario["non_comparable_candidate"],
+    ]
+
+
 def test_seed_demo_training_runs_uses_effective_tracking_uri_for_artifacts(
     tmp_path: Path,
     monkeypatch,

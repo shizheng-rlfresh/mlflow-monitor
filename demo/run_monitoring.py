@@ -52,10 +52,13 @@ def _load_seeded_run_ids(tracking_uri: str | None = None) -> dict[str, str]:
 
     runs = client.search_runs(
         experiment_ids=[experiment.experiment_id],
-        order_by=["attribute.start_time ASC"],
-        max_results=100,
+        order_by=["attribute.start_time DESC"],
     )
-    run_id_by_name = {run.data.tags.get("mlflow.runName", ""): run.info.run_id for run in runs}
+    run_id_by_name: dict[str, str] = {}
+    for run in runs:
+        run_name = run.data.tags.get("mlflow.runName", "")
+        if run_name and run_name not in run_id_by_name:
+            run_id_by_name[run_name] = run.info.run_id
 
     resolved: dict[str, str] = {}
     for scenario_name, run_name in SCENARIO_RUN_NAMES.items():

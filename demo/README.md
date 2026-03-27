@@ -72,13 +72,13 @@ Quick verification:
 
 The demo seeds these four roles:
 
-- `fraud-model-baseline-v1`
+- `fraud-model-v1`
   The trusted baseline run.
-- `fraud-model-candidate-v2`
+- `fraud-model-v2`
   A comparable candidate that should produce `pass`.
-- `fraud-model-env-shift-v3`
+- `fraud-model-v3`
   A candidate with environment metadata changes that should produce `warn`.
-- `fraud-model-schema-shift-v4`
+- `fraud-model-v4`
   A candidate with schema metadata changes that should produce `fail`.
 
 Each training run includes:
