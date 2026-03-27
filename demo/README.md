@@ -39,6 +39,10 @@ uv sync --extra demo
 uv run mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
 ```
 
+This setup path is for the runnable demo only. If you want to run `pytest` or `ruff`,
+install the development extra separately with `uv sync --extra dev`, or install both
+with `uv sync --extra dev --extra demo`.
+
 Open [http://127.0.0.1:5000](http://127.0.0.1:5000).
 If that does not work in your browser, try [http://localhost:5000](http://localhost:5000).
 

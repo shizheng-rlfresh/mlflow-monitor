@@ -60,6 +60,25 @@ uv run mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlfl
 
 Then follow the walkthrough in [demo/README.md](demo/README.md) for the setup and monitoring commands.
 
+## Development Setup
+
+Use the `dev` extra for tests and repo validation:
+
+```bash
+uv sync --extra dev
+uv run pytest
+uv run ruff check .
+uv build
+```
+
+If you want both the demo and the development tools in one environment:
+
+```bash
+uv sync --extra dev --extra demo
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the short repo-first contributor workflow.
+
 ## Packaging Status
 
 The project already builds as a Python package, but the primary supported workflow today is still repo-first:
