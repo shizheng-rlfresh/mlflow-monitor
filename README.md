@@ -6,6 +6,8 @@ Early alpha for teams who want monitoring semantics without leaving MLflow.
 
 MLflow-Monitor reads existing MLflow training runs, checks whether they are comparable to a trusted baseline, and stores monitoring state in a separate MLflow namespace. Training runs stay read-only; monitoring history gets its own timeline.
 
+New here? Start with [docs/worldview.md](docs/worldview.md) for the design story, system philosophy, and world model behind MLflow-Monitor.
+
 <p align="center">
   <img src="assets/system_diagram_v1.png" alt="MLflow-Monitor overview" width="500">
 </p>
@@ -30,7 +32,7 @@ This makes it possible to answer questions like:
 For a deeper explanation of the system:
 
 - see [docs/architecture.md](docs/architecture.md) for structure and runtime boundaries
-- see [docs/worldview.md](docs/worldview.md) for the core concepts and design philosophy
+- see [docs/worldview.md](docs/worldview.md) for the flagship concept paper, design philosophy, and world model
 
 ## Current Status
 
