@@ -18,6 +18,9 @@ dev = [
     "pytest",
 ]
 
+[project.scripts]
+mlflow-monitor = "mlflow_monitor.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mlflow_monitor"]
 

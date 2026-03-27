@@ -107,6 +107,11 @@ For the training side, the easiest things to inspect in the UI are:
 
 ## Run Monitoring
 
+You can keep using the existing demo runner for the full scripted sequence, or use
+the repo-local CLI directly for each monitoring step.
+
+### Existing scripted demo flow
+
 Run:
 
 ```bash
@@ -137,6 +142,35 @@ Quick verification:
 - monitoring runs should appear in that experiment
 - repo-root `mlflow.db` or `mlruns/` means the demo was run against the wrong store
 
+### Repo-local CLI flow
+
+The setup script prints the seeded training run IDs. Use those IDs with the CLI:
+
+```bash
+MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db uv run mlflow-monitor run \
+  --subject fraud_model \
+  --source-run <baseline_run_id> \
+  --baseline <baseline_run_id>
+
+MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db uv run mlflow-monitor run \
+  --subject fraud_model \
+  --source-run <comparable_run_id>
+
+MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db uv run mlflow-monitor run \
+  --subject fraud_model \
+  --source-run <environment_mismatch_run_id>
+
+MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db uv run mlflow-monitor run \
+  --subject fraud_model \
+  --source-run <non_comparable_run_id>
+```
+
+Expected comparability results:
+
+- comparable candidate -> `pass`
+- environment-mismatch candidate -> `warn`
+- non-comparable candidate -> `fail`
+
 <p align="center">
   <img src="assets/monitoring-experiment-overview.png" alt="Monitoring experiment overview showing pass, warn, and fail runs" width="900">
 </p>
@@ -155,7 +189,8 @@ Open `training/fraud_model` and verify:
 
 ### Monitoring Experiment
 
-After running `uv run demo/run_monitoring.py`, open `mlflow_monitor/fraud_model` and verify:
+After running either `uv run demo/run_monitoring.py` or the CLI commands above,
+open `mlflow_monitor/fraud_model` and verify:
 
 - monitoring runs are present
 - the baseline is reused after the first run
