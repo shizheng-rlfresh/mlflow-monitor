@@ -8,38 +8,52 @@ from pathlib import Path
 from types import ModuleType
 
 import mlflow
+import pytest
 from mlflow import MlflowClient
 
 
-def _load_demo_setup_module() -> ModuleType:
-    """Load the repo-level demo setup script as a module for tests."""
-    return _load_module("demo_setup", "setup.py")
-
-
-def _load_module(module_name: str, filename: str) -> ModuleType:
+def _load_module(repo_root: Path, module_name: str, filename: str) -> ModuleType:
     """Load a repo-level demo script as a module for tests."""
-    repo_root = Path(__file__).resolve().parents[2]
     module_path = repo_root / "demo" / filename
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
         raise AssertionError(f"Failed to load demo setup module from {module_path}")
 
-    repo_root_text = str(repo_root)
-    if repo_root_text not in sys.path:
-        sys.path.insert(0, repo_root_text)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-DEMO_SETUP = _load_demo_setup_module()
-DEMO_EXPERIMENT_NAME = DEMO_SETUP.DEMO_EXPERIMENT_NAME
-SCENARIO_NAMES = DEMO_SETUP.SCENARIO_NAMES
-seed_demo_training_runs = DEMO_SETUP.seed_demo_training_runs
-DEMO_RUNNER = _load_module("demo_run_monitoring", "run_monitoring.py")
-MONITORING_EXPERIMENT_NAME = DEMO_RUNNER.MONITORING_EXPERIMENT_NAME
-run_demo_monitoring = DEMO_RUNNER.run_demo_monitoring
+@pytest.fixture
+def repo_root() -> Path:
+    """Return the repository root for demo module loading."""
+    return Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture
+def demo_setup_module(repo_root: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load `demo/setup.py` with fixture-scoped import state."""
+    monkeypatch.syspath_prepend(str(repo_root))
+    module = _load_module(repo_root, "demo_setup", "setup.py")
+    monkeypatch.setitem(sys.modules, "demo_setup", module)
+    monkeypatch.setitem(sys.modules, "setup", module)
+    return module
+
+
+@pytest.fixture
+def demo_runner_module(
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    demo_setup_module: ModuleType,
+) -> ModuleType:
+    """Load `demo/run_monitoring.py` with fixture-scoped import state."""
+    monkeypatch.syspath_prepend(str(repo_root))
+    monkeypatch.setitem(sys.modules, "demo_setup", demo_setup_module)
+    monkeypatch.setitem(sys.modules, "setup", demo_setup_module)
+    module = _load_module(repo_root, "demo_run_monitoring", "run_monitoring.py")
+    monkeypatch.setitem(sys.modules, "demo_run_monitoring", module)
+    return module
 
 
 def _list_artifact_paths(client: MlflowClient, run_id: str, path: str = "") -> list[str]:
@@ -53,38 +67,45 @@ def _list_artifact_paths(client: MlflowClient, run_id: str, path: str = "") -> l
     return sorted(paths)
 
 
-def test_seed_demo_training_runs_creates_four_terminal_training_runs(tmp_path: Path) -> None:
+def test_seed_demo_training_runs_creates_four_terminal_training_runs(
+    tmp_path: Path,
+    demo_setup_module: ModuleType,
+) -> None:
     tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
 
-    seeded = seed_demo_training_runs(tracking_uri=tracking_uri)
+    seeded = demo_setup_module.seed_demo_training_runs(tracking_uri=tracking_uri)
 
     client = MlflowClient(tracking_uri=tracking_uri)
-    experiment = client.get_experiment_by_name(DEMO_EXPERIMENT_NAME)
+    experiment = client.get_experiment_by_name(demo_setup_module.DEMO_EXPERIMENT_NAME)
 
     assert experiment is not None
     assert len(seeded.training_runs) == 4
-    assert tuple(run.scenario_name for run in seeded.training_runs) == SCENARIO_NAMES
+    assert tuple(run.scenario_name for run in seeded.training_runs) == demo_setup_module.SCENARIO_NAMES
 
     for seeded_run in seeded.training_runs:
         run = client.get_run(seeded_run.run_id)
         assert run.info.status == "FINISHED"
 
 
-def test_seed_demo_training_runs_restores_previous_tracking_uri(tmp_path: Path) -> None:
+def test_seed_demo_training_runs_restores_previous_tracking_uri(
+    tmp_path: Path,
+    demo_setup_module: ModuleType,
+) -> None:
     previous_tracking_uri = "sqlite:///:memory:"
     mlflow.set_tracking_uri(previous_tracking_uri)
 
-    seed_demo_training_runs(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}")
+    demo_setup_module.seed_demo_training_runs(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}")
 
     assert mlflow.get_tracking_uri() == previous_tracking_uri
 
 
 def test_seed_demo_training_runs_logs_expected_metrics_tags_and_artifacts(
     tmp_path: Path,
+    demo_setup_module: ModuleType,
 ) -> None:
     tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
 
-    seeded = seed_demo_training_runs(tracking_uri=tracking_uri)
+    seeded = demo_setup_module.seed_demo_training_runs(tracking_uri=tracking_uri)
 
     client = MlflowClient(tracking_uri=tracking_uri)
     comparable_run = next(
@@ -120,11 +141,15 @@ def test_seed_demo_training_runs_logs_expected_metrics_tags_and_artifacts(
     assert any(path.startswith("model/") for path in artifact_paths)
 
 
-def test_run_demo_monitoring_executes_pass_warn_and_fail_in_order(tmp_path: Path) -> None:
+def test_run_demo_monitoring_executes_pass_warn_and_fail_in_order(
+    tmp_path: Path,
+    demo_setup_module: ModuleType,
+    demo_runner_module: ModuleType,
+) -> None:
     tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
-    seed_demo_training_runs(tracking_uri=tracking_uri)
+    demo_setup_module.seed_demo_training_runs(tracking_uri=tracking_uri)
 
-    results = run_demo_monitoring(tracking_uri=tracking_uri)
+    results = demo_runner_module.run_demo_monitoring(tracking_uri=tracking_uri)
 
     assert tuple(result.scenario_name for result in results) == (
         "comparable_candidate",
@@ -135,7 +160,9 @@ def test_run_demo_monitoring_executes_pass_warn_and_fail_in_order(tmp_path: Path
     assert [result.comparability_status for result in results] == ["pass", "warn", "fail"]
 
     client = MlflowClient(tracking_uri=tracking_uri)
-    monitoring_experiment = client.get_experiment_by_name(MONITORING_EXPERIMENT_NAME)
+    monitoring_experiment = client.get_experiment_by_name(
+        demo_runner_module.MONITORING_EXPERIMENT_NAME
+    )
 
     assert monitoring_experiment is not None
     monitoring_runs = client.search_runs(
@@ -154,28 +181,36 @@ def test_run_demo_monitoring_executes_pass_warn_and_fail_in_order(tmp_path: Path
         assert "outputs/result.json" in artifact_paths
 
 
-def test_run_demo_monitoring_restores_previous_tracking_uri(tmp_path: Path) -> None:
+def test_run_demo_monitoring_restores_previous_tracking_uri(
+    tmp_path: Path,
+    demo_setup_module: ModuleType,
+    demo_runner_module: ModuleType,
+) -> None:
     tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
     previous_tracking_uri = "sqlite:///:memory:"
     mlflow.set_tracking_uri(previous_tracking_uri)
-    seed_demo_training_runs(tracking_uri=tracking_uri)
+    demo_setup_module.seed_demo_training_runs(tracking_uri=tracking_uri)
 
-    run_demo_monitoring(tracking_uri=tracking_uri)
+    demo_runner_module.run_demo_monitoring(tracking_uri=tracking_uri)
 
     assert mlflow.get_tracking_uri() == previous_tracking_uri
 
 
-def test_run_demo_monitoring_uses_newest_seeded_runs_after_many_reseeds(tmp_path: Path) -> None:
+def test_run_demo_monitoring_uses_newest_seeded_runs_after_many_reseeds(
+    tmp_path: Path,
+    demo_setup_module: ModuleType,
+    demo_runner_module: ModuleType,
+) -> None:
     tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
 
     latest_seed = None
     for _ in range(26):
-        latest_seed = seed_demo_training_runs(tracking_uri=tracking_uri)
+        latest_seed = demo_setup_module.seed_demo_training_runs(tracking_uri=tracking_uri)
 
     assert latest_seed is not None
     latest_run_id_by_scenario = {run.scenario_name: run.run_id for run in latest_seed.training_runs}
 
-    results = run_demo_monitoring(tracking_uri=tracking_uri)
+    results = demo_runner_module.run_demo_monitoring(tracking_uri=tracking_uri)
 
     assert [result.source_run_id for result in results] == [
         latest_run_id_by_scenario["comparable_candidate"],
@@ -186,22 +221,24 @@ def test_run_demo_monitoring_uses_newest_seeded_runs_after_many_reseeds(tmp_path
 
 def test_run_demo_monitoring_ignores_newer_incomplete_runs_with_matching_names(
     tmp_path: Path,
+    demo_setup_module: ModuleType,
+    demo_runner_module: ModuleType,
 ) -> None:
     tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
-    seeded = seed_demo_training_runs(tracking_uri=tracking_uri)
+    seeded = demo_setup_module.seed_demo_training_runs(tracking_uri=tracking_uri)
     latest_run_id_by_scenario = {run.scenario_name: run.run_id for run in seeded.training_runs}
 
     client = MlflowClient(tracking_uri=tracking_uri)
-    experiment = client.get_experiment_by_name(DEMO_EXPERIMENT_NAME)
+    experiment = client.get_experiment_by_name(demo_setup_module.DEMO_EXPERIMENT_NAME)
 
     assert experiment is not None
     interrupted_run = client.create_run(
         experiment_id=experiment.experiment_id,
-        tags={"mlflow.runName": DEMO_SETUP.SCENARIO_RUN_NAMES["comparable_candidate"]},
+        tags={"mlflow.runName": demo_setup_module.SCENARIO_RUN_NAMES["comparable_candidate"]},
     )
     client.set_terminated(interrupted_run.info.run_id, status="FAILED")
 
-    results = run_demo_monitoring(tracking_uri=tracking_uri)
+    results = demo_runner_module.run_demo_monitoring(tracking_uri=tracking_uri)
 
     assert [result.source_run_id for result in results] == [
         latest_run_id_by_scenario["comparable_candidate"],
@@ -213,6 +250,7 @@ def test_run_demo_monitoring_ignores_newer_incomplete_runs_with_matching_names(
 def test_seed_demo_training_runs_uses_effective_tracking_uri_for_artifacts(
     tmp_path: Path,
     monkeypatch,
+    demo_setup_module: ModuleType,
 ) -> None:
     demo_root = tmp_path / ".mlflow-dev"
     tracking_uri = f"sqlite:///{demo_root / 'mlflow.db'}"
@@ -221,10 +259,10 @@ def test_seed_demo_training_runs_uses_effective_tracking_uri_for_artifacts(
     mlflow.set_tracking_uri(tracking_uri)
 
     try:
-        seed_demo_training_runs()
+        demo_setup_module.seed_demo_training_runs()
 
         client = MlflowClient(tracking_uri=tracking_uri)
-        training_experiment = client.get_experiment_by_name(DEMO_EXPERIMENT_NAME)
+        training_experiment = client.get_experiment_by_name(demo_setup_module.DEMO_EXPERIMENT_NAME)
 
         assert training_experiment is not None
         assert training_experiment.artifact_location == (demo_root / "artifacts").resolve().as_uri()
@@ -235,6 +273,8 @@ def test_seed_demo_training_runs_uses_effective_tracking_uri_for_artifacts(
 def test_run_demo_monitoring_uses_effective_tracking_uri_for_monitoring_store(
     tmp_path: Path,
     monkeypatch,
+    demo_setup_module: ModuleType,
+    demo_runner_module: ModuleType,
 ) -> None:
     demo_root = tmp_path / ".mlflow-dev"
     tracking_uri = f"sqlite:///{demo_root / 'mlflow.db'}"
@@ -243,11 +283,13 @@ def test_run_demo_monitoring_uses_effective_tracking_uri_for_monitoring_store(
     mlflow.set_tracking_uri(tracking_uri)
 
     try:
-        seed_demo_training_runs()
-        results = run_demo_monitoring()
+        demo_setup_module.seed_demo_training_runs()
+        results = demo_runner_module.run_demo_monitoring()
 
         client = MlflowClient(tracking_uri=tracking_uri)
-        monitoring_experiment = client.get_experiment_by_name(MONITORING_EXPERIMENT_NAME)
+        monitoring_experiment = client.get_experiment_by_name(
+            demo_runner_module.MONITORING_EXPERIMENT_NAME
+        )
 
         assert len(results) == 3
         assert monitoring_experiment is not None
