@@ -29,9 +29,18 @@ Choose the environment that matches what you want to do:
 Run the standard checks with the `dev` extra installed:
 
 ```bash
-uv run pytest
+uv run pytest -m "not demo"
 uv run ruff check .
 uv build
+```
+
+## Demo Tests
+
+Demo tests are opt-in and require both extras:
+
+```bash
+uv sync --extra dev --extra demo
+uv run pytest -m demo
 ```
 
 ## Demo

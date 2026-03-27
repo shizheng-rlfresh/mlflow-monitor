@@ -8,7 +8,11 @@ from pathlib import Path
 from types import ModuleType
 
 import mlflow
+import pytest
 from mlflow import MlflowClient
+
+pytest.importorskip("sklearn")
+pytestmark = pytest.mark.demo
 
 
 def _load_demo_setup_module() -> ModuleType:
@@ -18,7 +22,7 @@ def _load_demo_setup_module() -> ModuleType:
 
 def _load_module(module_name: str, filename: str) -> ModuleType:
     """Load a repo-level demo script as a module for tests."""
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
     module_path = repo_root / "demo" / filename
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:

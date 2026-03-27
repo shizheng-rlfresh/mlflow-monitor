@@ -66,7 +66,7 @@ Use the `dev` extra for tests and repo validation:
 
 ```bash
 uv sync --extra dev
-uv run pytest
+uv run pytest -m "not demo"
 uv run ruff check .
 uv build
 ```
@@ -75,6 +75,12 @@ If you want both the demo and the development tools in one environment:
 
 ```bash
 uv sync --extra dev --extra demo
+```
+
+Run the demo tests explicitly only when both extras are installed:
+
+```bash
+uv run pytest -m demo
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the short repo-first contributor workflow.
