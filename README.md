@@ -23,6 +23,13 @@ This makes it possible to answer questions like:
 - Which run is the baseline for this subject?
 - What happened on the last monitoring attempt?
 
+## Architecture And Concepts
+
+For a deeper explanation of the system:
+
+- see [docs/architecture.md](docs/architecture.md) for structure and runtime boundaries
+- see [docs/worldview.md](docs/worldview.md) for the core concepts and design philosophy
+
 ## Current Status
 
 The current shipped workflow covers synchronous monitoring through create, prepare, and check:
@@ -40,18 +47,10 @@ The fastest way to see the system working is the repo-level fraud demo:
 
 ```bash
 uv sync --extra demo
-uv run demo/setup.py
-uv run demo/run_monitoring.py
+uv run mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
 ```
 
-Then follow the walkthrough in [demo/README.md](demo/README.md).
-
-## Architecture And Concepts
-
-For a deeper explanation of the system:
-
-- see [docs/architecture.md](docs/architecture.md) for structure and runtime boundaries
-- see [docs/worldview.md](docs/worldview.md) for the core concepts and design philosophy
+Then follow the walkthrough in [demo/README.md](demo/README.md) for the setup and monitoring commands.
 
 ## Python SDK
 
