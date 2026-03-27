@@ -9,7 +9,7 @@ MLflow-Monitor reads existing MLflow training runs, checks whether they are comp
 New here? Start with [docs/worldview.md](docs/worldview.md) for the design story, system philosophy, and world model behind MLflow-Monitor.
 
 <p align="center">
-  <img src="assets/system_diagram_v1.png" alt="MLflow-Monitor overview" width="500">
+  <img src="assets/system_diagram.png" alt="MLflow-Monitor overview" width="500">
 </p>
 
 ## What It Adds Beyond MLflow
