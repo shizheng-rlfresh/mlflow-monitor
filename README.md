@@ -45,9 +45,12 @@ uv run demo/setup.py
 
 Then follow the walkthrough in [demo/README.md](demo/README.md).
 
-## Architecture
+## Architecture And Concepts
 
-For a deeper explanation of the training/monitoring split, timeline model, and runtime boundaries, see [docs/architecture.md](docs/architecture.md).
+For a deeper explanation of the system:
+
+- see [docs/architecture.md](docs/architecture.md) for structure and runtime boundaries
+- see [docs/worldview.md](docs/worldview.md) for the core concepts and design philosophy
 
 ## Python SDK
 
