@@ -256,7 +256,7 @@ def seed_demo_training_runs(tracking_uri: str | None = None) -> SeededDemo:
                 mlflow.log_artifact(str(asset_dir / "train.csv"), artifact_path="data")
                 mlflow.log_artifact(str(asset_dir / "eval.csv"), artifact_path="data")
                 mlflow.log_dict(summary, "data/summary.json")
-                mlflow.log_dict(sample_rows, "data/sample_rows.json")
+                mlflow.log_dict(sample_rows, "data/sample_rows.json")  # pyright: ignore[reportArgumentType]
                 mlflow.log_artifacts(str(asset_dir / "model"), artifact_path="model")
 
                 seeded_runs.append(
