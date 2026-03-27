@@ -172,99 +172,104 @@ def resolve_effective_tracking_uri(tracking_uri: str | None = None) -> str | Non
 def seed_demo_training_runs(tracking_uri: str | None = None) -> SeededDemo:
     """Train and log the fraud-model demo runs into MLflow."""
     effective_tracking_uri = resolve_effective_tracking_uri(tracking_uri)
-    if effective_tracking_uri is not None:
-        mlflow.set_tracking_uri(effective_tracking_uri)
+    previous_tracking_uri = mlflow.get_tracking_uri()
 
-    client = MlflowClient(tracking_uri=effective_tracking_uri)
-    experiment = client.get_experiment_by_name(DEMO_EXPERIMENT_NAME)
-    if experiment is None:
-        experiment_id = client.create_experiment(
-            DEMO_EXPERIMENT_NAME,
-            artifact_location=_artifact_location_for_tracking_uri(effective_tracking_uri),
+    try:
+        if effective_tracking_uri is not None:
+            mlflow.set_tracking_uri(effective_tracking_uri)
+
+        client = MlflowClient(tracking_uri=effective_tracking_uri)
+        experiment = client.get_experiment_by_name(DEMO_EXPERIMENT_NAME)
+        if experiment is None:
+            experiment_id = client.create_experiment(
+                DEMO_EXPERIMENT_NAME,
+                artifact_location=_artifact_location_for_tracking_uri(effective_tracking_uri),
+            )
+        else:
+            experiment_id = experiment.experiment_id
+
+        features, target = _build_dataset()
+        train_x, eval_x, train_y, eval_y = train_test_split(
+            features,
+            target,
+            test_size=0.25,
+            stratify=target,
+            random_state=7,
         )
-    else:
-        experiment_id = experiment.experiment_id
-
-    features, target = _build_dataset()
-    train_x, eval_x, train_y, eval_y = train_test_split(
-        features,
-        target,
-        test_size=0.25,
-        stratify=target,
-        random_state=7,
-    )
-    summary = _dataset_summary(
-        features=features,
-        target=target,
-        split={"train_rows": int(train_x.shape[0]), "eval_rows": int(eval_x.shape[0])},
-    )
-    sample_rows = _sample_rows(eval_x, eval_y)
-
-    seeded_runs: list[SeededTrainingRun] = []
-    for config in _scenario_configs():
-        model = LogisticRegression(
-            C=config["model_params"]["C"],
-            max_iter=config["model_params"]["max_iter"],
-            random_state=config["model_params"]["random_state"],
-            solver="liblinear",
+        summary = _dataset_summary(
+            features=features,
+            target=target,
+            split={"train_rows": int(train_x.shape[0]), "eval_rows": int(eval_x.shape[0])},
         )
-        model.fit(train_x, train_y)
-        predicted = model.predict(eval_x)
-        probabilities = model.predict_proba(eval_x)[:, 1]
+        sample_rows = _sample_rows(eval_x, eval_y)
 
-        metrics = {
-            "accuracy": round(float(accuracy_score(eval_y, predicted)), 4),
-            "auc": round(float(roc_auc_score(eval_y, probabilities)), 4),
-            "f1": round(float(f1_score(eval_y, predicted, zero_division=0)), 4),
-            "precision": round(float(precision_score(eval_y, predicted, zero_division=0)), 4),
-            "recall": round(float(recall_score(eval_y, predicted, zero_division=0)), 4),
-        }
-        schema = {feature_name: "float" for feature_name in FEATURE_COLUMNS}
-        schema.update(config["schema_overrides"])
+        seeded_runs: list[SeededTrainingRun] = []
+        for config in _scenario_configs():
+            model = LogisticRegression(
+                C=config["model_params"]["C"],
+                max_iter=config["model_params"]["max_iter"],
+                random_state=config["model_params"]["random_state"],
+                solver="liblinear",
+            )
+            model.fit(train_x, train_y)
+            predicted = model.predict(eval_x)
+            probabilities = model.predict_proba(eval_x)[:, 1]
 
-        with mlflow.start_run(experiment_id=experiment_id, run_name=config["run_name"]) as run:
-            mlflow.log_params(
-                {
-                    "model_type": "logistic_regression",
-                    "feature_columns": ",".join(FEATURE_COLUMNS),
-                    "C": config["model_params"]["C"],
-                    "max_iter": config["model_params"]["max_iter"],
-                    "random_state": config["model_params"]["random_state"],
-                }
-            )
-            mlflow.log_metrics(metrics)
-            mlflow.set_tags(
-                {
-                    "python_version": config["python_version"],
-                    "sklearn_version": config["sklearn_version"],
-                    "data_scope": config["data_scope"],
-                }
-            )
-            for key, value in schema.items():
-                mlflow.set_tag(f"schema.{key}", value)
-            mlflow.log_dict(summary, "data/summary.json")
-            mlflow.log_dict(sample_rows, "data/sample_rows.json")
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                model_dir = Path(tmp_dir) / "model"
-                mlflow.sklearn.save_model(
-                    sk_model=model,
-                    path=str(model_dir),
-                    input_example=eval_x[:5],
+            metrics = {
+                "accuracy": round(float(accuracy_score(eval_y, predicted)), 4),
+                "auc": round(float(roc_auc_score(eval_y, probabilities)), 4),
+                "f1": round(float(f1_score(eval_y, predicted, zero_division=0)), 4),
+                "precision": round(float(precision_score(eval_y, predicted, zero_division=0)), 4),
+                "recall": round(float(recall_score(eval_y, predicted, zero_division=0)), 4),
+            }
+            schema = {feature_name: "float" for feature_name in FEATURE_COLUMNS}
+            schema.update(config["schema_overrides"])
+
+            with mlflow.start_run(experiment_id=experiment_id, run_name=config["run_name"]) as run:
+                mlflow.log_params(
+                    {
+                        "model_type": "logistic_regression",
+                        "feature_columns": ",".join(FEATURE_COLUMNS),
+                        "C": config["model_params"]["C"],
+                        "max_iter": config["model_params"]["max_iter"],
+                        "random_state": config["model_params"]["random_state"],
+                    }
                 )
-                mlflow.log_artifacts(str(model_dir), artifact_path="model")
-
-            seeded_runs.append(
-                SeededTrainingRun(
-                    scenario_name=config["scenario_name"],
-                    run_name=config["run_name"],
-                    run_id=run.info.run_id,
+                mlflow.log_metrics(metrics)
+                mlflow.set_tags(
+                    {
+                        "python_version": config["python_version"],
+                        "sklearn_version": config["sklearn_version"],
+                        "data_scope": config["data_scope"],
+                    }
                 )
-            )
+                for key, value in schema.items():
+                    mlflow.set_tag(f"schema.{key}", value)
+                mlflow.log_dict(summary, "data/summary.json")
+                mlflow.log_dict(sample_rows, "data/sample_rows.json")
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    model_dir = Path(tmp_dir) / "model"
+                    mlflow.sklearn.save_model(
+                        sk_model=model,
+                        path=str(model_dir),
+                        input_example=eval_x[:5],
+                    )
+                    mlflow.log_artifacts(str(model_dir), artifact_path="model")
 
-    return SeededDemo(
-        experiment_name=DEMO_EXPERIMENT_NAME,
-        training_runs=tuple(seeded_runs),
-    )
+                seeded_runs.append(
+                    SeededTrainingRun(
+                        scenario_name=config["scenario_name"],
+                        run_name=config["run_name"],
+                        run_id=run.info.run_id,
+                    )
+                )
+
+        return SeededDemo(
+            experiment_name=DEMO_EXPERIMENT_NAME,
+            training_runs=tuple(seeded_runs),
+        )
+    finally:
+        mlflow.set_tracking_uri(previous_tracking_uri)
 
 
 def _print_demo_instructions(seeded: SeededDemo) -> None:

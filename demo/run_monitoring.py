@@ -71,64 +71,69 @@ def _load_seeded_run_ids(tracking_uri: str | None = None) -> dict[str, str]:
 def run_demo_monitoring(tracking_uri: str | None = None) -> tuple[DemoMonitoringResult, ...]:
     """Execute the three monitoring scenarios for the fraud demo."""
     effective_tracking_uri = resolve_effective_tracking_uri(tracking_uri)
-    if effective_tracking_uri is not None:
-        mlflow.set_tracking_uri(effective_tracking_uri)
+    previous_tracking_uri = mlflow.get_tracking_uri()
 
-    run_ids = _load_seeded_run_ids(tracking_uri=effective_tracking_uri)
-    gateway = MLflowMonitoringGateway(
-        GatewayConfig(),
-        tracking_uri=effective_tracking_uri,
-        artifact_location=_artifact_location_for_tracking_uri(effective_tracking_uri),
-    )
-    pass_result = monitor.run(
-        subject_id=DEMO_SUBJECT_ID,
-        source_run_id=run_ids["comparable_candidate"],
-        baseline_source_run_id=run_ids["baseline"],
-        gateway=gateway,
-    )
-    warn_result = monitor.run(
-        subject_id=DEMO_SUBJECT_ID,
-        source_run_id=run_ids["warning_candidate"],
-        gateway=gateway,
-    )
-    fail_result = monitor.run(
-        subject_id=DEMO_SUBJECT_ID,
-        source_run_id=run_ids["non_comparable_candidate"],
-        gateway=gateway,
-    )
+    try:
+        if effective_tracking_uri is not None:
+            mlflow.set_tracking_uri(effective_tracking_uri)
 
-    return (
-        DemoMonitoringResult(
-            scenario_name="comparable_candidate",
-            source_run_name=SCENARIO_RUN_NAMES["comparable_candidate"],
+        run_ids = _load_seeded_run_ids(tracking_uri=effective_tracking_uri)
+        gateway = MLflowMonitoringGateway(
+            GatewayConfig(),
+            tracking_uri=effective_tracking_uri,
+            artifact_location=_artifact_location_for_tracking_uri(effective_tracking_uri),
+        )
+        pass_result = monitor.run(
+            subject_id=DEMO_SUBJECT_ID,
             source_run_id=run_ids["comparable_candidate"],
-            monitoring_run_id=pass_result.monitoring_run_id,
-            lifecycle_status=pass_result.lifecycle_status.value,
-            comparability_status=pass_result.comparability_status.value
-            if pass_result.comparability_status is not None
-            else None,
-        ),
-        DemoMonitoringResult(
-            scenario_name="warning_candidate",
-            source_run_name=SCENARIO_RUN_NAMES["warning_candidate"],
+            baseline_source_run_id=run_ids["baseline"],
+            gateway=gateway,
+        )
+        warn_result = monitor.run(
+            subject_id=DEMO_SUBJECT_ID,
             source_run_id=run_ids["warning_candidate"],
-            monitoring_run_id=warn_result.monitoring_run_id,
-            lifecycle_status=warn_result.lifecycle_status.value,
-            comparability_status=warn_result.comparability_status.value
-            if warn_result.comparability_status is not None
-            else None,
-        ),
-        DemoMonitoringResult(
-            scenario_name="non_comparable_candidate",
-            source_run_name=SCENARIO_RUN_NAMES["non_comparable_candidate"],
+            gateway=gateway,
+        )
+        fail_result = monitor.run(
+            subject_id=DEMO_SUBJECT_ID,
             source_run_id=run_ids["non_comparable_candidate"],
-            monitoring_run_id=fail_result.monitoring_run_id,
-            lifecycle_status=fail_result.lifecycle_status.value,
-            comparability_status=fail_result.comparability_status.value
-            if fail_result.comparability_status is not None
-            else None,
-        ),
-    )
+            gateway=gateway,
+        )
+
+        return (
+            DemoMonitoringResult(
+                scenario_name="comparable_candidate",
+                source_run_name=SCENARIO_RUN_NAMES["comparable_candidate"],
+                source_run_id=run_ids["comparable_candidate"],
+                monitoring_run_id=pass_result.monitoring_run_id,
+                lifecycle_status=pass_result.lifecycle_status.value,
+                comparability_status=pass_result.comparability_status.value
+                if pass_result.comparability_status is not None
+                else None,
+            ),
+            DemoMonitoringResult(
+                scenario_name="warning_candidate",
+                source_run_name=SCENARIO_RUN_NAMES["warning_candidate"],
+                source_run_id=run_ids["warning_candidate"],
+                monitoring_run_id=warn_result.monitoring_run_id,
+                lifecycle_status=warn_result.lifecycle_status.value,
+                comparability_status=warn_result.comparability_status.value
+                if warn_result.comparability_status is not None
+                else None,
+            ),
+            DemoMonitoringResult(
+                scenario_name="non_comparable_candidate",
+                source_run_name=SCENARIO_RUN_NAMES["non_comparable_candidate"],
+                source_run_id=run_ids["non_comparable_candidate"],
+                monitoring_run_id=fail_result.monitoring_run_id,
+                lifecycle_status=fail_result.lifecycle_status.value,
+                comparability_status=fail_result.comparability_status.value
+                if fail_result.comparability_status is not None
+                else None,
+            ),
+        )
+    finally:
+        mlflow.set_tracking_uri(previous_tracking_uri)
 
 
 def _print_result(result: DemoMonitoringResult) -> None:

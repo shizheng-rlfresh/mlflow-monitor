@@ -74,6 +74,15 @@ def test_seed_demo_training_runs_creates_four_terminal_training_runs(tmp_path: P
         assert run.info.status == "FINISHED"
 
 
+def test_seed_demo_training_runs_restores_previous_tracking_uri(tmp_path: Path) -> None:
+    previous_tracking_uri = "sqlite:///:memory:"
+    mlflow.set_tracking_uri(previous_tracking_uri)
+
+    seed_demo_training_runs(tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}")
+
+    assert mlflow.get_tracking_uri() == previous_tracking_uri
+
+
 def test_seed_demo_training_runs_logs_expected_metrics_tags_and_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -145,6 +154,17 @@ def test_run_demo_monitoring_executes_pass_warn_and_fail_in_order(tmp_path: Path
     for run in monitoring_runs:
         artifact_paths = _list_artifact_paths(client, run.info.run_id)
         assert "outputs/result.json" in artifact_paths
+
+
+def test_run_demo_monitoring_restores_previous_tracking_uri(tmp_path: Path) -> None:
+    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    previous_tracking_uri = "sqlite:///:memory:"
+    mlflow.set_tracking_uri(previous_tracking_uri)
+    seed_demo_training_runs(tracking_uri=tracking_uri)
+
+    run_demo_monitoring(tracking_uri=tracking_uri)
+
+    assert mlflow.get_tracking_uri() == previous_tracking_uri
 
 
 def test_seed_demo_training_runs_uses_effective_tracking_uri_for_artifacts(
