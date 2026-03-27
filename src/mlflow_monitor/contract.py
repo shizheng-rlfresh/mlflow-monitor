@@ -1,4 +1,4 @@
-"""Runtime contract parsing and binding resolution for MLflow-Monitor v0.
+"""Runtime contract parsing and binding resolution for MLflow-Monitor.
 
 This module owns the internal bridge from recipe-selected contract binding IDs
 to resolved runtime ``Contract`` values. It does not evaluate contracts; that
@@ -66,7 +66,7 @@ def _optional_string(raw: Mapping[str, object], field: str) -> str | None:
 
 
 def parse_contract_v0(raw: Mapping[str, object]) -> Contract:
-    """Parse one raw v0 contract mapping into the runtime ``Contract`` model.
+    """Parse one raw built-in contract mapping into the runtime ``Contract`` model.
 
     Args:
         raw: Raw mapping defining one built-in contract.
@@ -95,7 +95,7 @@ def parse_contract_v0(raw: Mapping[str, object]) -> Contract:
 
 
 def resolve_contract_v0(contract_id: str) -> Contract:
-    """Resolve one supported v0 contract binding ID into a runtime contract.
+    """Resolve one supported built-in contract binding ID into a runtime contract.
 
     Args:
         contract_id: Recipe-selected contract binding ID.

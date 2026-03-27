@@ -1,4 +1,4 @@
-"""Internal execution orchestration for the M1 create/prepare/check slice."""
+"""Internal orchestration for the current create/prepare/check workflow."""
 
 from __future__ import annotations
 

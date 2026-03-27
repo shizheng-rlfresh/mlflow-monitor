@@ -1,4 +1,4 @@
-"""Public SDK facade for the M1 monitoring execution slice."""
+"""Public SDK facade for the current monitoring workflow."""
 
 from __future__ import annotations
 

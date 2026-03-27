@@ -1,4 +1,4 @@
-"""Recipe compilation pipeline for MLflow-Monitor v0-lite."""
+"""Recipe compilation pipeline for the built-in recipe format."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ class CompiledRunPlan:
 
 
 def compile_recipe_v0_lite(recipe: RecipeV0Lite) -> CompiledRunPlan:
-    """Compile one resolved v0-lite recipe into a workflow-facing run plan.
+    """Compile one resolved recipe into a workflow-facing run plan.
 
     Args:
         recipe: Resolved and validated recipe runtime model.

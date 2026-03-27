@@ -1,7 +1,7 @@
-"""Real-MLflow monitoring gateway for the MVP create/prepare/check slice.
+"""Real-MLflow monitoring gateway for the current create/prepare/check workflow.
 
 This module is the runtime implementation of the `MonitoringGateway` protocol
-for the MVP's real-MLflow path. It intentionally does not use `search_runs()`;
+for the real-MLflow path. It intentionally does not use `search_runs()`;
 all timeline discovery is driven by:
 
 1. One monitoring experiment per subject, named `{namespace_prefix}/{subject_id}`.
@@ -20,10 +20,10 @@ Design constraints that matter here:
   explicitly terminated by the gateway once orchestration reaches a terminal
   success or owned-failure outcome.
 
-The implementation is intentionally conservative and MVP-scoped. It preserves
-the current M1 create -> prepare -> check semantics without attempting
-concurrency hardening, broader query support, or more expressive persistence
-than the ticket requires.
+The implementation is intentionally conservative. It preserves the current
+create -> prepare -> check semantics without attempting concurrency hardening,
+broader query support, or more expressive persistence than the current runtime
+supports.
 """
 
 from __future__ import annotations
@@ -307,7 +307,7 @@ class MLflowMonitoringGateway:
             `None`.
 
         Notes:
-            MVP-04 persists comparability status but not the full structured
+            The current implementation persists comparability status but not the full structured
             `ContractCheckReason` payloads. When reconstructing a checked run
             from MLflow, this gateway therefore rebuilds only the status-facing
             portion of `ContractCheckResult` and leaves `reasons=()`. That is

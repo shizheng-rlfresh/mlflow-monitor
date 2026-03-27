@@ -1,8 +1,8 @@
-"""Canonical v0 domain models for MLflow-Monitor.
+"""Canonical domain models for MLflow-Monitor.
 
-This module defines the platform-agnostic entities described in CAST v0.
-These types capture shape and vocabulary for monitoring state only; workflow
-rules and invariant enforcement are layered on later tickets.
+This module defines the platform-agnostic entities used by the monitoring
+workflow. These types capture shape and vocabulary for monitoring state only;
+workflow rules and invariant enforcement live in the higher-level runtime.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class ComparabilityStatus(StrEnum):
 
 
 class DiffReferenceKind(StrEnum):
-    """Reference kinds supported by v0 diff records."""
+    """Reference kinds supported by diff records."""
 
     BASELINE = "baseline"
     PREVIOUS = "previous"
