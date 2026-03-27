@@ -28,6 +28,11 @@ mkdir -p .mlflow-dev
 export MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db
 ```
 
+Expected local store layout:
+
+- `.mlflow-dev/mlflow.db`
+- `.mlflow-dev/artifacts/`
+
 Install the demo dependency and start the MLflow UI:
 
 ```bash
@@ -47,6 +52,14 @@ uv run demo/setup.py
 ```
 
 The script prints the four training run IDs and tells you to run the monitoring step next.
+
+After the script finishes, refresh the browser if the UI was already open.
+
+Quick verification:
+
+- the UI should show `training/fraud_model`
+- `.mlflow-dev/artifacts/` should exist locally
+- repo-root `mlflow.db` or `mlruns/` means the demo was run against the wrong store or with an older buggy flow
 
 Screenshot to add: training experiment overview after seeding
 
@@ -96,6 +109,14 @@ Expected comparability results:
 - comparable candidate -> `pass`
 - environment-mismatch candidate -> `warn`
 - non-comparable candidate -> `fail`
+
+After the script finishes, refresh the browser if the UI was already open.
+
+Quick verification:
+
+- the UI should show `mlflow_monitor/fraud_model`
+- monitoring runs should appear in that experiment
+- repo-root `mlflow.db` or `mlruns/` means the demo was run against the wrong store or with an older buggy flow
 
 Screenshot to add: monitoring experiment overview after running pass, warn, and fail
 
@@ -153,5 +174,7 @@ That is why the demo uses two experiments: one for training history and one for 
 The local `.mlflow-dev/` directory is disposable. To reset the demo:
 
 ```bash
-rm -rf .mlflow-dev
+rm -rf mlflow.db mlruns .mlflow-dev
+mkdir -p .mlflow-dev
+export MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db
 ```

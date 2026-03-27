@@ -160,17 +160,27 @@ def _artifact_location_for_tracking_uri(tracking_uri: str | None) -> str | None:
     return artifact_root.as_uri()
 
 
+def resolve_effective_tracking_uri(tracking_uri: str | None = None) -> str | None:
+    """Return the explicit or active MLflow tracking URI for the demo."""
+    if tracking_uri is not None:
+        return tracking_uri
+
+    active_tracking_uri = mlflow.get_tracking_uri()
+    return active_tracking_uri or None
+
+
 def seed_demo_training_runs(tracking_uri: str | None = None) -> SeededDemo:
     """Train and log the fraud-model demo runs into MLflow."""
-    if tracking_uri is not None:
-        mlflow.set_tracking_uri(tracking_uri)
+    effective_tracking_uri = resolve_effective_tracking_uri(tracking_uri)
+    if effective_tracking_uri is not None:
+        mlflow.set_tracking_uri(effective_tracking_uri)
 
-    client = MlflowClient(tracking_uri=tracking_uri)
+    client = MlflowClient(tracking_uri=effective_tracking_uri)
     experiment = client.get_experiment_by_name(DEMO_EXPERIMENT_NAME)
     if experiment is None:
         experiment_id = client.create_experiment(
             DEMO_EXPERIMENT_NAME,
-            artifact_location=_artifact_location_for_tracking_uri(tracking_uri),
+            artifact_location=_artifact_location_for_tracking_uri(effective_tracking_uri),
         )
     else:
         experiment_id = experiment.experiment_id

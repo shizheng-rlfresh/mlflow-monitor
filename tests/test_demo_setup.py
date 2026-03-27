@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import mlflow
 from mlflow import MlflowClient
 
 
@@ -140,3 +141,51 @@ def test_run_demo_monitoring_executes_pass_warn_and_fail_in_order(tmp_path: Path
     for run in monitoring_runs:
         artifact_paths = _list_artifact_paths(client, run.info.run_id)
         assert "outputs/result.json" in artifact_paths
+
+
+def test_seed_demo_training_runs_uses_effective_tracking_uri_for_artifacts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    demo_root = tmp_path / ".mlflow-dev"
+    tracking_uri = f"sqlite:///{demo_root / 'mlflow.db'}"
+    previous_tracking_uri = mlflow.get_tracking_uri()
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+    mlflow.set_tracking_uri(tracking_uri)
+
+    try:
+        seed_demo_training_runs()
+
+        client = MlflowClient(tracking_uri=tracking_uri)
+        training_experiment = client.get_experiment_by_name(DEMO_EXPERIMENT_NAME)
+
+        assert training_experiment is not None
+        assert training_experiment.artifact_location == (demo_root / "artifacts").resolve().as_uri()
+    finally:
+        mlflow.set_tracking_uri(previous_tracking_uri)
+
+
+def test_run_demo_monitoring_uses_effective_tracking_uri_for_monitoring_store(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    demo_root = tmp_path / ".mlflow-dev"
+    tracking_uri = f"sqlite:///{demo_root / 'mlflow.db'}"
+    previous_tracking_uri = mlflow.get_tracking_uri()
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+    mlflow.set_tracking_uri(tracking_uri)
+
+    try:
+        seed_demo_training_runs()
+        results = run_demo_monitoring()
+
+        client = MlflowClient(tracking_uri=tracking_uri)
+        monitoring_experiment = client.get_experiment_by_name(MONITORING_EXPERIMENT_NAME)
+
+        assert len(results) == 3
+        assert monitoring_experiment is not None
+        assert monitoring_experiment.artifact_location == (
+            demo_root / "artifacts"
+        ).resolve().as_uri()
+    finally:
+        mlflow.set_tracking_uri(previous_tracking_uri)

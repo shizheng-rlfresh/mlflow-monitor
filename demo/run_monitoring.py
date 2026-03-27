@@ -12,14 +12,20 @@ try:
         DEMO_EXPERIMENT_NAME,
         DEMO_SUBJECT_ID,
         SCENARIO_RUN_NAMES,
+        _artifact_location_for_tracking_uri,
+        resolve_effective_tracking_uri,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct script execution fallback
     from setup import (  # type: ignore[no-redef]
         DEMO_EXPERIMENT_NAME,
         DEMO_SUBJECT_ID,
         SCENARIO_RUN_NAMES,
+        _artifact_location_for_tracking_uri,
+        resolve_effective_tracking_uri,
     )
 from mlflow_monitor import monitor
+from mlflow_monitor.gateway import GatewayConfig
+from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 
 MONITORING_EXPERIMENT_NAME = f"mlflow_monitor/{DEMO_SUBJECT_ID}"
 
@@ -38,7 +44,8 @@ class DemoMonitoringResult:
 
 def _load_seeded_run_ids(tracking_uri: str | None = None) -> dict[str, str]:
     """Resolve the seeded training runs by their expected run names."""
-    client = MlflowClient(tracking_uri=tracking_uri)
+    effective_tracking_uri = resolve_effective_tracking_uri(tracking_uri)
+    client = MlflowClient(tracking_uri=effective_tracking_uri)
     experiment = client.get_experiment_by_name(DEMO_EXPERIMENT_NAME)
     if experiment is None:
         raise RuntimeError(
@@ -68,22 +75,31 @@ def _load_seeded_run_ids(tracking_uri: str | None = None) -> dict[str, str]:
 
 def run_demo_monitoring(tracking_uri: str | None = None) -> tuple[DemoMonitoringResult, ...]:
     """Execute the three monitoring scenarios for the fraud demo."""
-    if tracking_uri is not None:
-        mlflow.set_tracking_uri(tracking_uri)
+    effective_tracking_uri = resolve_effective_tracking_uri(tracking_uri)
+    if effective_tracking_uri is not None:
+        mlflow.set_tracking_uri(effective_tracking_uri)
 
-    run_ids = _load_seeded_run_ids(tracking_uri=tracking_uri)
+    run_ids = _load_seeded_run_ids(tracking_uri=effective_tracking_uri)
+    gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=effective_tracking_uri,
+        artifact_location=_artifact_location_for_tracking_uri(effective_tracking_uri),
+    )
     pass_result = monitor.run(
         subject_id=DEMO_SUBJECT_ID,
         source_run_id=run_ids["comparable_candidate"],
         baseline_source_run_id=run_ids["baseline"],
+        gateway=gateway,
     )
     warn_result = monitor.run(
         subject_id=DEMO_SUBJECT_ID,
         source_run_id=run_ids["warning_candidate"],
+        gateway=gateway,
     )
     fail_result = monitor.run(
         subject_id=DEMO_SUBJECT_ID,
         source_run_id=run_ids["non_comparable_candidate"],
+        gateway=gateway,
     )
 
     return (
