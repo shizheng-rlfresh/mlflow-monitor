@@ -173,9 +173,7 @@ def test_run_demo_monitoring_uses_newest_seeded_runs_after_many_reseeds(tmp_path
         latest_seed = seed_demo_training_runs(tracking_uri=tracking_uri)
 
     assert latest_seed is not None
-    latest_run_id_by_scenario = {
-        run.scenario_name: run.run_id for run in latest_seed.training_runs
-    }
+    latest_run_id_by_scenario = {run.scenario_name: run.run_id for run in latest_seed.training_runs}
 
     results = run_demo_monitoring(tracking_uri=tracking_uri)
 
