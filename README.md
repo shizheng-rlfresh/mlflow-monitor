@@ -71,8 +71,6 @@ uv run ruff check .
 uv build
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the short repo-first contributor workflow.
-
 ## Packaging Status
 
 The project already builds as a Python package, but the primary supported workflow today is still repo-first:
