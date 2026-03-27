@@ -12,18 +12,6 @@ from mlflow.entities import RunStatus
 from mlflow_monitor.mlflow_client import MonitorMLflowClient
 
 
-@pytest.fixture
-def tracking_uri(tmp_path: Path) -> str:
-    """Return a pytest-managed local MLflow SQLite tracking URI."""
-    return f"sqlite:///{tmp_path / 'mlflow.db'}"
-
-
-@pytest.fixture
-def artifact_root_uri(tmp_path: Path) -> str:
-    """Return a pytest-managed artifact root for MLflow experiments."""
-    return (tmp_path / "artifacts").as_uri()
-
-
 def test_get_monitoring_experiment_id_by_name_returns_none_before_creation(
     tracking_uri: str,
 ) -> None:

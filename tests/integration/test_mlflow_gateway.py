@@ -7,7 +7,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import pytest
 from mlflow import MlflowClient
 
 from mlflow_monitor.contract_checker import DefaultContractChecker
@@ -17,59 +16,13 @@ from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
 
 
-@pytest.fixture
-def tracking_uri(tmp_path: Path) -> str:
-    """Return a pytest-managed local MLflow SQLite tracking URI."""
-    return f"sqlite:///{tmp_path / 'mlflow.db'}"
-
-
-@pytest.fixture
-def artifact_root_uri(tmp_path: Path) -> str:
-    """Return a pytest-managed artifact root for MLflow experiments."""
-    return (tmp_path / "artifacts").as_uri()
-
-
-def _create_training_run(
-    *,
-    raw: MlflowClient,
-    experiment_name: str,
-    artifact_root_uri: str,
-    run_name: str,
-    metrics: dict[str, float],
-    params: dict[str, str],
-    tags: dict[str, str],
-    artifact_payload: dict[str, object] | None = None,
-) -> str:
-    """Create one source training run with MVP-shaped evidence."""
-    experiment = raw.get_experiment_by_name(experiment_name)
-    if experiment is None:
-        experiment_id = raw.create_experiment(
-            experiment_name,
-            artifact_location=artifact_root_uri,
-        )
-    else:
-        experiment_id = experiment.experiment_id
-
-    run = raw.create_run(experiment_id, tags={"mlflow.runName": run_name})
-    run_id = run.info.run_id
-    for key, value in metrics.items():
-        raw.log_metric(run_id, key, value)
-    for key, value in params.items():
-        raw.log_param(run_id, key, value)
-    for key, value in tags.items():
-        raw.set_tag(run_id, key, value)
-    if artifact_payload is not None:
-        raw.log_dict(run_id, artifact_payload, "outputs/training.json")
-    raw.set_terminated(run_id, status="FINISHED")
-    return run_id
-
-
 def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     tracking_uri: str,
     artifact_root_uri: str,
+    create_training_run: Callable[..., str],
 ) -> None:
     raw = MlflowClient(tracking_uri=tracking_uri)
-    baseline_run_id = _create_training_run(
+    baseline_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -82,7 +35,7 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
             "data_scope": "validation:2026-03-01",
         },
     )
-    current_run_id = _create_training_run(
+    current_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -138,9 +91,10 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
 def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
     tracking_uri: str,
     artifact_root_uri: str,
+    create_training_run: Callable[..., str],
 ) -> None:
     raw = MlflowClient(tracking_uri=tracking_uri)
-    baseline_run_id = _create_training_run(
+    baseline_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -153,7 +107,7 @@ def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
             "data_scope": "validation:2026-03-01",
         },
     )
-    first_current_run_id = _create_training_run(
+    first_current_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -166,7 +120,7 @@ def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
             "data_scope": "validation:2026-03-01",
         },
     )
-    second_current_run_id = _create_training_run(
+    second_current_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -225,9 +179,10 @@ def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
 def test_mlflow_gateway_owned_failure_terminates_failed_and_leaves_training_runs_unchanged(
     tracking_uri: str,
     artifact_root_uri: str,
+    create_training_run: Callable[..., str],
 ) -> None:
     raw = MlflowClient(tracking_uri=tracking_uri)
-    baseline_run_id = _create_training_run(
+    baseline_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -273,9 +228,10 @@ def test_mlflow_gateway_owned_failure_terminates_failed_and_leaves_training_runs
 def test_mlflow_gateway_resolve_source_run_id_honors_source_experiment_filter(
     tracking_uri: str,
     artifact_root_uri: str,
+    create_training_run: Callable[..., str],
 ) -> None:
     raw = MlflowClient(tracking_uri=tracking_uri)
-    training_run_id = _create_training_run(
+    training_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -315,9 +271,10 @@ def test_mlflow_gateway_resolve_source_run_id_honors_source_experiment_filter(
 def test_mlflow_gateway_resolve_source_run_id_rejects_monitoring_owned_runs(
     tracking_uri: str,
     artifact_root_uri: str,
+    create_training_run: Callable[..., str],
 ) -> None:
     raw = MlflowClient(tracking_uri=tracking_uri)
-    baseline_run_id = _create_training_run(
+    baseline_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -330,7 +287,7 @@ def test_mlflow_gateway_resolve_source_run_id_rejects_monitoring_owned_runs(
             "data_scope": "validation:2026-03-01",
         },
     )
-    current_run_id = _create_training_run(
+    current_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -370,9 +327,10 @@ def test_mlflow_gateway_resolve_source_run_id_rejects_monitoring_owned_runs(
 def test_mlflow_gateway_rejects_monitoring_run_id_as_source_run_input(
     tracking_uri: str,
     artifact_root_uri: str,
+    create_training_run: Callable[..., str],
 ) -> None:
     raw = MlflowClient(tracking_uri=tracking_uri)
-    baseline_run_id = _create_training_run(
+    baseline_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -385,7 +343,7 @@ def test_mlflow_gateway_rejects_monitoring_run_id_as_source_run_input(
             "data_scope": "validation:2026-03-01",
         },
     )
-    current_run_id = _create_training_run(
+    current_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -434,9 +392,10 @@ def test_mlflow_gateway_rejects_monitoring_run_id_as_source_run_input(
 def test_mlflow_gateway_rejects_other_subject_monitoring_run_as_source_input(
     tracking_uri: str,
     artifact_root_uri: str,
+    create_training_run: Callable[..., str],
 ) -> None:
     raw = MlflowClient(tracking_uri=tracking_uri)
-    baseline_run_id = _create_training_run(
+    baseline_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -449,7 +408,7 @@ def test_mlflow_gateway_rejects_other_subject_monitoring_run_as_source_input(
             "data_scope": "validation:2026-03-01",
         },
     )
-    current_run_id = _create_training_run(
+    current_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,
@@ -492,9 +451,10 @@ def test_mlflow_gateway_rejects_other_subject_monitoring_run_as_source_input(
 def test_mlflow_gateway_create_or_reuse_allocates_new_run_for_recipe_version_change(
     tracking_uri: str,
     artifact_root_uri: str,
+    create_training_run: Callable[..., str],
 ) -> None:
     raw = MlflowClient(tracking_uri=tracking_uri)
-    training_run_id = _create_training_run(
+    training_run_id = create_training_run(
         raw=raw,
         experiment_name="training/churn",
         artifact_root_uri=artifact_root_uri,

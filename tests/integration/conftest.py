@@ -9,6 +9,18 @@ import pytest
 from mlflow import MlflowClient
 
 
+@pytest.fixture
+def tracking_uri(tmp_path) -> str:  # type: ignore[no-untyped-def]
+    """Return a pytest-managed local MLflow SQLite tracking URI."""
+    return f"sqlite:///{tmp_path / 'mlflow.db'}"
+
+
+@pytest.fixture
+def artifact_root_uri(tmp_path) -> str:  # type: ignore[no-untyped-def]
+    """Return a pytest-managed artifact root for MLflow experiments."""
+    return (tmp_path / "artifacts").as_uri()
+
+
 def _create_training_run(
     *,
     raw: MlflowClient,
