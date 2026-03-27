@@ -41,6 +41,7 @@ The fastest way to see the system working is the repo-level fraud demo:
 ```bash
 uv sync --extra demo
 uv run demo/setup.py
+uv run demo/run_monitoring.py
 ```
 
 Then follow the walkthrough in [demo/README.md](demo/README.md).

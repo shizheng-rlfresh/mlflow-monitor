@@ -35,7 +35,8 @@ uv sync --extra demo
 mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
 ```
 
-Open [http://localhost:5000](http://localhost:5000).
+Open [http://127.0.0.1:5000](http://127.0.0.1:5000).
+If that does not work in your browser, try [http://localhost:5000](http://localhost:5000).
 
 ## Seed The Training Runs
 
@@ -45,7 +46,7 @@ Run:
 uv run demo/setup.py
 ```
 
-The script prints the four training run IDs and the exact `monitor.run(...)` snippets to execute next.
+The script prints the four training run IDs and tells you to run the monitoring step next.
 
 Screenshot to add: training experiment overview after seeding
 
@@ -74,34 +75,27 @@ Screenshot to add: one training run detail page showing metrics, params, model a
 
 ## Run Monitoring
 
-Use the printed snippets in this order.
+Run:
 
-### 1. Bootstrap The Baseline And Get `pass`
+```bash
+uv run demo/run_monitoring.py
+```
 
-Run the printed snippet for the comparable candidate with the explicit baseline run id.
+This script resolves the seeded runs automatically and executes the monitoring flow in order:
 
-Expected result:
+1. comparable candidate with explicit baseline -> `pass`
+2. environment-mismatch candidate -> `warn`
+3. non-comparable candidate -> `fail`
 
-- `lifecycle_status = checked`
-- `comparability_status = pass`
-
-### 2. Run The Environment-Mismatch Case And Get `warn`
-
-Run the printed snippet for `fraud-model-env-shift-v3`.
-
-Expected result:
+Expected result for all three monitoring runs:
 
 - `lifecycle_status = checked`
-- `comparability_status = warn`
 
-### 3. Run The Non-Comparable Case And Get `fail`
+Expected comparability results:
 
-Run the printed snippet for `fraud-model-schema-shift-v4`.
-
-Expected result:
-
-- `lifecycle_status = checked`
-- `comparability_status = fail`
+- comparable candidate -> `pass`
+- environment-mismatch candidate -> `warn`
+- non-comparable candidate -> `fail`
 
 Screenshot to add: monitoring experiment overview after running pass, warn, and fail
 
@@ -118,7 +112,7 @@ Open `training/fraud_model` and verify:
 
 ### Monitoring Experiment
 
-After running the SDK snippets, open `mlflow_monitor/fraud_model` and verify:
+After running `uv run demo/run_monitoring.py`, open `mlflow_monitor/fraud_model` and verify:
 
 - monitoring runs are present
 - the baseline is reused after the first run

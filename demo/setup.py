@@ -38,6 +38,12 @@ FEATURE_COLUMNS = (
     "country_match",
     "chargeback_rate_30d",
 )
+SCENARIO_RUN_NAMES = {
+    "baseline": "fraud-model-baseline-v1",
+    "comparable_candidate": "fraud-model-candidate-v2",
+    "warning_candidate": "fraud-model-env-shift-v3",
+    "non_comparable_candidate": "fraud-model-schema-shift-v4",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +112,7 @@ def _scenario_configs() -> tuple[dict[str, Any], ...]:
     return (
         {
             "scenario_name": "baseline",
-            "run_name": "fraud-model-baseline-v1",
+            "run_name": SCENARIO_RUN_NAMES["baseline"],
             "model_params": {"C": 1.0, "max_iter": 400, "random_state": 11},
             "python_version": "3.12",
             "sklearn_version": "1.7.1",
@@ -115,7 +121,7 @@ def _scenario_configs() -> tuple[dict[str, Any], ...]:
         },
         {
             "scenario_name": "comparable_candidate",
-            "run_name": "fraud-model-candidate-v2",
+            "run_name": SCENARIO_RUN_NAMES["comparable_candidate"],
             "model_params": {"C": 0.8, "max_iter": 400, "random_state": 22},
             "python_version": "3.12",
             "sklearn_version": "1.7.1",
@@ -124,7 +130,7 @@ def _scenario_configs() -> tuple[dict[str, Any], ...]:
         },
         {
             "scenario_name": "warning_candidate",
-            "run_name": "fraud-model-env-shift-v3",
+            "run_name": SCENARIO_RUN_NAMES["warning_candidate"],
             "model_params": {"C": 1.2, "max_iter": 450, "random_state": 33},
             "python_version": "3.13",
             "sklearn_version": "1.8.0",
@@ -133,7 +139,7 @@ def _scenario_configs() -> tuple[dict[str, Any], ...]:
         },
         {
             "scenario_name": "non_comparable_candidate",
-            "run_name": "fraud-model-schema-shift-v4",
+            "run_name": SCENARIO_RUN_NAMES["non_comparable_candidate"],
             "model_params": {"C": 1.1, "max_iter": 450, "random_state": 44},
             "python_version": "3.12",
             "sklearn_version": "1.7.1",
@@ -252,34 +258,18 @@ def seed_demo_training_runs(tracking_uri: str | None = None) -> SeededDemo:
 
 
 def _print_demo_instructions(seeded: SeededDemo) -> None:
-    """Print copy-paste-ready monitoring snippets for the seeded runs."""
-    run_by_scenario = {run.scenario_name: run.run_id for run in seeded.training_runs}
+    """Print next steps for the seeded demo."""
     print("Seeded training experiment:", seeded.experiment_name)
     for run in seeded.training_runs:
         print(f"- {run.scenario_name}: {run.run_name} -> {run.run_id}")
     print()
-    print("Run the monitoring demo in this order:")
-    print(
-        "1. pass / baseline bootstrap:\n"
-        "from mlflow_monitor import monitor\n"
-        f"monitor.run(subject_id='{DEMO_SUBJECT_ID}', "
-        f"source_run_id='{run_by_scenario['comparable_candidate']}', "
-        f"baseline_source_run_id='{run_by_scenario['baseline']}')"
-    )
+    print("Next step:")
+    print("uv run demo/run_monitoring.py")
     print()
-    print(
-        "2. warn:\n"
-        "from mlflow_monitor import monitor\n"
-        f"monitor.run(subject_id='{DEMO_SUBJECT_ID}', "
-        f"source_run_id='{run_by_scenario['warning_candidate']}')"
-    )
-    print()
-    print(
-        "3. fail:\n"
-        "from mlflow_monitor import monitor\n"
-        f"monitor.run(subject_id='{DEMO_SUBJECT_ID}', "
-        f"source_run_id='{run_by_scenario['non_comparable_candidate']}')"
-    )
+    print("Expected monitoring outcomes:")
+    print("- comparable_candidate -> pass")
+    print("- warning_candidate -> warn")
+    print("- non_comparable_candidate -> fail")
 
 
 def main() -> None:
