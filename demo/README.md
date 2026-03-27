@@ -25,7 +25,6 @@ Create a local MLflow store at the repo root:
 
 ```bash
 mkdir -p .mlflow-dev
-export MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db
 ```
 
 Expected local store layout:
@@ -37,7 +36,7 @@ Install the demo dependency and start the MLflow UI:
 
 ```bash
 uv sync --extra demo
-mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
+uv run mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
 ```
 
 Open [http://127.0.0.1:5000](http://127.0.0.1:5000).
@@ -48,7 +47,7 @@ If that does not work in your browser, try [http://localhost:5000](http://localh
 Run:
 
 ```bash
-uv run demo/setup.py
+MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db uv run demo/setup.py
 ```
 
 The script prints the four training run IDs and tells you to run the monitoring step next.
@@ -59,9 +58,12 @@ Quick verification:
 
 - the UI should show `training/fraud_model`
 - `.mlflow-dev/artifacts/` should exist locally
-- repo-root `mlflow.db` or `mlruns/` means the demo was run against the wrong store or with an older buggy flow
+- Note: if root `mlflow.db` or `mlruns/` shows up, that means the demo was run against the wrong store or with an older buggy flow
 
-Screenshot to add: training experiment overview after seeding
+<p align="center">
+  <img src="assets/training-experiment-overview.png" alt="Training run detail with metrics and params" width="900" height="300">
+
+</p>
 
 ## Seeded Training Runs
 
@@ -84,14 +86,26 @@ Each training run includes:
 - schema and environment tags used by the monitoring contract
 - dataset-related artifacts under `data/`
 
-Screenshot to add: one training run detail page showing metrics, params, model artifact, and data artifacts
+For the training side, the easiest things to inspect in the UI are:
+
+- run names
+- metrics
+- params
+- `model/`
+- `data/summary.json`
+- `data/sample_rows.json`
+
+<p align="center">
+  <img src="assets/training-run-detail-0.png" alt="Training run detail with metrics and params" width="450" height="300">
+  <img src="assets/training-run-detail-1.png" alt="Training run detail with model and data artifacts" width="450" height="300">
+</p>
 
 ## Run Monitoring
 
 Run:
 
 ```bash
-uv run demo/run_monitoring.py
+MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db uv run demo/run_monitoring.py
 ```
 
 This script resolves the seeded runs automatically and executes the monitoring flow in order:
@@ -118,7 +132,9 @@ Quick verification:
 - monitoring runs should appear in that experiment
 - repo-root `mlflow.db` or `mlruns/` means the demo was run against the wrong store or with an older buggy flow
 
-Screenshot to add: monitoring experiment overview after running pass, warn, and fail
+<p align="center">
+  <img src="assets/monitoring-experiment-overview.png" alt="Monitoring experiment overview showing pass, warn, and fail runs" width="900">
+</p>
 
 ## What To Inspect In MLflow
 
@@ -141,6 +157,26 @@ After running `uv run demo/run_monitoring.py`, open `mlflow_monitor/fraud_model`
 - each monitoring run has `monitoring.comparability_status`
 - `outputs/result.json` exists on the monitoring run
 
+Open the monitoring runs first.
+
+The most readable proof points in the UI are:
+
+- run names
+- `monitoring.lifecycle_status`
+- `monitoring.comparability_status`
+- `training.source_run_id`
+- `monitoring.reference.baseline`
+- `outputs/result.json`
+
+`outputs/result.json` is the clearest single artifact to inspect because it shows the final monitoring result in one place.
+
+<p align="center">
+  <img src="assets/monitoring-run-detail.png" alt="Monitoring run detail with result artifact" width="450" height="300">
+  <img src="assets/monitoring-run-tags.png" alt="Monitoring run tags showing lifecycle and comparability state" width="450" height="300">
+</p>
+
+### Timeline Bookkeeping
+
 Experiment tags are also important. They hold the timeline state, including:
 
 - baseline run id
@@ -148,7 +184,13 @@ Experiment tags are also important. They hold the timeline state, including:
 - next sequence index
 - indexed monitoring run ids
 
-Screenshot to add: monitoring run detail page showing tags and outputs/result.json
+These tags are useful to confirm that monitoring state is persisted separately from training runs, but they are more bookkeeping-oriented than demo-friendly because the values are long run IDs.
+
+If you want to include them in the demo screenshots, treat them as secondary proof of durable monitoring state rather than the main thing to inspect.
+
+<p align="center">
+  <img src="assets/monitoring-experiment-tags.png" alt="Monitoring experiment tags showing baseline and sequence state" width="450" height="300">
+</p>
 
 ## What MLflow Gives You vs What MLflow-Monitor Adds
 
