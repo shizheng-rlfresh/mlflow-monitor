@@ -130,7 +130,7 @@ Quick verification:
 
 - the UI should show `mlflow_monitor/fraud_model`
 - monitoring runs should appear in that experiment
-- repo-root `mlflow.db` or `mlruns/` means the demo was run against the wrong store or with an older buggy flow
+- repo-root `mlflow.db` or `mlruns/` means the demo was run against the wrong store
 
 <p align="center">
   <img src="assets/monitoring-experiment-overview.png" alt="Monitoring experiment overview showing pass, warn, and fail runs" width="900">
@@ -185,8 +185,6 @@ Experiment tags are also important. They hold the timeline state, including:
 - indexed monitoring run ids
 
 These tags are useful to confirm that monitoring state is persisted separately from training runs, but they are more bookkeeping-oriented than demo-friendly because the values are long run IDs.
-
-If you want to include them in the demo screenshots, treat them as secondary proof of durable monitoring state rather than the main thing to inspect.
 
 <p align="center">
   <img src="assets/monitoring-experiment-tags.png" alt="Monitoring experiment tags showing baseline and sequence state" width="450" height="300">
