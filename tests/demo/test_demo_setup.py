@@ -249,6 +249,34 @@ def test_run_demo_monitoring_ignores_newer_incomplete_runs_with_matching_names(
     ]
 
 
+def test_run_demo_monitoring_ignores_newer_finished_runs_without_demo_tag(
+    tmp_path: Path,
+    demo_setup_module: ModuleType,
+    demo_runner_module: ModuleType,
+) -> None:
+    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    seeded = demo_setup_module.seed_demo_training_runs(tracking_uri=tracking_uri)
+    latest_run_id_by_scenario = {run.scenario_name: run.run_id for run in seeded.training_runs}
+
+    client = MlflowClient(tracking_uri=tracking_uri)
+    experiment = client.get_experiment_by_name(demo_setup_module.DEMO_EXPERIMENT_NAME)
+
+    assert experiment is not None
+    duplicate_run = client.create_run(
+        experiment_id=experiment.experiment_id,
+        tags={"mlflow.runName": demo_setup_module.SCENARIO_RUN_NAMES["comparable_candidate"]},
+    )
+    client.set_terminated(duplicate_run.info.run_id, status="FINISHED")
+
+    results = demo_runner_module.run_demo_monitoring(tracking_uri=tracking_uri)
+
+    assert [result.source_run_id for result in results] == [
+        latest_run_id_by_scenario["comparable_candidate"],
+        latest_run_id_by_scenario["warning_candidate"],
+        latest_run_id_by_scenario["non_comparable_candidate"],
+    ]
+
+
 def test_seed_demo_training_runs_uses_effective_tracking_uri_for_artifacts(
     tmp_path: Path,
     monkeypatch,

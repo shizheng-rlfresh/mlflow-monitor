@@ -10,6 +10,7 @@ from mlflow import MlflowClient
 try:
     from demo.setup import (
         DEMO_EXPERIMENT_NAME,
+        DEMO_SCENARIO_PARAM,
         DEMO_SUBJECT_ID,
         SCENARIO_RUN_NAMES,
         _artifact_location_for_tracking_uri,
@@ -18,6 +19,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - direct script execution fallback
     from setup import (  # type: ignore[no-redef]
         DEMO_EXPERIMENT_NAME,
+        DEMO_SCENARIO_PARAM,
         DEMO_SUBJECT_ID,
         SCENARIO_RUN_NAMES,
         _artifact_location_for_tracking_uri,
@@ -54,17 +56,17 @@ def _load_seeded_run_ids(tracking_uri: str | None = None) -> dict[str, str]:
         experiment_ids=[experiment.experiment_id],
         order_by=["attribute.start_time DESC"],
     )
-    run_id_by_name: dict[str, str] = {}
+    run_id_by_scenario: dict[str, str] = {}
     for run in runs:
         if run.info.status != "FINISHED":
             continue
-        run_name = run.data.tags.get("mlflow.runName", "")
-        if run_name and run_name not in run_id_by_name:
-            run_id_by_name[run_name] = run.info.run_id
+        scenario_name = run.data.params.get(DEMO_SCENARIO_PARAM, "")
+        if scenario_name in SCENARIO_RUN_NAMES and scenario_name not in run_id_by_scenario:
+            run_id_by_scenario[scenario_name] = run.info.run_id
 
     resolved: dict[str, str] = {}
     for scenario_name, run_name in SCENARIO_RUN_NAMES.items():
-        run_id = run_id_by_name.get(run_name)
+        run_id = run_id_by_scenario.get(scenario_name)
         if run_id is None:
             raise RuntimeError(
                 f"Expected seeded run {run_name!r} was not found. Run `uv run demo/setup.py` again."

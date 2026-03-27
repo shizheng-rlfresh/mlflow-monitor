@@ -32,6 +32,7 @@ SCENARIO_RUN_NAMES = {
     "warning_candidate": "fraud-model-v3",
     "non_comparable_candidate": "fraud-model-v4",
 }
+DEMO_SCENARIO_PARAM = "demo.scenario_name"
 ASSET_ROOT = Path(__file__).resolve().parent / "seed_assets"
 
 
@@ -240,6 +241,7 @@ def seed_demo_training_runs(tracking_uri: str | None = None) -> SeededDemo:
             with mlflow.start_run(experiment_id=experiment_id, run_name=config["run_name"]) as run:
                 mlflow.log_params(
                     {
+                        DEMO_SCENARIO_PARAM: config["scenario_name"],
                         "feature_columns": ",".join(FEATURE_COLUMNS),
                         **config["model_params"],
                     }
