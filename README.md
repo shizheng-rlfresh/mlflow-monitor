@@ -54,7 +54,7 @@ The fastest way to see the system working is the repo-level fraud demo:
 ```bash
 git clone https://github.com/shizheng-rlfresh/mlflow-monitor.git
 cd mlflow-monitor
-uv sync --extra demo
+uv sync
 uv run mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
 ```
 
@@ -66,21 +66,9 @@ Use the `dev` extra for tests and repo validation:
 
 ```bash
 uv sync --extra dev
-uv run pytest -m "not demo"
+uv run pytest
 uv run ruff check .
 uv build
-```
-
-If you want both the demo and the development tools in one environment:
-
-```bash
-uv sync --extra dev --extra demo
-```
-
-Run the demo tests explicitly only when both extras are installed:
-
-```bash
-uv run pytest -m demo
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the short repo-first contributor workflow.

@@ -2,7 +2,7 @@
 
 This demo shows a small end-to-end monitoring flow on top of real MLflow training runs.
 
-It seeds four fraud-model training runs, each with a real trained sklearn model, realistic metrics, dataset-related artifacts, and the metadata used by the current monitoring workflow.
+It seeds four fraud-model training runs from checked-in model and dataset assets, with realistic metrics, dataset-related artifacts, and the metadata used by the current monitoring workflow.
 
 ## What You Will See
 
@@ -12,7 +12,7 @@ It seeds four fraud-model training runs, each with a real trained sklearn model,
   - comparable candidate
   - environment-mismatch candidate
   - non-comparable candidate
-- one monitoring experiment after you run the SDK flow:
+- one monitoring experiment after you run the monitoring step:
   - `mlflow_monitor/fraud_model`
 - monitoring outcomes that cover:
   - `pass`
@@ -32,16 +32,15 @@ Expected local store layout:
 - `.mlflow-dev/mlflow.db`
 - `.mlflow-dev/artifacts/`
 
-Install the demo dependency and start the MLflow UI:
+Install the core repo environment and start the MLflow UI:
 
 ```bash
-uv sync --extra demo
+uv sync
 uv run mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
 ```
 
-This setup path is for the runnable demo only. If you want to run `pytest` or `ruff`,
-install the development extra separately with `uv sync --extra dev`, or install both
-with `uv sync --extra dev --extra demo`.
+If you want to run `pytest` or `ruff`, install the development extra separately with
+`uv sync --extra dev`.
 
 Open [http://127.0.0.1:5000](http://127.0.0.1:5000).
 If that does not work in your browser, try [http://localhost:5000](http://localhost:5000).
@@ -84,7 +83,7 @@ The demo seeds these four roles:
 
 Each training run includes:
 
-- a real trained sklearn model artifact
+- a checked-in MLflow model artifact
 - metrics such as `accuracy`, `auc`, `f1`, `precision`, and `recall`
 - model parameters
 - schema and environment tags used by the monitoring contract
@@ -96,6 +95,8 @@ For the training side, the easiest things to inspect in the UI are:
 - metrics
 - params
 - `model/`
+- `data/train.csv`
+- `data/eval.csv`
 - `data/summary.json`
 - `data/sample_rows.json`
 
@@ -149,6 +150,7 @@ Open `training/fraud_model` and verify:
 - the four training runs exist
 - each run has metrics and params
 - each run has a `model/` artifact tree
+- each run has `data/train.csv` and `data/eval.csv`
 - each run has `data/summary.json` and `data/sample_rows.json`
 
 ### Monitoring Experiment

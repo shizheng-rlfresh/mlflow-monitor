@@ -8,11 +8,7 @@ from pathlib import Path
 from types import ModuleType
 
 import mlflow
-import pytest
 from mlflow import MlflowClient
-
-pytest.importorskip("sklearn")
-pytestmark = pytest.mark.demo
 
 
 def _load_demo_setup_module() -> ModuleType:
@@ -117,8 +113,10 @@ def test_seed_demo_training_runs_logs_expected_metrics_tags_and_artifacts(
     assert fail.data.tags["data_scope"] == comparable.data.tags["data_scope"]
 
     artifact_paths = _list_artifact_paths(client, comparable_run.run_id)
+    assert "data/eval.csv" in artifact_paths
     assert "data/sample_rows.json" in artifact_paths
     assert "data/summary.json" in artifact_paths
+    assert "data/train.csv" in artifact_paths
     assert any(path.startswith("model/") for path in artifact_paths)
 
 

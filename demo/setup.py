@@ -2,25 +2,13 @@
 
 from __future__ import annotations
 
-import tempfile
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import mlflow
-import mlflow.sklearn
-import numpy as np
 from mlflow import MlflowClient
-from sklearn.datasets import make_classification
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
-from sklearn.model_selection import train_test_split
 
 DEMO_EXPERIMENT_NAME = "training/fraud_model"
 DEMO_SUBJECT_ID = "fraud_model"
@@ -44,6 +32,7 @@ SCENARIO_RUN_NAMES = {
     "warning_candidate": "fraud-model-env-shift-v3",
     "non_comparable_candidate": "fraud-model-schema-shift-v4",
 }
+ASSET_ROOT = Path(__file__).resolve().parent / "seed_assets"
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,86 +52,94 @@ class SeededDemo:
     training_runs: tuple[SeededTrainingRun, ...]
 
 
-def _build_dataset() -> tuple[np.ndarray, np.ndarray]:
-    """Return deterministic toy fraud-like classification data."""
-    features, target = make_classification(
-        n_samples=600,
-        n_features=len(FEATURE_COLUMNS),
-        n_informative=4,
-        n_redundant=1,
-        n_clusters_per_class=2,
-        weights=[0.92, 0.08],
-        class_sep=1.1,
-        random_state=48,
-    )
-    return features, target
-
-
-def _dataset_summary(
-    *,
-    features: np.ndarray,
-    target: np.ndarray,
-    split: dict[str, int],
-) -> dict[str, Any]:
-    """Return one small JSON summary artifact for the dataset."""
-    positive_rate = float(target.mean())
-    return {
-        "rows": int(features.shape[0]),
-        "columns": list(FEATURE_COLUMNS),
-        "positive_rate": round(positive_rate, 4),
-        "split": split,
-    }
-
-
-def _sample_rows(features: np.ndarray, target: np.ndarray) -> list[dict[str, float | int]]:
-    """Return a few sample rows as JSON-friendly dictionaries."""
-    rows: list[dict[str, float | int]] = []
-    for feature_row, label in zip(features[:5], target[:5], strict=False):
-        row = {
-            feature_name: round(float(value), 4)
-            for feature_name, value in zip(FEATURE_COLUMNS, feature_row, strict=True)
-        }
-        row["is_fraud"] = int(label)
-        rows.append(row)
-    return rows
-
-
 def _scenario_configs() -> tuple[dict[str, Any], ...]:
     """Return the seeded run scenarios in execution order."""
     return (
         {
             "scenario_name": "baseline",
             "run_name": SCENARIO_RUN_NAMES["baseline"],
-            "model_params": {"C": 1.0, "max_iter": 400, "random_state": 11},
-            "python_version": "3.12",
-            "sklearn_version": "1.7.1",
+            "metrics": {
+                "accuracy": 0.9521,
+                "auc": 0.9784,
+                "f1": 0.7619,
+                "precision": 0.8,
+                "recall": 0.7273,
+            },
+            "model_params": {
+                "model_type": "pyfunc_fraud_score",
+                "score_threshold": 0.55,
+                "model_revision": "baseline-v1",
+            },
+            "environment_tags": {
+                "python_version": "3.12",
+                "model_runtime": "mlflow.pyfunc",
+            },
             "data_scope": "transactions_2026_q1",
             "schema_overrides": {},
         },
         {
             "scenario_name": "comparable_candidate",
             "run_name": SCENARIO_RUN_NAMES["comparable_candidate"],
-            "model_params": {"C": 0.8, "max_iter": 400, "random_state": 22},
-            "python_version": "3.12",
-            "sklearn_version": "1.7.1",
+            "metrics": {
+                "accuracy": 0.9564,
+                "auc": 0.9812,
+                "f1": 0.7826,
+                "precision": 0.8182,
+                "recall": 0.75,
+            },
+            "model_params": {
+                "model_type": "pyfunc_fraud_score",
+                "score_threshold": 0.56,
+                "model_revision": "candidate-v2",
+            },
+            "environment_tags": {
+                "python_version": "3.12",
+                "model_runtime": "mlflow.pyfunc",
+            },
             "data_scope": "transactions_2026_q1",
             "schema_overrides": {},
         },
         {
             "scenario_name": "warning_candidate",
             "run_name": SCENARIO_RUN_NAMES["warning_candidate"],
-            "model_params": {"C": 1.2, "max_iter": 450, "random_state": 33},
-            "python_version": "3.13",
-            "sklearn_version": "1.8.0",
+            "metrics": {
+                "accuracy": 0.9543,
+                "auc": 0.9798,
+                "f1": 0.7727,
+                "precision": 0.8095,
+                "recall": 0.7391,
+            },
+            "model_params": {
+                "model_type": "pyfunc_fraud_score",
+                "score_threshold": 0.57,
+                "model_revision": "env-shift-v3",
+            },
+            "environment_tags": {
+                "python_version": "3.13",
+                "model_runtime": "mlflow.pyfunc",
+            },
             "data_scope": "transactions_2026_q1",
             "schema_overrides": {},
         },
         {
             "scenario_name": "non_comparable_candidate",
             "run_name": SCENARIO_RUN_NAMES["non_comparable_candidate"],
-            "model_params": {"C": 1.1, "max_iter": 450, "random_state": 44},
-            "python_version": "3.12",
-            "sklearn_version": "1.7.1",
+            "metrics": {
+                "accuracy": 0.9415,
+                "auc": 0.9688,
+                "f1": 0.72,
+                "precision": 0.75,
+                "recall": 0.6923,
+            },
+            "model_params": {
+                "model_type": "pyfunc_fraud_score",
+                "score_threshold": 0.54,
+                "model_revision": "schema-shift-v4",
+            },
+            "environment_tags": {
+                "python_version": "3.12",
+                "model_runtime": "mlflow.pyfunc",
+            },
             "data_scope": "transactions_2026_q1",
             "schema_overrides": {"transaction_amount": "int"},
         },
@@ -169,8 +166,50 @@ def resolve_effective_tracking_uri(tracking_uri: str | None = None) -> str | Non
     return active_tracking_uri or None
 
 
+def _asset_dir_for_scenario(scenario_name: str) -> Path:
+    """Return the checked-in asset directory for one demo scenario."""
+    return ASSET_ROOT / scenario_name
+
+
+def _load_csv_rows(csv_path: Path) -> list[dict[str, str]]:
+    """Load CSV rows as dictionaries."""
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _dataset_summary(
+    train_rows: list[dict[str, str]],
+    eval_rows: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Return one small JSON summary artifact for the checked-in dataset."""
+    all_rows = train_rows + eval_rows
+    positive_labels = sum(int(row["is_fraud"]) for row in all_rows)
+    return {
+        "rows": len(all_rows),
+        "columns": list(FEATURE_COLUMNS),
+        "positive_rate": round(positive_labels / len(all_rows), 4),
+        "split": {"train_rows": len(train_rows), "eval_rows": len(eval_rows)},
+    }
+
+
+def _sample_rows(eval_rows: list[dict[str, str]]) -> list[dict[str, float | int]]:
+    """Return a few eval rows as JSON-friendly dictionaries."""
+    sampled_rows: list[dict[str, float | int]] = []
+    for raw_row in eval_rows[:5]:
+        row: dict[str, float | int] = {}
+        for feature_name in FEATURE_COLUMNS:
+            value = raw_row[feature_name]
+            if feature_name in {"account_age_days", "country_match", "device_velocity_24h"}:
+                row[feature_name] = int(float(value))
+            else:
+                row[feature_name] = round(float(value), 4)
+        row["is_fraud"] = int(raw_row["is_fraud"])
+        sampled_rows.append(row)
+    return sampled_rows
+
+
 def seed_demo_training_runs(tracking_uri: str | None = None) -> SeededDemo:
-    """Train and log the fraud-model demo runs into MLflow."""
+    """Log the checked-in fraud-model demo runs into MLflow."""
     effective_tracking_uri = resolve_effective_tracking_uri(tracking_uri)
     previous_tracking_uri = mlflow.get_tracking_uri()
 
@@ -188,73 +227,37 @@ def seed_demo_training_runs(tracking_uri: str | None = None) -> SeededDemo:
         else:
             experiment_id = experiment.experiment_id
 
-        features, target = _build_dataset()
-        train_x, eval_x, train_y, eval_y = train_test_split(
-            features,
-            target,
-            test_size=0.25,
-            stratify=target,
-            random_state=7,
-        )
-        summary = _dataset_summary(
-            features=features,
-            target=target,
-            split={"train_rows": int(train_x.shape[0]), "eval_rows": int(eval_x.shape[0])},
-        )
-        sample_rows = _sample_rows(eval_x, eval_y)
-
         seeded_runs: list[SeededTrainingRun] = []
         for config in _scenario_configs():
-            model = LogisticRegression(
-                C=config["model_params"]["C"],
-                max_iter=config["model_params"]["max_iter"],
-                random_state=config["model_params"]["random_state"],
-                solver="liblinear",
-            )
-            model.fit(train_x, train_y)
-            predicted = model.predict(eval_x)
-            probabilities = model.predict_proba(eval_x)[:, 1]
-
-            metrics = {
-                "accuracy": round(float(accuracy_score(eval_y, predicted)), 4),
-                "auc": round(float(roc_auc_score(eval_y, probabilities)), 4),
-                "f1": round(float(f1_score(eval_y, predicted, zero_division=0)), 4),
-                "precision": round(float(precision_score(eval_y, predicted, zero_division=0)), 4),
-                "recall": round(float(recall_score(eval_y, predicted, zero_division=0)), 4),
-            }
+            asset_dir = _asset_dir_for_scenario(config["scenario_name"])
+            train_rows = _load_csv_rows(asset_dir / "train.csv")
+            eval_rows = _load_csv_rows(asset_dir / "eval.csv")
+            summary = _dataset_summary(train_rows, eval_rows)
+            sample_rows = _sample_rows(eval_rows)
             schema = {feature_name: "float" for feature_name in FEATURE_COLUMNS}
             schema.update(config["schema_overrides"])
 
             with mlflow.start_run(experiment_id=experiment_id, run_name=config["run_name"]) as run:
                 mlflow.log_params(
                     {
-                        "model_type": "logistic_regression",
                         "feature_columns": ",".join(FEATURE_COLUMNS),
-                        "C": config["model_params"]["C"],
-                        "max_iter": config["model_params"]["max_iter"],
-                        "random_state": config["model_params"]["random_state"],
+                        **config["model_params"],
                     }
                 )
-                mlflow.log_metrics(metrics)
+                mlflow.log_metrics(config["metrics"])
                 mlflow.set_tags(
                     {
-                        "python_version": config["python_version"],
-                        "sklearn_version": config["sklearn_version"],
                         "data_scope": config["data_scope"],
+                        **config["environment_tags"],
                     }
                 )
                 for key, value in schema.items():
                     mlflow.set_tag(f"schema.{key}", value)
+                mlflow.log_artifact(str(asset_dir / "train.csv"), artifact_path="data")
+                mlflow.log_artifact(str(asset_dir / "eval.csv"), artifact_path="data")
                 mlflow.log_dict(summary, "data/summary.json")
                 mlflow.log_dict(sample_rows, "data/sample_rows.json")
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    model_dir = Path(tmp_dir) / "model"
-                    mlflow.sklearn.save_model(
-                        sk_model=model,
-                        path=str(model_dir),
-                        input_example=eval_x[:5],
-                    )
-                    mlflow.log_artifacts(str(model_dir), artifact_path="model")
+                mlflow.log_artifacts(str(asset_dir / "model"), artifact_path="model")
 
                 seeded_runs.append(
                     SeededTrainingRun(
@@ -278,8 +281,9 @@ def _print_demo_instructions(seeded: SeededDemo) -> None:
     for run in seeded.training_runs:
         print(f"- {run.scenario_name}: {run.run_name} -> {run.run_id}")
     print()
-    print("Next step:")
-    print("uv run demo/run_monitoring.py")
+    print("Next step: run the monitoring step against the same tracking store.")
+    print("Example:")
+    print("MLFLOW_TRACKING_URI=sqlite:///./.mlflow-dev/mlflow.db uv run demo/run_monitoring.py")
     print()
     print("Expected monitoring outcomes:")
     print("- comparable_candidate -> pass")

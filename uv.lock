@@ -908,9 +908,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-demo = [
-    { name = "scikit-learn" },
-]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
@@ -921,9 +918,8 @@ requires-dist = [
     { name = "mlflow" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "scikit-learn", marker = "extra == 'demo'" },
 ]
-provides-extras = ["dev", "demo"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "mlflow-skinny"
