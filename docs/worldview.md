@@ -70,7 +70,6 @@ flowchart TD
     LKG --> Promotion
 ```
 
-
 This is not just a data-flow diagram. It is the system’s conceptual universe.
 
 - A **subject** is the stable thing a team believes it is monitoring.
