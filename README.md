@@ -14,7 +14,7 @@ What that means in practice:
 For the design philosophy and world model behind these choices, see [docs/worldview.md](docs/worldview.md).
 
 <p align="center">
-  <img src="assets/system_diagram.png" alt="MLflow-Monitor overview" width="500">
+  <img src="assets/system_diagram_v3.jpg" alt="MLflow-Monitor overview" width="500">
 </p>
 
 ## Current Status
@@ -29,7 +29,7 @@ Early alpha. The shipped runtime covers the first three stages of the monitoring
 
 The later lifecycle stages (analyze, close, diff, findings, LKG promotion) are designed but not yet in the runtime.
 
-This is a repo-first alpha: clone the repository, sync the environment with `uv`, and run the demo or SDK from source.
+This is a repo-first alpha: clone the repository, sync the environment with `uv`, and run the demo or Python API from source.
 
 ## Architecture
 
@@ -68,9 +68,9 @@ On later runs for the same subject, omit `--baseline` and the pinned baseline wi
 be reused automatically.
 
 The CLI is repo-local for now. It is intended to be run from this checkout with
-`uv run`, using the same MLflow environment/default resolution as the Python SDK.
+`uv run`, using the same MLflow environment/default resolution as the Python API.
 
-## Python SDK
+## Python API
 
 ```python
 from mlflow_monitor import monitor

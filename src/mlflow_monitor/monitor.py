@@ -1,4 +1,4 @@
-"""Public SDK facade for the current monitoring workflow."""
+"""Public Python API facade for the current monitoring workflow."""
 
 from __future__ import annotations
 

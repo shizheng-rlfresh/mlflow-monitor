@@ -1,4 +1,4 @@
-"""Integration tests for the public monitor SDK facade."""
+"""Integration tests for the public monitor Python API facade."""
 
 from __future__ import annotations
 

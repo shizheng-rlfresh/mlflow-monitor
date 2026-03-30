@@ -6,8 +6,8 @@ Training runs remain the source of truth for model artifacts and training metada
 
 ```mermaid
 flowchart LR
-    Caller["Caller / SDK user"] --> SDK["monitor.run(...)"]
-    SDK --> Create
+    PythonAPI["monitor.run(...)"]
+    PythonAPI --> Create
 
     subgraph Training["Training Side"]
         TrainExp[("MLflow: {Training Experiment}")]
