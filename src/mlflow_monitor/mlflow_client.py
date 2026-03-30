@@ -20,7 +20,7 @@ What does not belong here:
 - Workflow or orchestration logic
 - Monitoring domain policy
 - Broader query functionality such as run search
-- Public SDK configuration policy beyond accepting an optional tracking URI
+- Public Python API configuration policy beyond accepting an optional tracking URI
 """
 
 from __future__ import annotations

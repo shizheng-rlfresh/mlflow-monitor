@@ -1,4 +1,4 @@
-"""Canonical synchronous result contract for SDK and CLI outputs."""
+"""Canonical synchronous result contract for Python API and CLI outputs."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ class MonitorRunError:
 
 @dataclass(frozen=True, slots=True)
 class MonitorRunResult:
-    """Canonical SDK/CLI run result envelope.
+    """Canonical Python API/CLI run result envelope.
 
     Attributes:
         monitoring_run_id: Unique monitoring run identifier.
