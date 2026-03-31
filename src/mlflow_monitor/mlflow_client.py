@@ -191,7 +191,7 @@ class MonitorMLflowClient:
             source_run_name: Optional source training run name.
 
         Returns:
-            The raw MLflow `RunInfo` for the new monitoring run.
+            MonitoringRunInfo for the created monitoring run.
         """
         run = self._client.create_run(experiment_id, tags=dict(tags), run_name=source_run_name)
         return MonitoringRunInfo(run_id=run.info.run_id, run_name=run.info.run_name)
