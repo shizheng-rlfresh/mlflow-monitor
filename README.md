@@ -45,32 +45,9 @@ cd mlflow-monitor
 uv sync
 ```
 
-Start a local MLflow UI in one terminal:
-
-```bash
-uv run mlflow ui --port 5000 --backend-store-uri sqlite:///$PWD/.mlflow-dev/mlflow.db
-```
-
 Then follow the walkthrough in [demo/README.md](demo/README.md) for the full setup and monitoring commands.
 
-## CLI
-
-The repo includes a local CLI entrypoint for the current MVP monitoring slice:
-
-```bash
-uv run mlflow-monitor run \
-  --subject fraud_model \
-  --source-run training_run_id \
-  --baseline baseline_run_id
-```
-
-On later runs for the same subject, omit `--baseline` and the pinned baseline will
-be reused automatically.
-
-The CLI is repo-local for now. It is intended to be run from this checkout with
-`uv run`, using the same MLflow environment/default resolution as the Python API.
-
-## Python API
+## How to Use
 
 ```python
 from mlflow_monitor import monitor
@@ -91,14 +68,6 @@ The `baseline_source_run_id` is required on the first run for a subject. Later r
 
 ```bash
 uv sync --extra dev
-uv run pytest
-uv run ruff check .
-```
-
-Focused CLI verification:
-
-```bash
-uv run --extra dev pytest tests/test_cli.py
 ```
 
 ## Why This Project Exists
