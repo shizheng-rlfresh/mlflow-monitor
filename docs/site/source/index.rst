@@ -6,13 +6,12 @@
 Internal Developer Docs
 =======================
 
-Local documentation site for codebase navigation and development.
+Local documentation site for development of MLflow-Monitor.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-   overview
+   worldview
    architecture
-   module_map
    api

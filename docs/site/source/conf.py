@@ -13,11 +13,9 @@ release = "0.1.0"
 
 autodoc_mock_imports = ["haystack"]
 
-extensions = [
-    "myst_parser",
-    "sphinx.ext.autodoc",
-    "sphinx.ext.napoleon",
-]
+extensions = ["myst_parser", "sphinx.ext.autodoc", "sphinx.ext.napoleon", "sphinxcontrib.mermaid"]
+
+myst_fence_as_directive = ["mermaid"]
 
 templates_path = ["_templates"]
 exclude_patterns = []
