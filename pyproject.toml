@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mlflow-monitor"
 version = "0.1.0"
-description = "Baseline-aware model monitoring for MLflow"
+description = "ML monitoring as a first-class workflow, built on MLflow."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
