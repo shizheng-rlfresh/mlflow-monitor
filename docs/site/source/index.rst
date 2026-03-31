@@ -8,6 +8,15 @@ Internal Developer Docs
 
 Local documentation site for development of MLflow-Monitor.
 
+Diagram
+-------
+
+.. image:: _static/system_diagram_v3.jpg
+   :alt: MLflow-Monitor system diagram
+   :width: 400px
+   :align: center
+
+
 Concepts
 --------
 

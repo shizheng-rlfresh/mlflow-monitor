@@ -14,7 +14,7 @@ What that means in practice:
 For the design philosophy and world model behind these choices, see [docs/worldview.md](docs/site/source/worldview.md).
 
 <p align="center">
-  <img src="assets/system_diagram_v3.jpg" alt="MLflow-Monitor overview" width="500">
+  <img src="docs/site/source/_static/system_diagram_v3.jpg" alt="MLflow-Monitor overview" width="500">
 </p>
 
 ## Current Status
