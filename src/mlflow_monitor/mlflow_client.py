@@ -26,6 +26,7 @@ What does not belong here:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from mlflow import MlflowClient
@@ -46,6 +47,14 @@ def _normalize_error_code(error_code: object) -> str | None:
     if error_code == RESOURCE_DOES_NOT_EXIST:
         return _RESOURCE_DOES_NOT_EXIST
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class MonitoringRunInfo:
+    """Plain wrapper around the run identifier and name."""
+
+    run_id: str
+    run_name: str | None
 
 
 class MonitorMLflowClient:
@@ -171,18 +180,21 @@ class MonitorMLflowClient:
         """
         self._client.set_experiment_tag(experiment_id, key, value)
 
-    def create_monitoring_run(self, experiment_id: str, tags: Mapping[str, str]) -> str:
+    def create_monitoring_run(
+        self, experiment_id: str, tags: Mapping[str, str], source_run_name: str | None = None
+    ) -> MonitoringRunInfo:
         """Create a monitoring-owned run and return its MLflow run id.
 
         Args:
             experiment_id: Experiment that will own the run.
             tags: Initial run tags to apply at create time.
+            source_run_name: Optional source training run name.
 
         Returns:
-            The MLflow-assigned `monitoring_run_id` for the created run.
+            The raw MLflow `RunInfo` for the new monitoring run.
         """
-        run = self._client.create_run(experiment_id, tags=dict(tags))
-        return run.info.run_id
+        run = self._client.create_run(experiment_id, tags=dict(tags), run_name=source_run_name)
+        return MonitoringRunInfo(run_id=run.info.run_id, run_name=run.info.run_name)
 
     def get_run(self, run_id: str) -> Run | None:
         """Return any MLflow run, or `None` when MLflow reports it as missing.
@@ -239,6 +251,20 @@ class MonitorMLflowClient:
         """
         for key, value in tags.items():
             self._client.set_tag(monitoring_run_id, key, value)
+
+    def get_run_name(self, run_id: str) -> str | None:
+        """Return run name as a string.
+
+        Args:
+            run_id: Training or monitoring run identifier to inspect.
+
+        Returns:
+            The run name. Missing runs normalize to `None`.
+        """
+        run = self.get_run(run_id)
+        if run is None:
+            return
+        return run.info.run_name
 
     def get_run_metrics(self, run_id: str) -> dict[str, float]:
         """Return run metrics as a plain dictionary.

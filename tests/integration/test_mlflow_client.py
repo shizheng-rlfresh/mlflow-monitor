@@ -72,12 +72,12 @@ def test_get_or_create_monitoring_experiment_restores_deleted_experiment(
         "recoverable-monitoring",
         artifact_location="file:///ignored-after-restore",
     )
-    monitoring_run_id = client.create_monitoring_run(restored_experiment_id, tags={})
+    monitoring_run_info = client.create_monitoring_run(restored_experiment_id, tags={})
     restored = raw.get_experiment(restored_experiment_id)
 
     assert restored_experiment_id == experiment_id
     assert restored.lifecycle_stage == "active"
-    assert client.get_run(monitoring_run_id) is not None
+    assert client.get_run(monitoring_run_info.run_id) is not None
 
 
 def test_get_or_create_monitoring_experiment_restores_deleted_experiment_after_duplicate_race(
@@ -137,10 +137,12 @@ def test_create_run_and_read_run_data(tracking_uri: str, artifact_root_uri: str)
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_monitoring_run(
+    monitoring_run_info = client.create_monitoring_run(
         experiment_id,
         tags={"training.source_run_id": "train-run-1"},
     )
+
+    monitoring_run_id = monitoring_run_info.run_id
 
     raw.log_metric(monitoring_run_id, "f1", 0.91)
     raw.log_param(monitoring_run_id, "feature_columns", "age,income")
@@ -169,7 +171,9 @@ def test_set_tags_updates_run_tags(tracking_uri: str, artifact_root_uri: str) ->
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
+    monitoring_run_info = client.create_monitoring_run(experiment_id, tags={})
+
+    monitoring_run_id = monitoring_run_info.run_id
 
     client.set_monitoring_run_tags(
         monitoring_run_id,
@@ -195,7 +199,9 @@ def test_terminate_run_sets_expected_status(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
+    monitoring_run_info = client.create_monitoring_run(experiment_id, tags={})
+
+    monitoring_run_id = monitoring_run_info.run_id
 
     client.terminate_monitoring_run(monitoring_run_id, status)
 
@@ -213,8 +219,9 @@ def test_terminate_run_rejects_unknown_status(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
+    monitoring_run_info = client.create_monitoring_run(experiment_id, tags={})
 
+    monitoring_run_id = monitoring_run_info.run_id
     with pytest.raises(ValueError, match="FINISHED or FAILED"):
         client.terminate_monitoring_run(
             monitoring_run_id,
@@ -231,7 +238,9 @@ def test_list_artifact_paths_returns_recursive_sorted_paths(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
+    monitoring_run_info = client.create_monitoring_run(experiment_id, tags={})
+
+    monitoring_run_id = monitoring_run_info.run_id
 
     client.log_monitoring_run_json_artifact(
         monitoring_run_id,
@@ -260,7 +269,9 @@ def test_log_json_artifact_writes_requested_json_path(
         "churn-monitoring",
         artifact_location=artifact_root_uri,
     )
-    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={})
+    monitoring_run_info = client.create_monitoring_run(experiment_id, tags={})
+
+    monitoring_run_id = monitoring_run_info.run_id
 
     client.log_monitoring_run_json_artifact(
         monitoring_run_id,
