@@ -21,6 +21,13 @@ dev = [
 [project.scripts]
 mlflow-monitor = "mlflow_monitor.cli:main"
 
+[dependency-groups]
+doc = [
+    "sphinx",
+    "myst-parser",
+    "furo",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mlflow_monitor"]
 
