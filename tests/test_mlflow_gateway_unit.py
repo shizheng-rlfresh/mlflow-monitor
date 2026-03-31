@@ -9,6 +9,7 @@ import pytest
 from mlflow_monitor.domain import LifecycleStatus
 from mlflow_monitor.errors import GatewayNamespaceViolation
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
+from mlflow_monitor.mlflow_client import MonitoringRunInfo
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 
@@ -44,7 +45,9 @@ def test_create_or_reuse_monitoring_run_writes_idempotency_tag_last() -> None:
     stub_client = MagicMock()
     stub_client.get_monitoring_experiment_tags.return_value = {}
     stub_client.get_or_create_monitoring_experiment.return_value = "experiment-1"
-    stub_client.create_monitoring_run.return_value = "monitoring-run-1"
+    stub_client.create_monitoring_run.return_value = MonitoringRunInfo(
+        run_id="monitoring-run-1", run_name="monitoring-run-1"
+    )
 
     with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())

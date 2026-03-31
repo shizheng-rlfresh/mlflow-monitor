@@ -151,9 +151,10 @@ class MLflowMonitoringGateway:
                 )
 
         sequence_index = self._read_next_sequence_index(experiment_tags)
+        source_run_name = self._mlflow.get_run_name(key.source_run_id)
         # MLflow assigns the monitoring run id, so the gateway has to create the
         # run before it can finish updating the experiment-level timeline index.
-        monitoring_run_id = self._mlflow.create_monitoring_run(
+        monitoring_run_info = self._mlflow.create_monitoring_run(
             experiment_id,
             tags={
                 _SOURCE_RUN_TAG: key.source_run_id,
@@ -162,18 +163,19 @@ class MLflowMonitoringGateway:
                 _RECIPE_ID_TAG: key.recipe_id,
                 _RECIPE_VERSION_TAG: key.recipe_version,
             },
+            source_run_name=source_run_name,
         )
         self._set_experiment_tags(
             experiment_id,
             {
-                f"{_RUN_TAG_PREFIX}{sequence_index}": monitoring_run_id,
-                _LATEST_TAG: monitoring_run_id,
+                f"{_RUN_TAG_PREFIX}{sequence_index}": monitoring_run_info.run_id,
+                _LATEST_TAG: monitoring_run_info.run_id,
                 _NEXT_SEQUENCE_TAG: str(sequence_index + 1),
-                idempotency_tag: monitoring_run_id,
+                idempotency_tag: monitoring_run_info.run_id,
             },
         )
         return CreateOrReuseMonitoringRunResult(
-            monitoring_run_id=monitoring_run_id,
+            monitoring_run_id=monitoring_run_info.run_id,
             sequence_index=sequence_index,
             existing_monitoring_run=None,
             allocated=True,
