@@ -51,7 +51,12 @@ def _normalize_error_code(error_code: object) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class MonitoringRunInfo:
-    """Plain wrapper around the run identifier and name."""
+    """Plain wrapper around the run identifier and name.
+
+    Attributes:
+        run_id: MLflow run identifier.
+        run_name: MLflow run name.
+    """
 
     run_id: str
     run_name: str | None
