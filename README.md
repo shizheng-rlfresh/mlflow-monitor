@@ -11,7 +11,7 @@ What that means in practice:
 - Traceable state from evidence gathering through findings
 - Monitoring history persisted in MLflow, separate from training
 
-For the design philosophy and world model behind these choices, see [docs/worldview.md](docs/worldview.md).
+For the design philosophy and world model behind these choices, see [docs/worldview.md](docs/site/source/worldview.md).
 
 <p align="center">
   <img src="assets/system_diagram_v3.jpg" alt="MLflow-Monitor overview" width="500">
@@ -33,7 +33,7 @@ This is a repo-first alpha: clone the repository, sync the environment with `uv`
 
 ## Architecture
 
-For a closer look at how the system is structured, including the layering between orchestration, workflow, and the MLflow gateway, see [docs/architecture.md](docs/architecture.md).
+For a closer look at how the system is structured, including the layering between orchestration, workflow, and the MLflow gateway, see [docs/architecture.md](docs/site/source/architecture.md).
 
 ## Try It
 

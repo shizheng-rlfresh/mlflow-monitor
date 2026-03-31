@@ -1,5 +1,5 @@
-CAST
-====
+Core Actors and State Transitions
+=================================
 
 Domain
 ------

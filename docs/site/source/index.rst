@@ -8,10 +8,27 @@ Internal Developer Docs
 
 Local documentation site for development of MLflow-Monitor.
 
+Concepts
+--------
+
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 1
+   :titlesonly:
 
    worldview
    architecture
-   api
+
+Code Structure
+--------------
+
+.. toctree::
+   :maxdepth: 1
+
+   monitoring
+   cast
+   recipe
+   contract
+   gateway
+   client
+   workflow
+   errors
