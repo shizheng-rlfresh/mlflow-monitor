@@ -2,14 +2,14 @@
 
 ML monitoring as a first-class workflow, built on MLflow.
 
-MLflow-Monitor treats monitoring as a structured, traceable process rather than ad hoc metric checks. It reads existing MLflow training runs, validates the conditions that make comparison meaningful, and stores monitoring state in its own namespace. Training runs stay read-only.
+MLflow-Monitor reads existing MLflow training runs, checks whether comparison is meaningful, and stores monitoring state in its own namespace. Training runs stay read-only.
 
 What that means in practice:
 
-- Evidence-based comparability checks before any metric interpretation
-- Baseline-pinned timelines with structured monitoring lifecycle
-- Traceable state from evidence gathering through findings
-- Monitoring history persisted in MLflow, separate from training
+- Comparability checks before metric interpretation
+- Baseline-pinned monitoring timelines
+- Traceable monitoring state and history in MLflow
+- Monitoring kept separate from training
 
 For the design philosophy and world model behind these choices, see [docs/worldview.md](docs/site/source/worldview.md).
 
@@ -17,23 +17,13 @@ For the design philosophy and world model behind these choices, see [docs/worldv
   <img src="docs/site/source/_static/system_diagram_v3.jpg" alt="MLflow-Monitor overview" width="500">
 </p>
 
-## Current Status
+## Why This Project Exists
 
-Early alpha. The shipped runtime covers the first three stages of the monitoring lifecycle: create, prepare, and check. This means:
+MLflow tracks training runs well, but it does not provide a structured layer for deciding whether a new run is meaningfully comparable to a trusted baseline over time.
 
-- First-run bootstrap with an explicit baseline
-- Later runs that reuse the pinned baseline
-- Comparability verdicts of `pass`, `warn`, and `fail` against real MLflow
-- Persisted monitoring runs with `outputs/result.json` artifacts
-- Read-only treatment of training experiments throughout
+In practice, teams often fill that gap with ad hoc scripts, naming conventions, and manual checks. As systems grow, those checks become harder to trust, harder to trace, and harder to reproduce.
 
-The later lifecycle stages (analyze, close, diff, findings, LKG promotion) are designed but not yet in the runtime.
-
-This is a repo-first alpha: clone the repository, sync the environment with `uv`, and run the demo or Python API from source.
-
-## Architecture
-
-For a closer look at how the system is structured, including the layering between orchestration, workflow, and the MLflow gateway, see [docs/architecture.md](docs/site/source/architecture.md).
+MLflow-Monitor exists to make that monitoring step explicit. It treats monitoring as a first-class workflow with its own lifecycle, state, and persistence inside MLflow, while keeping training runs read-only.
 
 ## Try It
 
@@ -64,19 +54,30 @@ print(result.comparability_status)
 
 The `baseline_source_run_id` is required on the first run for a subject. Later runs reuse the pinned baseline automatically.
 
+
+## Current Status
+
+Early alpha. The shipped runtime covers the first three stages of the monitoring lifecycle: create, prepare, and check. This means:
+
+- First-run bootstrap with an explicit baseline
+- Later runs that reuse the pinned baseline
+- Comparability verdicts of `pass`, `warn`, and `fail` against real MLflow
+- Persisted monitoring runs with `outputs/result.json` artifacts
+- Read-only treatment of training experiments throughout
+
+The later lifecycle stages (analyze, close, diff, findings, LKG promotion) are designed but not yet in the runtime.
+
+This is a repo-first alpha: clone the repository, sync the environment with `uv`, and run the demo or Python API from source.
+
+## Architecture
+
+For a closer look at how the system is structured, including the layering between orchestration, workflow, and the MLflow gateway, see [docs/architecture.md](docs/site/source/architecture.md).
+
 ## Development Setup
 
 ```bash
 uv sync --extra dev
 ```
-
-## Why This Project Exists
-
-MLflow does a good job tracking training runs, metrics, params, and artifacts. What it doesn't provide is a structured layer for what happens after training: deciding whether a new run is actually comparable to the one you trust, and building a traceable record of that evaluation over time.
-
-In practice, teams fill this gap with ad hoc scripts, naming conventions, and manual checks. That works for a while. At scale, the naming conventions drift, the comparability logic scatters across notebooks and pipelines, and the monitoring history lives nowhere durable.
-
-MLflow-Monitor exists to close that gap. It treats monitoring as a repeatable workflow with its own lifecycle, its own state, and its own namespace inside MLflow. The training side stays untouched. The monitoring side is structured enough to answer questions like: is this run comparable to the baseline? What happened on the last monitoring check? What changed?
 
 ## License
 
