@@ -1,4 +1,10 @@
 # Worldview
+<p align="center">
+<img src="_static/worldview.png" alt="MLflow-Monitor overview" width="500" align="center"></p>
+
+<br>
+
+## Overview
 
 MLflow-Monitor starts from a simple observation:
 
@@ -27,10 +33,6 @@ These principles shape a natural order of operations:
 That ordering is the core design intuition behind MLflow-Monitor.
 
 ## The World Model
-
-<p align="center">
-  <img src="../assets/worldview.png" alt="MLflow-Monitor overview" width="500">
-</p>
 
 The system is easiest to understand as a set of first-class citizens that work together. The diagram below captures the canonical conceptual map between them.
 

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mlflow-monitor"
 version = "0.1.0"
-description = "Baseline-aware model monitoring for MLflow"
+description = "ML monitoring as a first-class workflow, built on MLflow."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -20,6 +20,14 @@ dev = [
 
 [project.scripts]
 mlflow-monitor = "mlflow_monitor.cli:main"
+
+[dependency-groups]
+doc = [
+    "sphinx",
+    "myst-parser",
+    "furo",
+    "sphinxcontrib-mermaid",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mlflow_monitor"]

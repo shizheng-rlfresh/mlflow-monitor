@@ -27,5 +27,8 @@ mlruns/
 artifacts/
 mlflow.db
 
+# local docs build
+docs/site/build
+
 # OS noise
 .DS_Store
