@@ -9,7 +9,7 @@ description = "ML monitoring as a first-class workflow, built on MLflow."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "mlflow",
+    "mlflow>=3.11.0",
 ]
 
 [project.optional-dependencies]
