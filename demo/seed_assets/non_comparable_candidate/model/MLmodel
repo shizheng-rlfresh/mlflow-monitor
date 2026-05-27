@@ -10,7 +10,7 @@ flavors:
     python_version: 3.12.12
     streamable: false
 is_signature_from_type_hint: false
-mlflow_version: 3.10.1
+mlflow_version: 3.12.0
 model_id: null
 model_size_bytes: 3806
 model_uuid: 8be0f9faaa7d4226ba929cfc58bb78e8
