@@ -171,7 +171,7 @@ def _short_circuit_existing_monitoring_run(
         return state
 
     if state.existing_monitoring_run.lifecycle_status is LifecycleStatus.FAILED:
-        return _build_failure_monitoring_run_result(
+        result = _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
             stage="prepare",
@@ -181,6 +181,11 @@ def _short_circuit_existing_monitoring_run(
             ),
             gateway=gateway,
         )
+        gateway.finalize_monitoring_run_result(
+            monitoring_run_id=state.monitoring_run_id,
+            result=result,
+        )
+        return result
 
     if state.existing_monitoring_run.contract_check_result is None:
         return state
@@ -200,12 +205,17 @@ def _short_circuit_existing_monitoring_run(
             gateway=gateway,
         )
 
-    return _build_existing_checked_monitoring_run_result(
+    result = _build_existing_checked_monitoring_run_result(
         subject_id=state.subject_id,
         monitoring_run_id=state.monitoring_run_id,
         existing_monitoring_run=state.existing_monitoring_run,
         gateway=gateway,
     )
+    gateway.finalize_monitoring_run_result(
+        monitoring_run_id=state.monitoring_run_id,
+        result=result,
+    )
+    return result
 
 
 def _run_prepare_monitoring_run_slice(
@@ -275,12 +285,17 @@ def _run_check_monitoring_run_slice(
     """Run the check slice, including persistence and success replay handling."""
     existing_run = gateway.get_monitoring_run(state.subject_id, state.monitoring_run_id)
     if existing_run is not None and existing_run.contract_check_result is not None:
-        return _build_existing_checked_monitoring_run_result(
+        result = _build_existing_checked_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
             existing_monitoring_run=existing_run,
             gateway=gateway,
         )
+        gateway.finalize_monitoring_run_result(
+            monitoring_run_id=state.monitoring_run_id,
+            result=result,
+        )
+        return result
 
     try:
         contract_check_result = execute_contract_check(

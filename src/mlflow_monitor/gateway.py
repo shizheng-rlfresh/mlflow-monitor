@@ -287,7 +287,7 @@ class MonitoringGateway(Protocol):
         monitoring_run_id: str,
         result: MonitorRunResult,
     ) -> None:
-        """Persist final result payloads and terminal monitoring-run state."""
+        """Ensure final result payloads and terminal monitoring-run state are persisted."""
         ...
 
 

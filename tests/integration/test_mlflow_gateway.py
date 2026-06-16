@@ -7,13 +7,49 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
 from mlflow import MlflowClient
 
-from mlflow_monitor.contract_checker import DefaultContractChecker
-from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus, MonitoringRunReference
+from mlflow_monitor.contract_checker import (
+    ContractEvaluationContext,
+    DefaultContractChecker,
+)
+from mlflow_monitor.domain import (
+    ComparabilityStatus,
+    Contract,
+    ContractCheckResult,
+    LifecycleStatus,
+    MonitoringRunReference,
+)
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
+from mlflow_monitor.result_contract import MonitorRunResult
+
+
+class FailingFinalizeMLflowMonitoringGateway(MLflowMonitoringGateway):
+    """Simulate finalization failure after orchestration persists terminal tags."""
+
+    def finalize_monitoring_run_result(
+        self,
+        *,
+        monitoring_run_id: str,
+        result: MonitorRunResult,
+    ) -> None:
+        _ = (monitoring_run_id, result)
+        raise RuntimeError("simulated finalization failure")
+
+
+class ExplodingContractChecker:
+    """Fail the test if checked replay re-enters contract evaluation."""
+
+    def check(
+        self,
+        contract: Contract,
+        context: ContractEvaluationContext,
+    ) -> ContractCheckResult:
+        _ = (contract, context)
+        raise AssertionError("idempotent replay must not re-run check")
 
 
 def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
@@ -86,6 +122,87 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     payload = json.loads((artifact_dir / "result.json").read_text())
     assert payload["monitoring_run_id"] == result.monitoring_run_id
     assert payload["lifecycle_status"] == "checked"
+
+
+def test_mlflow_gateway_checked_replay_repairs_incomplete_terminal_finalization(
+    tracking_uri: str,
+    artifact_root_uri: str,
+    create_training_run: Callable[..., str],
+) -> None:
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    baseline_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="baseline",
+        metrics={"f1": 0.87},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    current_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="current",
+        metrics={"f1": 0.91},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    partial_gateway = FailingFinalizeMLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated finalization failure"):
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id=current_run_id,
+            baseline_source_run_id=baseline_run_id,
+            gateway=partial_gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    experiment = raw.get_experiment_by_name("mlflow_monitor/churn_model")
+    assert experiment is not None
+    monitoring_run_id = experiment.tags[f"training.{current_run_id}.monitoring_run_id"]
+    monitoring_run_before = raw.get_run(monitoring_run_id)
+    assert monitoring_run_before.info.status == "RUNNING"
+    assert monitoring_run_before.data.tags["monitoring.lifecycle_status"] == "checked"
+    assert raw.list_artifacts(monitoring_run_id, "outputs") == []
+
+    repairing_gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+    replay = run_orchestration(
+        subject_id="churn_model",
+        source_run_id=current_run_id,
+        baseline_source_run_id=None,
+        gateway=repairing_gateway,
+        contract_checker=ExplodingContractChecker(),
+    )
+
+    monitoring_run_after = raw.get_run(monitoring_run_id)
+    artifact_dir = Path(raw.download_artifacts(monitoring_run_id, "outputs"))
+    payload = json.loads((artifact_dir / "result.json").read_text())
+
+    assert replay.monitoring_run_id == monitoring_run_id
+    assert replay.lifecycle_status is LifecycleStatus.CHECKED
+    assert replay.comparability_status is ComparabilityStatus.PASS
+    assert monitoring_run_after.info.status == "FINISHED"
+    assert payload["monitoring_run_id"] == monitoring_run_id
+    assert payload["lifecycle_status"] == "checked"
+    assert payload["comparability_status"] == "pass"
 
 
 def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
