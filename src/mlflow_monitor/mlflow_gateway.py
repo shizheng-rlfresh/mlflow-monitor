@@ -601,7 +601,7 @@ class MLflowMonitoringGateway:
         monitoring_run_id: str,
         result: MonitorRunResult,
     ) -> None:
-        """Write the final result artifact and terminate the MLflow run.
+        """Ensure the final result artifact exists and the MLflow run is terminal.
 
         Args:
             monitoring_run_id: Monitoring run id being finalized.
@@ -616,15 +616,22 @@ class MLflowMonitoringGateway:
             raise ValueError(
                 "finalize_monitoring_run_result supports only CHECKED and FAILED terminal results."
             )
-        self._mlflow.log_monitoring_run_json_artifact(
-            monitoring_run_id,
-            result.to_dict(),
-            _RESULT_ARTIFACT_PATH,
+
+        expected_mlflow_status = (
+            "FINISHED" if result.lifecycle_status is LifecycleStatus.CHECKED else "FAILED"
         )
-        if result.lifecycle_status is LifecycleStatus.CHECKED:
-            self._mlflow.terminate_monitoring_run(monitoring_run_id, "FINISHED")
-            return
-        self._mlflow.terminate_monitoring_run(monitoring_run_id, "FAILED")
+        artifact_paths = self._mlflow.list_artifact_paths(monitoring_run_id)
+        if _RESULT_ARTIFACT_PATH not in artifact_paths:
+            self._mlflow.log_monitoring_run_json_artifact(
+                monitoring_run_id,
+                result.to_dict(),
+                _RESULT_ARTIFACT_PATH,
+            )
+
+        run = self._mlflow.get_run(monitoring_run_id)
+        current_status = None if run is None else run.info.status
+        if current_status != expected_mlflow_status:
+            self._mlflow.terminate_monitoring_run(monitoring_run_id, expected_mlflow_status)
 
     def build_monitoring_namespace(self, subject_id: str) -> str:
         """Build the monitoring experiment name for one subject.

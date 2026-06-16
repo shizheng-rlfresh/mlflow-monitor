@@ -309,7 +309,7 @@ def test_run_orchestration_finalizes_newly_checked_run_once() -> None:
     assert gateway.finalized_results[0].lifecycle_status is LifecycleStatus.CHECKED
 
 
-def test_run_orchestration_checked_rerun_does_not_finalize_again() -> None:
+def test_run_orchestration_checked_rerun_finalizes_for_repair() -> None:
     gateway = FinalizingGateway(GatewayConfig())
     for source_run_id, metrics in (
         ("train-run-baseline", {"f1": 0.87}),
@@ -344,8 +344,10 @@ def test_run_orchestration_checked_rerun_does_not_finalize_again() -> None:
 
     assert second.monitoring_run_id == first.monitoring_run_id
     assert [finalized.monitoring_run_id for finalized in gateway.finalized_results] == [
-        first.monitoring_run_id
+        first.monitoring_run_id,
+        first.monitoring_run_id,
     ]
+    assert gateway.finalized_results[1].lifecycle_status is LifecycleStatus.CHECKED
 
 
 def test_run_orchestration_finalizes_owned_failure_once() -> None:
@@ -375,6 +377,46 @@ def test_run_orchestration_finalizes_owned_failure_once() -> None:
         result.monitoring_run_id
     ]
     assert gateway.finalized_results[0].lifecycle_status is LifecycleStatus.FAILED
+
+
+def test_run_orchestration_failed_rerun_finalizes_for_repair() -> None:
+    gateway = FinalizingGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-baseline",
+        source_experiment=None,
+        metrics={"f1": 0.87},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-01",
+    )
+
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-missing",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-missing",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert second.monitoring_run_id == first.monitoring_run_id
+    assert second.lifecycle_status is LifecycleStatus.FAILED
+    assert second.error is not None
+    assert second.error.code == "idempotent_run_retry_failed_terminal"
+    assert [finalized.monitoring_run_id for finalized in gateway.finalized_results] == [
+        first.monitoring_run_id,
+        first.monitoring_run_id,
+    ]
+    assert gateway.finalized_results[1].lifecycle_status is LifecycleStatus.FAILED
 
 
 def test_run_orchestration_non_comparable_check_still_returns_checked_result() -> None:

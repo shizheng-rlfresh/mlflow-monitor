@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -39,6 +40,10 @@ def _make_result(
             )
         ),
     )
+
+
+def _make_mlflow_run(status: str) -> SimpleNamespace:
+    return SimpleNamespace(info=SimpleNamespace(status=status))
 
 
 def test_create_or_reuse_monitoring_run_writes_idempotency_tag_last() -> None:
@@ -146,6 +151,72 @@ def test_finalize_monitoring_run_result_persists_artifact_and_termination(
         "monitoring-run-1",
         expected_mlflow_status,
     )
+
+
+@pytest.mark.parametrize(
+    ("lifecycle_status", "expected_mlflow_status"),
+    [
+        (LifecycleStatus.CHECKED, "FINISHED"),
+        (LifecycleStatus.FAILED, "FAILED"),
+    ],
+)
+@pytest.mark.parametrize(
+    (
+        "artifact_paths",
+        "current_mlflow_status",
+        "should_log_artifact",
+        "should_terminate",
+    ),
+    [
+        (["outputs/result.json"], "EXPECTED", False, False),
+        ([], "EXPECTED", True, False),
+        (["outputs/result.json"], "RUNNING", False, True),
+        ([], "RUNNING", True, True),
+    ],
+)
+def test_finalize_monitoring_run_result_repairs_only_missing_terminal_side_effects(
+    lifecycle_status: LifecycleStatus,
+    expected_mlflow_status: str,
+    artifact_paths: list[str],
+    current_mlflow_status: str,
+    should_log_artifact: bool,
+    should_terminate: bool,
+) -> None:
+    stub_client = MagicMock()
+    stub_client.list_artifact_paths.return_value = artifact_paths
+    stub_client.get_run.return_value = _make_mlflow_run(
+        expected_mlflow_status if current_mlflow_status == "EXPECTED" else current_mlflow_status
+    )
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    result = _make_result(
+        monitoring_run_id="monitoring-run-1",
+        lifecycle_status=lifecycle_status,
+    )
+
+    gateway.finalize_monitoring_run_result(
+        monitoring_run_id="monitoring-run-1",
+        result=result,
+    )
+
+    if should_log_artifact:
+        stub_client.log_monitoring_run_json_artifact.assert_called_once_with(
+            "monitoring-run-1",
+            result.to_dict(),
+            "outputs/result.json",
+        )
+    else:
+        stub_client.log_monitoring_run_json_artifact.assert_not_called()
+
+    if should_terminate:
+        stub_client.terminate_monitoring_run.assert_called_once_with(
+            "monitoring-run-1",
+            expected_mlflow_status,
+        )
+    else:
+        stub_client.terminate_monitoring_run.assert_not_called()
 
 
 @pytest.mark.parametrize(
