@@ -7,7 +7,6 @@
     "editor.formatOnSave": true,
     "ruff.nativeServer": "on",
     "ruff.lint.enable": true,
-    "ruff.format.enable": true,
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff"
     }
