@@ -77,6 +77,10 @@ For a closer look at how the system is structured, including the layering betwee
 
 ```bash
 uv sync --extra dev
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
 ```
 
 ## License

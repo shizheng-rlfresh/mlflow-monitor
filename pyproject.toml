@@ -16,6 +16,7 @@ dependencies = [
 dev = [
     "ruff",
     "pytest",
+    "pyright",
 ]
 
 [project.scripts]
@@ -64,3 +65,8 @@ known-first-party = ["mlflow_monitor"]
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-v"
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
