@@ -61,7 +61,7 @@ Quick verification:
 
 - the UI should show `training/fraud_model`
 - `.mlflow-dev/artifacts/` should exist locally
-- Note: if root `mlflow.db` or `mlruns/` shows up, that means the demo was run against the wrong store
+- Note: if `mlflow.db` or `mlruns/` shows up at the root, that means the demo was run against the wrong store
 
 <p align="center">
   <img src="assets/training-experiment-overview.png" alt="Training run detail with metrics and params" width="900" height="300">
@@ -101,8 +101,8 @@ For the training side, the easiest things to inspect in the UI are:
 - `data/sample_rows.json`
 
 <p align="center">
-  <img src="assets/training-run-detail-0.png" alt="Training run detail with metrics and params" width="450" height="300">
-  <img src="assets/training-run-detail-1.png" alt="Training run detail with model and data artifacts" width="450" height="300">
+  <img src="assets/training-run-detail-0.png" alt="Training run detail with metrics and params" width="400" height="300">
+  <img src="assets/training-run-detail-1.png" alt="Training run detail with model and data artifacts" width="350" height="300">
 </p>
 
 ## Run Monitoring
