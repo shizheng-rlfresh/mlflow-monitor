@@ -212,8 +212,8 @@ The most readable proof points in the UI are:
 `outputs/result.json` is the clearest single artifact to inspect because it shows the final monitoring result in one place.
 
 <p align="center">
-  <img src="assets/monitoring-run-detail.png" alt="Monitoring run detail with result artifact" width="450" height="300">
-  <img src="assets/monitoring-run-tags.png" alt="Monitoring run tags showing lifecycle and comparability state" width="450" height="300">
+  <img src="assets/monitoring-run-detail.png" alt="Monitoring run detail with result artifact" width="500" height="250">
+  <img src="assets/monitoring-run-tags.png" alt="Monitoring run tags showing lifecycle and comparability state" width="500" height="250">
 </p>
 
 ### Timeline Bookkeeping
