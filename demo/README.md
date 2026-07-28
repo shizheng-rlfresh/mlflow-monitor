@@ -101,8 +101,8 @@ For the training side, the easiest things to inspect in the UI are:
 - `data/sample_rows.json`
 
 <p align="center">
-  <img src="assets/training-run-detail-0.png" alt="Training run detail with metrics and params" width="400" height="300">
-  <img src="assets/training-run-detail-1.png" alt="Training run detail with model and data artifacts" width="350" height="300">
+  <img src="assets/training-run-detail-0.png" alt="Training run detail with metrics and params" width="500" height="350">
+  <img src="assets/training-run-detail-1.png" alt="Training run detail with model and data artifacts" width="500" height="350">
 </p>
 
 ## Run Monitoring
