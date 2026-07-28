@@ -213,7 +213,7 @@ The most readable proof points in the UI are:
 
 <p align="center">
   <img src="assets/monitoring-run-detail.png" alt="Monitoring run detail with result artifact" width="500" height="250">
-  <img src="assets/monitoring-run-tags.png" alt="Monitoring run tags showing lifecycle and comparability state" width="500" height="250">
+  <img src="assets/monitoring-run-tags.png" alt="Monitoring run tags showing lifecycle and comparability state" width="500" height="300">
 </p>
 
 ### Timeline Bookkeeping
