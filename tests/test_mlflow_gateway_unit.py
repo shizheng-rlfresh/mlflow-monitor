@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from mlflow_monitor.domain import LifecycleStatus
-from mlflow_monitor.errors import GatewayNamespaceViolation
+from mlflow_monitor.errors import GatewayConsistencyViolation, GatewayNamespaceViolation
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
-from mlflow_monitor.mlflow_client import MonitoringRunInfo
+from mlflow_monitor.mlflow_client import MonitoringRunInfo, MonitoringRunTagSnapshot
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 
@@ -44,6 +44,411 @@ def _make_result(
 
 def _make_mlflow_run(status: str) -> SimpleNamespace:
     return SimpleNamespace(info=SimpleNamespace(status=status))
+
+
+def _allocation_snapshot(
+    *,
+    run_id: str,
+    source_run_id: str,
+    sequence_index: int | str,
+    recipe_version: str = "v0",
+) -> MonitoringRunTagSnapshot:
+    return MonitoringRunTagSnapshot(
+        run_id=run_id,
+        tags={
+            "training.source_run_id": source_run_id,
+            "monitoring.sequence_index": str(sequence_index),
+            "monitoring.lifecycle_status": "created",
+            "monitoring.recipe_id": "system_default",
+            "monitoring.recipe_version": recipe_version,
+        },
+    )
+
+
+@pytest.mark.parametrize("persisted_tag_count", range(5))
+def test_create_or_reuse_monitoring_run_repairs_partial_allocation_index(
+    persisted_tag_count: int,
+) -> None:
+    canonical_tags = [
+        ("monitoring.run.0", "monitoring-run-1"),
+        ("monitoring.latest_run_id", "monitoring-run-1"),
+        ("monitoring.next_sequence_index", "1"),
+        ("training.train-run-1.monitoring_run_id", "monitoring-run-1"),
+    ]
+    experiment_tags = dict(canonical_tags[:persisted_tag_count])
+    stub_client = MagicMock()
+    stub_client.get_or_create_monitoring_experiment.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = experiment_tags
+    stub_client.list_monitoring_runs_with_tag.return_value = (
+        _allocation_snapshot(
+            run_id="monitoring-run-1",
+            source_run_id="train-run-1",
+            sequence_index=0,
+        ),
+    )
+    stub_client.get_run_tags.return_value = dict(
+        stub_client.list_monitoring_runs_with_tag.return_value[0].tags
+    )
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    result = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-1",
+            recipe_id="system_default",
+            recipe_version="v0",
+        )
+    )
+
+    assert result.monitoring_run_id == "monitoring-run-1"
+    assert result.sequence_index == 0
+    assert result.allocated is False
+    assert stub_client.set_monitoring_experiment_tag.call_args_list == [
+        call("experiment-1", key, value) for key, value in canonical_tags[persisted_tag_count:]
+    ]
+    stub_client.create_monitoring_run.assert_not_called()
+
+
+def test_create_or_reuse_monitoring_run_repairs_orphan_before_new_allocation() -> None:
+    stub_client = MagicMock()
+    stub_client.get_or_create_monitoring_experiment.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {}
+    stub_client.list_monitoring_runs_with_tag.return_value = (
+        _allocation_snapshot(
+            run_id="monitoring-run-1",
+            source_run_id="train-run-1",
+            sequence_index=0,
+        ),
+    )
+    stub_client.create_monitoring_run.return_value = MonitoringRunInfo(
+        run_id="monitoring-run-2",
+        run_name="monitoring-run-2",
+    )
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    result = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-2",
+            recipe_id="system_default",
+            recipe_version="v0",
+        )
+    )
+
+    assert result.monitoring_run_id == "monitoring-run-2"
+    assert result.sequence_index == 1
+    assert result.allocated is True
+    stub_client.create_monitoring_run.assert_called_once_with(
+        "experiment-1",
+        tags={
+            "training.source_run_id": "train-run-2",
+            "monitoring.sequence_index": "1",
+            "monitoring.lifecycle_status": "created",
+            "monitoring.recipe_id": "system_default",
+            "monitoring.recipe_version": "v0",
+        },
+        source_run_name=stub_client.get_run_name.return_value,
+    )
+    assert stub_client.set_monitoring_experiment_tag.call_args_list == [
+        call("experiment-1", "monitoring.run.0", "monitoring-run-1"),
+        call("experiment-1", "monitoring.latest_run_id", "monitoring-run-1"),
+        call("experiment-1", "monitoring.next_sequence_index", "1"),
+        call(
+            "experiment-1",
+            "training.train-run-1.monitoring_run_id",
+            "monitoring-run-1",
+        ),
+        call("experiment-1", "monitoring.run.1", "monitoring-run-2"),
+        call("experiment-1", "monitoring.latest_run_id", "monitoring-run-2"),
+        call("experiment-1", "monitoring.next_sequence_index", "2"),
+        call(
+            "experiment-1",
+            "training.train-run-2.monitoring_run_id",
+            "monitoring-run-2",
+        ),
+    ]
+
+
+def test_create_or_reuse_monitoring_run_reuses_older_recipe_without_rewriting_cache() -> None:
+    v0 = _allocation_snapshot(
+        run_id="monitoring-run-v0",
+        source_run_id="train-run-1",
+        sequence_index=0,
+        recipe_version="v0",
+    )
+    v1 = _allocation_snapshot(
+        run_id="monitoring-run-v1",
+        source_run_id="train-run-1",
+        sequence_index=1,
+        recipe_version="v1",
+    )
+    stub_client = MagicMock()
+    stub_client.get_or_create_monitoring_experiment.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.0": "monitoring-run-v0",
+        "monitoring.run.1": "monitoring-run-v1",
+        "monitoring.latest_run_id": "monitoring-run-v1",
+        "monitoring.next_sequence_index": "2",
+        "training.train-run-1.monitoring_run_id": "monitoring-run-v1",
+    }
+    stub_client.list_monitoring_runs_with_tag.return_value = (v1, v0)
+    stub_client.get_run_tags.return_value = dict(v0.tags)
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    result = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-1",
+            recipe_id="system_default",
+            recipe_version="v0",
+        )
+    )
+
+    assert result.monitoring_run_id == "monitoring-run-v0"
+    assert result.sequence_index == 0
+    assert result.allocated is False
+    stub_client.set_monitoring_experiment_tag.assert_not_called()
+    stub_client.create_monitoring_run.assert_not_called()
+
+
+def test_create_or_reuse_monitoring_run_repairs_stale_latest_and_source_binding() -> None:
+    v0 = _allocation_snapshot(
+        run_id="monitoring-run-v0",
+        source_run_id="train-run-1",
+        sequence_index=0,
+        recipe_version="v0",
+    )
+    v1 = _allocation_snapshot(
+        run_id="monitoring-run-v1",
+        source_run_id="train-run-1",
+        sequence_index=1,
+        recipe_version="v1",
+    )
+    stub_client = MagicMock()
+    stub_client.get_or_create_monitoring_experiment.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.0": "monitoring-run-v0",
+        "monitoring.run.1": "monitoring-run-v1",
+        "monitoring.latest_run_id": "monitoring-run-v0",
+        "monitoring.next_sequence_index": "2",
+        "training.train-run-1.monitoring_run_id": "monitoring-run-v0",
+    }
+    stub_client.list_monitoring_runs_with_tag.return_value = (v0, v1)
+    stub_client.get_run_tags.return_value = dict(v0.tags)
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    result = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-1",
+            recipe_id="system_default",
+            recipe_version="v0",
+        )
+    )
+
+    assert result.monitoring_run_id == "monitoring-run-v0"
+    assert stub_client.set_monitoring_experiment_tag.call_args_list == [
+        call("experiment-1", "monitoring.latest_run_id", "monitoring-run-v1"),
+        call(
+            "experiment-1",
+            "training.train-run-1.monitoring_run_id",
+            "monitoring-run-v1",
+        ),
+    ]
+    stub_client.create_monitoring_run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("snapshots", "experiment_tags", "expected_reason"),
+    [
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=0,
+                ),
+                _allocation_snapshot(
+                    run_id="monitoring-run-2",
+                    source_run_id="train-run-1",
+                    sequence_index=1,
+                ),
+            ),
+            {},
+            "duplicate_identity",
+            id="duplicate-identity",
+        ),
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=0,
+                ),
+                _allocation_snapshot(
+                    run_id="monitoring-run-2",
+                    source_run_id="train-run-2",
+                    sequence_index=0,
+                ),
+            ),
+            {},
+            "duplicate_sequence",
+            id="duplicate-sequence",
+        ),
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=-1,
+                ),
+            ),
+            {},
+            "invalid_allocation",
+            id="negative-sequence",
+        ),
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index="not-an-int",
+                ),
+            ),
+            {},
+            "invalid_allocation",
+            id="malformed-sequence",
+        ),
+        pytest.param(
+            (
+                MonitoringRunTagSnapshot(
+                    run_id="monitoring-run-1",
+                    tags={
+                        "training.source_run_id": "train-run-1",
+                        "monitoring.sequence_index": "0",
+                        "monitoring.recipe_version": "v0",
+                    },
+                ),
+            ),
+            {},
+            "invalid_allocation",
+            id="missing-recipe-id",
+        ),
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=1,
+                ),
+            ),
+            {},
+            "sequence_gap",
+            id="sequence-gap",
+        ),
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=0,
+                ),
+            ),
+            {"monitoring.run.0": "unknown-run"},
+            "timeline_conflict",
+            id="timeline-conflict",
+        ),
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=0,
+                ),
+            ),
+            {"monitoring.latest_run_id": "unknown-run"},
+            "unknown_pointer",
+            id="unknown-latest-pointer",
+        ),
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=0,
+                ),
+            ),
+            {
+                "monitoring.next_sequence_index": "0",
+                "training.train-run-1.monitoring_run_id": "unknown-run",
+            },
+            "unknown_pointer",
+            id="repairable-next-plus-unknown-pointer",
+        ),
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=0,
+                ),
+            ),
+            {"training.train-run-2.monitoring_run_id": "monitoring-run-1"},
+            "source_binding_conflict",
+            id="wrong-source-binding",
+        ),
+        pytest.param(
+            (
+                _allocation_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=0,
+                ),
+            ),
+            {"monitoring.next_sequence_index": "2"},
+            "next_sequence_ahead",
+            id="next-sequence-ahead",
+        ),
+    ],
+)
+def test_create_or_reuse_monitoring_run_fails_closed_before_writes(
+    snapshots: tuple[MonitoringRunTagSnapshot, ...],
+    experiment_tags: dict[str, str],
+    expected_reason: str,
+) -> None:
+    stub_client = MagicMock()
+    stub_client.get_or_create_monitoring_experiment.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = experiment_tags
+    stub_client.list_monitoring_runs_with_tag.return_value = snapshots
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.create_or_reuse_monitoring_run(
+            IdempotencyKey(
+                subject_id="churn_model",
+                source_run_id="train-run-new",
+                recipe_id="system_default",
+                recipe_version="v0",
+            )
+        )
+
+    assert exc_info.value.code == "monitoring_allocation_inconsistent"
+    assert ("reason", expected_reason) in exc_info.value.details
+    stub_client.set_monitoring_experiment_tag.assert_not_called()
+    stub_client.create_monitoring_run.assert_not_called()
 
 
 def test_create_or_reuse_monitoring_run_writes_idempotency_tag_last() -> None:
