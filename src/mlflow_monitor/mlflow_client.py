@@ -13,13 +13,14 @@ What belongs here:
 - Deterministic normalization of a few MLflow-specific quirks
 - Read helpers that expose plain Python values where that reduces MLflow
   leakage into later gateway code
+- Paginated tag-filtered discovery of monitoring-owned runs
 
 What does not belong here:
 --------------------------
 
 - Workflow or orchestration logic
 - Monitoring domain policy
-- Broader query functionality such as run search
+- General-purpose query functionality beyond narrow monitoring-run discovery
 - Public Python API configuration policy beyond accepting an optional tracking URI
 """
 
@@ -27,10 +28,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from mlflow import MlflowClient
-from mlflow.entities import Experiment, Run
+from mlflow.entities import Experiment, Run, ViewType
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS, RESOURCE_DOES_NOT_EXIST
 
@@ -60,6 +62,23 @@ class MonitoringRunInfo:
 
     run_id: str
     run_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class MonitoringRunTagSnapshot:
+    """Detached run identifier and immutable tag snapshot.
+
+    Attributes:
+        run_id: MLflow run identifier.
+        tags: Immutable copy of the run's tags.
+    """
+
+    run_id: str
+    tags: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        """Defensively copy and freeze the supplied tag mapping."""
+        object.__setattr__(self, "tags", MappingProxyType(dict(self.tags)))
 
 
 class MonitorMLflowClient:
@@ -200,6 +219,42 @@ class MonitorMLflowClient:
         """
         run = self._client.create_run(experiment_id, tags=dict(tags), run_name=source_run_name)
         return MonitoringRunInfo(run_id=run.info.run_id, run_name=run.info.run_name)
+
+    def list_monitoring_runs_with_tag(
+        self,
+        experiment_id: str,
+        tag_key: str,
+    ) -> tuple[MonitoringRunTagSnapshot, ...]:
+        """Return active monitoring runs containing one tag.
+
+        MLflow search results are paginated and expose mutable MLflow entities.
+        This adapter exhausts all result pages and returns detached snapshots so
+        gateway policy does not depend on MLflow search or entity types.
+
+        Args:
+            experiment_id: Monitoring experiment identifier to search.
+            tag_key: Tag key that must be present on returned runs.
+
+        Returns:
+            Immutable run-and-tag snapshots in MLflow's returned order.
+        """
+        snapshots: list[MonitoringRunTagSnapshot] = []
+        page_token: str | None = None
+        filter_string = f"tags.`{tag_key}` IS NOT NULL"
+        while True:
+            page = self._client.search_runs(
+                experiment_ids=[experiment_id],
+                filter_string=filter_string,
+                run_view_type=ViewType.ACTIVE_ONLY,
+                max_results=1000,
+                page_token=page_token,
+            )
+            snapshots.extend(
+                MonitoringRunTagSnapshot(run_id=run.info.run_id, tags=run.data.tags) for run in page
+            )
+            page_token = page.token
+            if not page_token:
+                return tuple(snapshots)
 
     def get_run(self, run_id: str) -> Run | None:
         """Return any MLflow run, or `None` when MLflow reports it as missing.

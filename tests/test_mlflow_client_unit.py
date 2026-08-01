@@ -5,11 +5,58 @@ from __future__ import annotations
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from mlflow.entities import Experiment
+from mlflow.entities import Experiment, ViewType
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS, RESOURCE_DOES_NOT_EXIST
+from mlflow.store.entities.paged_list import PagedList
 
 from mlflow_monitor.mlflow_client import MonitorMLflowClient
+
+
+def test_list_monitoring_runs_with_tag_paginates_and_detaches_tags() -> None:
+    first_tags = {"training.source_run_id": "source-1"}
+    first_run = MagicMock()
+    first_run.info.run_id = "run-1"
+    first_run.data.tags = first_tags
+    second_run = MagicMock()
+    second_run.info.run_id = "run-2"
+    second_run.data.tags = {"training.source_run_id": "source-2"}
+    stub_client = MagicMock()
+    stub_client.search_runs.side_effect = [
+        PagedList([first_run], "next-page"),
+        PagedList([second_run], None),
+    ]
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    snapshots = client.list_monitoring_runs_with_tag(
+        "experiment-1",
+        "training.source_run_id",
+    )
+
+    assert tuple(snapshot.run_id for snapshot in snapshots) == ("run-1", "run-2")
+    assert snapshots[0].tags == {"training.source_run_id": "source-1"}
+    first_tags["training.source_run_id"] = "changed"
+    assert snapshots[0].tags == {"training.source_run_id": "source-1"}
+    with pytest.raises(TypeError):
+        snapshots[0].tags["extra"] = "not-allowed"  # type: ignore[index]
+    assert stub_client.search_runs.call_args_list == [
+        call(
+            experiment_ids=["experiment-1"],
+            filter_string="tags.`training.source_run_id` IS NOT NULL",
+            run_view_type=ViewType.ACTIVE_ONLY,
+            max_results=1000,
+            page_token=None,
+        ),
+        call(
+            experiment_ids=["experiment-1"],
+            filter_string="tags.`training.source_run_id` IS NOT NULL",
+            run_view_type=ViewType.ACTIVE_ONLY,
+            max_results=1000,
+            page_token="next-page",
+        ),
+    ]
 
 
 def test_get_or_create_monitoring_experiment_recovers_from_duplicate_create_race() -> None:
