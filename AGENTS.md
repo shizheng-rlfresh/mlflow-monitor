@@ -51,5 +51,17 @@ uv build
 
 ## Branch naming
 
-- `MM-{number}/{ticket-number}-xxx` for ticket branches.
-- `zs/` for hotfixes, revisions, or similar work.
+- For Plane work items with an internal ticket, use
+  `MM-<plane-work-item-number>/<ticket-id>-<short-description>`.
+- For GitHub issues, use
+  `issue/<github-issue-number>-<short-description>`.
+- For exploratory work, use `spike/<short-description>`.
+- For other work, use a concise descriptive branch name.
+- Use lowercase, hyphen-separated descriptions.
+- Continue revisions on the original branch when possible.
+
+## Commit messages
+
+- Describe the change concisely in plain language.
+- Use specialized engineering terminology only when it explains the change more precisely.
+- Do not require ticket prefixes, category labels, or Conventional Commit syntax.
