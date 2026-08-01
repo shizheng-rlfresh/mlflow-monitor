@@ -65,3 +65,8 @@ uv build
 - Describe the change concisely in plain language.
 - Use specialized engineering terminology only when it explains the change more precisely.
 - Do not require ticket prefixes, category labels, or Conventional Commit syntax.
+
+## Plane
+
+- Use Plane only when the user explicitly requests it or identifies a Plane work item.
+- Treat Plane as read-only unless the user explicitly requests a change.
