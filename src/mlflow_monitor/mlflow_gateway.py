@@ -1,12 +1,14 @@
 """Real-MLflow monitoring gateway for the current create/prepare/check workflow.
 
 This module is the runtime implementation of the `MonitoringGateway` protocol
-for the real-MLflow path. It intentionally does not use `search_runs()`;
-all timeline discovery is driven by:
+for the real-MLflow path. Normal timeline reads are driven by:
 
 1. One monitoring experiment per subject, named `{namespace_prefix}/{subject_id}`.
 2. Experiment tags that act as the timeline index.
 3. Direct `get_run()` calls for both training and monitoring runs.
+
+Monitoring-run allocation additionally uses a narrow active-run search to
+reconcile partial experiment-index writes from durable run identity tags.
 
 Design constraints that matter here:
 
@@ -14,8 +16,8 @@ Design constraints that matter here:
   tags, and artifact paths on training runs, but it must never mutate them.
 - Monitoring-run allocation is gateway-owned because MLflow assigns run ids at
   `create_run()` time.
-- The experiment-tag index is the source of truth for ordered monitoring-run
-  traversal and idempotency.
+- Monitoring-run identity tags are the allocation source of truth, while the
+  experiment-tag timeline index is a repairable projection used by normal reads.
 - Final run output is stored as `outputs/result.json` and the MLflow run is
   explicitly terminated by the gateway once orchestration reaches a terminal
   success or owned-failure outcome.
@@ -29,6 +31,7 @@ supports.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from mlflow_monitor.contract_checker import ContractEvidence
 from mlflow_monitor.domain import (
@@ -37,7 +40,11 @@ from mlflow_monitor.domain import (
     LifecycleStatus,
     MonitoringRunReference,
 )
-from mlflow_monitor.errors import GatewayNamespaceViolation, TrainingRunMutationViolation
+from mlflow_monitor.errors import (
+    GatewayConsistencyViolation,
+    GatewayNamespaceViolation,
+    TrainingRunMutationViolation,
+)
 from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
@@ -46,7 +53,7 @@ from mlflow_monitor.gateway import (
     TimelineInitializationResult,
     TimelineState,
 )
-from mlflow_monitor.mlflow_client import MonitorMLflowClient
+from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflowClient
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 from mlflow_monitor.result_contract import MonitorRunResult
 
@@ -66,6 +73,15 @@ _REFERENCE_TAG_PREFIX = "monitoring.reference."
 _RESULT_ARTIFACT_PATH = "outputs/result.json"
 _VISIBLE_NON_FAILED_STATUSES = frozenset({LifecycleStatus.CHECKED, LifecycleStatus.CLOSED})
 _REFERENCE_KINDS = ("baseline", "previous", "lkg", "custom")
+
+
+@dataclass(frozen=True, slots=True)
+class _MonitoringRunAllocation:
+    """Durable monitoring-run allocation identity reconstructed from run tags."""
+
+    key: IdempotencyKey
+    monitoring_run_id: str
+    sequence_index: int
 
 
 class MLflowMonitoringGateway:
@@ -110,14 +126,12 @@ class MLflowMonitoringGateway:
     def create_or_reuse_monitoring_run(
         self, key: IdempotencyKey
     ) -> CreateOrReuseMonitoringRunResult:
-        """Create or reuse a monitoring run using experiment-tag indexes.
+        """Create or reuse a monitoring run after reconciling allocation state.
 
-        The idempotency source of truth is the experiment tag
-        `training.{source_run_id}.monitoring_run_id`. If it exists, this method
-        returns the already-allocated monitoring run and attempts to reconstruct
-        its persisted state. If it does not exist, the gateway allocates the
-        next sequence index, creates the MLflow monitoring run, and updates the
-        experiment-tag index.
+        Monitoring-run identity tags are the durable allocation record. Before
+        allocating, the gateway validates those records and repairs their
+        experiment-tag timeline projection. Ambiguous or contradictory state
+        fails closed rather than risking a duplicate allocation.
 
         Args:
             key: Canonical monitoring intent identity.
@@ -128,29 +142,23 @@ class MLflowMonitoringGateway:
         self._validate_subject_id(key.subject_id)
         experiment_id = self._get_or_create_experiment_id(key.subject_id)
         experiment_tags = self._mlflow.get_monitoring_experiment_tags(experiment_id)
-        idempotency_tag = self._idempotency_tag(key.source_run_id)
-        existing_monitoring_run_id = experiment_tags.get(idempotency_tag)
-        if existing_monitoring_run_id:
-            existing_monitoring_run, recipe_identity_matches = self._resolve_existing_binding(
-                subject_id=key.subject_id,
-                monitoring_run_id=existing_monitoring_run_id,
-                recipe_id=key.recipe_id,
-                recipe_version=key.recipe_version,
+        allocations_by_key, sequence_index = self._reconcile_monitoring_run_allocations(
+            subject_id=key.subject_id,
+            experiment_id=experiment_id,
+            experiment_tags=experiment_tags,
+        )
+        existing_allocation = allocations_by_key.get(key)
+        if existing_allocation is not None:
+            return CreateOrReuseMonitoringRunResult(
+                monitoring_run_id=existing_allocation.monitoring_run_id,
+                sequence_index=existing_allocation.sequence_index,
+                existing_monitoring_run=self.get_monitoring_run(
+                    key.subject_id,
+                    existing_allocation.monitoring_run_id,
+                ),
+                allocated=False,
             )
-            if recipe_identity_matches:
-                sequence_index = (
-                    existing_monitoring_run.sequence_index
-                    if existing_monitoring_run is not None
-                    else self._resolve_sequence_index(experiment_tags, existing_monitoring_run_id)
-                )
-                return CreateOrReuseMonitoringRunResult(
-                    monitoring_run_id=existing_monitoring_run_id,
-                    sequence_index=sequence_index,
-                    existing_monitoring_run=existing_monitoring_run,
-                    allocated=False,
-                )
 
-        sequence_index = self._read_next_sequence_index(experiment_tags)
         source_run_name = self._mlflow.get_run_name(key.source_run_id)
         # MLflow assigns the monitoring run id, so the gateway has to create the
         # run before it can finish updating the experiment-level timeline index.
@@ -171,7 +179,7 @@ class MLflowMonitoringGateway:
                 f"{_RUN_TAG_PREFIX}{sequence_index}": monitoring_run_info.run_id,
                 _LATEST_TAG: monitoring_run_info.run_id,
                 _NEXT_SEQUENCE_TAG: str(sequence_index + 1),
-                idempotency_tag: monitoring_run_info.run_id,
+                self._idempotency_tag(key.source_run_id): monitoring_run_info.run_id,
             },
         )
         return CreateOrReuseMonitoringRunResult(
@@ -668,6 +676,311 @@ class MLflowMonitoringGateway:
             return None
         return self._mlflow.get_monitoring_experiment_tags(experiment_id)
 
+    def _reconcile_monitoring_run_allocations(
+        self,
+        *,
+        subject_id: str,
+        experiment_id: str,
+        experiment_tags: Mapping[str, str],
+    ) -> tuple[dict[IdempotencyKey, _MonitoringRunAllocation], int]:
+        """Validate durable allocations and repair their experiment-tag projection."""
+        snapshots = self._mlflow.list_monitoring_runs_with_tag(
+            experiment_id,
+            _SOURCE_RUN_TAG,
+        )
+        allocations = tuple(
+            self._parse_monitoring_run_allocation(subject_id, snapshot) for snapshot in snapshots
+        )
+        allocations_by_key: dict[IdempotencyKey, _MonitoringRunAllocation] = {}
+        allocations_by_sequence: dict[int, _MonitoringRunAllocation] = {}
+        allocations_by_run_id: dict[str, _MonitoringRunAllocation] = {}
+        for allocation in allocations:
+            existing_key_allocation = allocations_by_key.get(allocation.key)
+            if existing_key_allocation is not None:
+                raise self._allocation_consistency_error(
+                    reason="duplicate_identity",
+                    message="Multiple monitoring runs claim the same allocation identity.",
+                    details=(
+                        ("first_monitoring_run_id", existing_key_allocation.monitoring_run_id),
+                        ("second_monitoring_run_id", allocation.monitoring_run_id),
+                    ),
+                )
+            existing_sequence_allocation = allocations_by_sequence.get(allocation.sequence_index)
+            if existing_sequence_allocation is not None:
+                raise self._allocation_consistency_error(
+                    reason="duplicate_sequence",
+                    message=(
+                        "Multiple monitoring runs claim sequence index "
+                        f"{allocation.sequence_index}."
+                    ),
+                    details=(
+                        ("sequence_index", allocation.sequence_index),
+                        (
+                            "first_monitoring_run_id",
+                            existing_sequence_allocation.monitoring_run_id,
+                        ),
+                        ("second_monitoring_run_id", allocation.monitoring_run_id),
+                    ),
+                )
+            allocations_by_key[allocation.key] = allocation
+            allocations_by_sequence[allocation.sequence_index] = allocation
+            allocations_by_run_id[allocation.monitoring_run_id] = allocation
+
+        ordered_allocations = tuple(
+            sorted(allocations, key=lambda allocation: allocation.sequence_index)
+        )
+        for expected_sequence, allocation in enumerate(ordered_allocations):
+            if allocation.sequence_index != expected_sequence:
+                raise self._allocation_consistency_error(
+                    reason="sequence_gap",
+                    message=(
+                        "Monitoring allocation sequences must be contiguous from zero; "
+                        f"expected {expected_sequence}, got {allocation.sequence_index}."
+                    ),
+                    details=(
+                        ("expected_sequence_index", expected_sequence),
+                        ("actual_sequence_index", allocation.sequence_index),
+                    ),
+                )
+
+        next_sequence_index = len(ordered_allocations)
+        repairs = self._build_allocation_index_repairs(
+            experiment_tags=experiment_tags,
+            ordered_allocations=ordered_allocations,
+            allocations_by_sequence=allocations_by_sequence,
+            allocations_by_run_id=allocations_by_run_id,
+            next_sequence_index=next_sequence_index,
+        )
+        if repairs:
+            self._set_experiment_tags(experiment_id, repairs)
+        return allocations_by_key, next_sequence_index
+
+    def _parse_monitoring_run_allocation(
+        self,
+        subject_id: str,
+        snapshot: MonitoringRunTagSnapshot,
+    ) -> _MonitoringRunAllocation:
+        """Parse one durable allocation record from a monitoring-run tag snapshot."""
+        source_run_id = snapshot.tags.get(_SOURCE_RUN_TAG)
+        recipe_id = snapshot.tags.get(_RECIPE_ID_TAG)
+        recipe_version = snapshot.tags.get(_RECIPE_VERSION_TAG)
+        raw_sequence_index = snapshot.tags.get(_SEQUENCE_INDEX_TAG)
+        missing_fields = tuple(
+            field
+            for field, value in (
+                (_SOURCE_RUN_TAG, source_run_id),
+                (_RECIPE_ID_TAG, recipe_id),
+                (_RECIPE_VERSION_TAG, recipe_version),
+                (_SEQUENCE_INDEX_TAG, raw_sequence_index),
+            )
+            if not value
+        )
+        if not snapshot.run_id or missing_fields:
+            raise self._allocation_consistency_error(
+                reason="invalid_allocation",
+                message=(
+                    f"Monitoring run {snapshot.run_id!r} is missing durable allocation tags: "
+                    + ", ".join(missing_fields)
+                ),
+                details=(("monitoring_run_id", snapshot.run_id),),
+            )
+
+        assert source_run_id is not None
+        assert recipe_id is not None
+        assert recipe_version is not None
+        assert raw_sequence_index is not None
+
+        try:
+            sequence_index = int(raw_sequence_index)
+        except (TypeError, ValueError) as exc:
+            raise self._allocation_consistency_error(
+                reason="invalid_allocation",
+                message=(
+                    f"Monitoring run {snapshot.run_id!r} has a non-integer sequence index: "
+                    f"{raw_sequence_index!r}."
+                ),
+                details=(("monitoring_run_id", snapshot.run_id),),
+            ) from exc
+        if sequence_index < 0:
+            raise self._allocation_consistency_error(
+                reason="invalid_allocation",
+                message=(
+                    f"Monitoring run {snapshot.run_id!r} has a negative sequence index: "
+                    f"{sequence_index}."
+                ),
+                details=(
+                    ("monitoring_run_id", snapshot.run_id),
+                    ("sequence_index", sequence_index),
+                ),
+            )
+
+        return _MonitoringRunAllocation(
+            key=IdempotencyKey(
+                subject_id=subject_id,
+                source_run_id=source_run_id,
+                recipe_id=recipe_id,
+                recipe_version=recipe_version,
+            ),
+            monitoring_run_id=snapshot.run_id,
+            sequence_index=sequence_index,
+        )
+
+    def _build_allocation_index_repairs(
+        self,
+        *,
+        experiment_tags: Mapping[str, str],
+        ordered_allocations: tuple[_MonitoringRunAllocation, ...],
+        allocations_by_sequence: Mapping[int, _MonitoringRunAllocation],
+        allocations_by_run_id: Mapping[str, _MonitoringRunAllocation],
+        next_sequence_index: int,
+    ) -> dict[str, str]:
+        """Return validated experiment-tag repairs in deterministic write order."""
+        self._validate_timeline_index_tags(experiment_tags, allocations_by_sequence)
+        self._validate_allocation_pointer_tags(experiment_tags, allocations_by_run_id)
+
+        persisted_next_sequence = self._read_next_sequence_index(experiment_tags)
+        if persisted_next_sequence > next_sequence_index:
+            raise self._allocation_consistency_error(
+                reason="next_sequence_ahead",
+                message=(
+                    "monitoring.next_sequence_index is ahead of durable allocation state; "
+                    f"got {persisted_next_sequence}, expected {next_sequence_index}."
+                ),
+                details=(
+                    ("persisted_next_sequence_index", persisted_next_sequence),
+                    ("durable_next_sequence_index", next_sequence_index),
+                ),
+            )
+
+        repairs: dict[str, str] = {}
+        for allocation in ordered_allocations:
+            timeline_tag = f"{_RUN_TAG_PREFIX}{allocation.sequence_index}"
+            if timeline_tag not in experiment_tags:
+                repairs[timeline_tag] = allocation.monitoring_run_id
+
+        if ordered_allocations:
+            latest_run_id = ordered_allocations[-1].monitoring_run_id
+            if experiment_tags.get(_LATEST_TAG) != latest_run_id:
+                repairs[_LATEST_TAG] = latest_run_id
+            if persisted_next_sequence < next_sequence_index:
+                repairs[_NEXT_SEQUENCE_TAG] = str(next_sequence_index)
+
+        highest_allocation_by_source: dict[str, _MonitoringRunAllocation] = {}
+        for allocation in ordered_allocations:
+            highest_allocation_by_source[allocation.key.source_run_id] = allocation
+        for source_run_id in sorted(highest_allocation_by_source):
+            allocation = highest_allocation_by_source[source_run_id]
+            idempotency_tag = self._idempotency_tag(source_run_id)
+            if experiment_tags.get(idempotency_tag) != allocation.monitoring_run_id:
+                repairs[idempotency_tag] = allocation.monitoring_run_id
+        return repairs
+
+    def _validate_timeline_index_tags(
+        self,
+        experiment_tags: Mapping[str, str],
+        allocations_by_sequence: Mapping[int, _MonitoringRunAllocation],
+    ) -> None:
+        """Validate persisted timeline slots against durable allocations."""
+        for tag_key, monitoring_run_id in sorted(experiment_tags.items()):
+            if not tag_key.startswith(_RUN_TAG_PREFIX):
+                continue
+            raw_sequence_index = tag_key.removeprefix(_RUN_TAG_PREFIX)
+            try:
+                sequence_index = int(raw_sequence_index)
+            except ValueError as exc:
+                raise GatewayNamespaceViolation(
+                    message=(
+                        "Monitoring timeline index tag must end with a non-negative integer "
+                        f"sequence; got key={tag_key!r} value={monitoring_run_id!r}."
+                    )
+                ) from exc
+            if sequence_index < 0:
+                raise GatewayNamespaceViolation(
+                    message=(
+                        "Monitoring timeline index tag must end with a non-negative integer "
+                        f"sequence; got key={tag_key!r} value={monitoring_run_id!r}."
+                    )
+                )
+
+            allocation = allocations_by_sequence.get(sequence_index)
+            if allocation is None or allocation.monitoring_run_id != monitoring_run_id:
+                raise self._allocation_consistency_error(
+                    reason="timeline_conflict",
+                    message=(
+                        f"Experiment timeline slot {sequence_index} does not match its "
+                        "durable monitoring-run allocation."
+                    ),
+                    details=(
+                        ("sequence_index", sequence_index),
+                        ("indexed_monitoring_run_id", monitoring_run_id),
+                        (
+                            "durable_monitoring_run_id",
+                            None if allocation is None else allocation.monitoring_run_id,
+                        ),
+                    ),
+                )
+
+    def _validate_allocation_pointer_tags(
+        self,
+        experiment_tags: Mapping[str, str],
+        allocations_by_run_id: Mapping[str, _MonitoringRunAllocation],
+    ) -> None:
+        """Validate latest and source pointers before any repair writes occur."""
+        latest_run_id = experiment_tags.get(_LATEST_TAG)
+        if latest_run_id and latest_run_id not in allocations_by_run_id:
+            raise self._allocation_consistency_error(
+                reason="unknown_pointer",
+                message="monitoring.latest_run_id points to an unknown allocation.",
+                details=(("monitoring_run_id", latest_run_id),),
+            )
+
+        source_prefix = "training."
+        for tag_key, monitoring_run_id in sorted(experiment_tags.items()):
+            if not tag_key.startswith(source_prefix) or not tag_key.endswith(
+                _IDEMPOTENCY_TAG_SUFFIX
+            ):
+                continue
+            source_run_id = tag_key.removeprefix(source_prefix).removesuffix(
+                _IDEMPOTENCY_TAG_SUFFIX
+            )
+            if not source_run_id:
+                raise GatewayNamespaceViolation(
+                    message=f"Monitoring idempotency tag has an empty source run id: {tag_key!r}."
+                )
+            allocation = allocations_by_run_id.get(monitoring_run_id)
+            if allocation is None:
+                raise self._allocation_consistency_error(
+                    reason="unknown_pointer",
+                    message=f"Experiment tag {tag_key!r} points to an unknown allocation.",
+                    details=(("monitoring_run_id", monitoring_run_id),),
+                )
+            if allocation.key.source_run_id != source_run_id:
+                raise self._allocation_consistency_error(
+                    reason="source_binding_conflict",
+                    message=(
+                        f"Experiment tag {tag_key!r} points to a monitoring run allocated "
+                        f"for source {allocation.key.source_run_id!r}."
+                    ),
+                    details=(
+                        ("source_run_id", source_run_id),
+                        ("monitoring_run_id", monitoring_run_id),
+                    ),
+                )
+
+    def _allocation_consistency_error(
+        self,
+        *,
+        reason: str,
+        message: str,
+        details: tuple[tuple[str, str | int | None], ...] = (),
+    ) -> GatewayConsistencyViolation:
+        """Build one operator-visible allocation consistency error."""
+        return GatewayConsistencyViolation(
+            code="monitoring_allocation_inconsistent",
+            message=message,
+            details=(("reason", reason), *details),
+        )
+
     def _set_experiment_tags(self, experiment_id: str, tags: Mapping[str, str]) -> None:
         """Write a batch of experiment tags via the thin MLflow adapter."""
         for key, value in tags.items():
@@ -683,43 +996,22 @@ class MLflowMonitoringGateway:
         if raw_next_sequence_index is None or raw_next_sequence_index == "":
             return 0
         try:
-            return int(raw_next_sequence_index)
+            next_sequence_index = int(raw_next_sequence_index)
         except ValueError as exc:
             raise GatewayNamespaceViolation(
                 message=(
-                    "monitoring.next_sequence_index must be an integer string; "
+                    "monitoring.next_sequence_index must be a non-negative integer string; "
                     f"got {raw_next_sequence_index!r}."
                 )
             ) from exc
-
-    def _resolve_sequence_index(
-        self,
-        experiment_tags: Mapping[str, str],
-        monitoring_run_id: str,
-    ) -> int:
-        """Resolve a monitoring run's sequence index from experiment tags.
-
-        This is only used on idempotent replay paths where the run id is known
-        from the idempotency tag but the persisted run record could not be
-        reconstructed.
-        """
-        for key, value in experiment_tags.items():
-            if not key.startswith(_RUN_TAG_PREFIX) or value != monitoring_run_id:
-                continue
-            try:
-                return int(key.removeprefix(_RUN_TAG_PREFIX))
-            except ValueError as exc:
-                raise GatewayNamespaceViolation(
-                    message=(
-                        "Monitoring timeline index tag must end with an integer sequence; "
-                        f"got key={key!r} value={value!r}."
-                    )
-                ) from exc
-        raise GatewayNamespaceViolation(
-            message=(
-                f"Monitoring run {monitoring_run_id!r} is not indexed on the experiment timeline."
+        if next_sequence_index < 0:
+            raise GatewayNamespaceViolation(
+                message=(
+                    "monitoring.next_sequence_index must be a non-negative integer string; "
+                    f"got {raw_next_sequence_index!r}."
+                )
             )
-        )
+        return next_sequence_index
 
     def _indexed_monitoring_run_ids(self, experiment_tags: Mapping[str, str]) -> set[str]:
         """Return the set of monitoring run ids indexed on an experiment."""
@@ -751,32 +1043,6 @@ class MLflowMonitoringGateway:
                 continue
             references.append(MonitoringRunReference(kind=kind, reference_run_id=reference_run_id))
         return tuple(references)
-
-    def _resolve_existing_binding(
-        self,
-        *,
-        subject_id: str,
-        monitoring_run_id: str,
-        recipe_id: str,
-        recipe_version: str,
-    ) -> tuple[MonitoringRunRecord | None, bool]:
-        """Return the bound run plus whether its recipe identity still matches.
-
-        Experiment-tag idempotency is keyed only by source run id, so a bound
-        monitoring run must be checked for matching recipe identity before it
-        can be safely replayed.
-        """
-        # The binding may outlive a fully reconstructed MonitoringRunRecord, for
-        # example if allocation succeeded but later persistence did not.
-        existing_monitoring_run = self.get_monitoring_run(subject_id, monitoring_run_id)
-        run_tags = self._mlflow.get_run_tags(monitoring_run_id)
-        if not run_tags:
-            return existing_monitoring_run, False
-        return (
-            existing_monitoring_run,
-            run_tags.get(_RECIPE_ID_TAG) == recipe_id
-            and run_tags.get(_RECIPE_VERSION_TAG) == recipe_version,
-        )
 
     def _validate_namespace_prefix(self, prefix: str) -> None:
         """Validate namespace prefix can safely compose a monitoring namespace."""

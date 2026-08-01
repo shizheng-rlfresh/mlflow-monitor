@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,15 @@ class FailingFinalizeMLflowMonitoringGateway(MLflowMonitoringGateway):
         raise RuntimeError("simulated finalization failure")
 
 
+class FailingAllocationIndexMLflowMonitoringGateway(MLflowMonitoringGateway):
+    """Fail once after run creation but before the allocation index is written."""
+
+    def _set_experiment_tags(self, experiment_id: str, tags: Mapping[str, str]) -> None:
+        if any(key.startswith("monitoring.run.") for key in tags):
+            raise RuntimeError("simulated allocation index failure")
+        super()._set_experiment_tags(experiment_id, tags)
+
+
 class ExplodingContractChecker:
     """Fail the test if checked replay re-enters contract evaluation."""
 
@@ -50,6 +59,84 @@ class ExplodingContractChecker:
     ) -> ContractCheckResult:
         _ = (contract, context)
         raise AssertionError("idempotent replay must not re-run check")
+
+
+def test_mlflow_gateway_repairs_zero_tag_orphan_before_next_allocation(
+    tracking_uri: str,
+    artifact_root_uri: str,
+    create_training_run: Callable[..., str],
+) -> None:
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    first_source_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="first",
+        metrics={"f1": 0.91},
+        params={"feature_columns": "age"},
+        tags={"schema.age": "int"},
+    )
+    second_source_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="second",
+        metrics={"f1": 0.92},
+        params={"feature_columns": "age"},
+        tags={"schema.age": "int"},
+    )
+    first_key = IdempotencyKey(
+        subject_id="churn_model",
+        source_run_id=first_source_run_id,
+        recipe_id="system_default",
+        recipe_version="v0",
+    )
+    failing_gateway = FailingAllocationIndexMLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated allocation index failure"):
+        failing_gateway.create_or_reuse_monitoring_run(first_key)
+
+    experiment = raw.get_experiment_by_name("mlflow_monitor/churn_model")
+    assert experiment is not None
+    orphaned_runs = raw.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=f"tags.`training.source_run_id` = '{first_source_run_id}'",
+    )
+    assert len(orphaned_runs) == 1
+    orphaned_run_id = orphaned_runs[0].info.run_id
+    assert experiment.tags == {}
+
+    repairing_gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+    recovered = repairing_gateway.create_or_reuse_monitoring_run(first_key)
+    second = repairing_gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id=second_source_run_id,
+            recipe_id="system_default",
+            recipe_version="v0",
+        )
+    )
+
+    repaired_experiment = raw.get_experiment(experiment.experiment_id)
+    monitoring_runs = raw.search_runs(experiment_ids=[experiment.experiment_id])
+    assert recovered.monitoring_run_id == orphaned_run_id
+    assert recovered.sequence_index == 0
+    assert recovered.allocated is False
+    assert second.sequence_index == 1
+    assert second.allocated is True
+    assert len(monitoring_runs) == 2
+    assert repaired_experiment.tags["monitoring.run.0"] == orphaned_run_id
+    assert repaired_experiment.tags["monitoring.run.1"] == second.monitoring_run_id
+    assert repaired_experiment.tags["monitoring.latest_run_id"] == second.monitoring_run_id
+    assert repaired_experiment.tags["monitoring.next_sequence_index"] == "2"
 
 
 def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
