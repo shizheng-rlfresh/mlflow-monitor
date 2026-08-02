@@ -225,7 +225,7 @@ class MonitorMLflowClient:
         experiment_id: str,
         tag_key: str,
     ) -> tuple[MonitoringRunTagSnapshot, ...]:
-        """Return active monitoring runs containing one tag.
+        """Return non-deleted monitoring runs containing one tag.
 
         MLflow search results are paginated and expose mutable MLflow entities.
         This adapter exhausts all result pages and returns detached snapshots so
