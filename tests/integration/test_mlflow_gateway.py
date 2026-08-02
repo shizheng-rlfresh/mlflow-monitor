@@ -41,7 +41,7 @@ class FailingFinalizeMLflowMonitoringGateway(MLflowMonitoringGateway):
 
 
 class FailingAllocationIndexMLflowMonitoringGateway(MLflowMonitoringGateway):
-    """Fail once after run creation but before the allocation index is written."""
+    """Fail after run creation but before the allocation index is written."""
 
     def _set_experiment_tags(self, experiment_id: str, tags: Mapping[str, str]) -> None:
         if any(key.startswith("monitoring.run.") for key in tags):
