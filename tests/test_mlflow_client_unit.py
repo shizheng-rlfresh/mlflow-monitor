@@ -5,12 +5,17 @@ from __future__ import annotations
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from mlflow.entities import Experiment, ViewType
+from mlflow.entities import Experiment, Run, ViewType
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS, RESOURCE_DOES_NOT_EXIST
-from mlflow.store.entities.paged_list import PagedList
 
 from mlflow_monitor.mlflow_client import MonitorMLflowClient
+
+
+class _PagedRuns(list[Run]):
+    def __init__(self, runs: list[Run], token: str | None) -> None:
+        super().__init__(runs)
+        self.token = token
 
 
 def test_list_monitoring_runs_with_tag_paginates_and_detaches_tags() -> None:
@@ -23,8 +28,8 @@ def test_list_monitoring_runs_with_tag_paginates_and_detaches_tags() -> None:
     second_run.data.tags = {"training.source_run_id": "source-2"}
     stub_client = MagicMock()
     stub_client.search_runs.side_effect = [
-        PagedList([first_run], "next-page"),
-        PagedList([second_run], None),
+        _PagedRuns([first_run], "next-page"),
+        _PagedRuns([second_run], None),
     ]
 
     with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
