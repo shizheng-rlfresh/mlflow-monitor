@@ -20,7 +20,7 @@ flowchart LR
 
     subgraph Monitoring["Monitoring Side"]
         MonExp[("MLflow: mlflow_monitor/{subject_id}")]
-        Timeline["Timeline state\nbaseline, latest run, sequence index"]
+        Timeline["Timeline state and index\nbaseline, latest run, sequence index"]
         MonRuns["Monitoring runs\nlifecycle, comparability, result artifact"]
     end
 
@@ -57,9 +57,9 @@ MLflow-Monitor reads from those runs but does not mutate them.
 
 MLflow-Monitor creates one monitoring experiment per subject. For example, `training/fraud_model` contains source training runs, and `mlflow_monitor/fraud_model` contains monitoring runs for that subject.
 
-The monitoring experiment holds timeline-level state: the pinned baseline, the latest monitoring run id, the next sequence index, and indexed run references for timeline traversal. These exist at the experiment level because they are properties of the subject's history, not of any individual monitoring run.
+The monitoring experiment holds timeline-level state: the pinned baseline, the latest monitoring run id, the next sequence index, and indexed run references for timeline traversal. The allocation index is a repairable projection: before creating or reusing a run, the gateway validates it against the durable allocation identity stored on monitoring runs and repairs uniquely recoverable partial writes.
 
-Each monitoring run holds its own evaluation state: lifecycle status, comparability status, baseline and other references, and the final `outputs/result.json` artifact. These exist at the run level because they are specific to one evaluation event.
+Each monitoring run holds its allocation identity (source run, recipe identity, and sequence index) and its evaluation state: lifecycle status, comparability status, baseline and other references, and the final `outputs/result.json` artifact. These exist at the run level because they are specific to one evaluation event.
 
 ## Why This Split Matters
 

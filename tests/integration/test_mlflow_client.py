@@ -159,6 +159,41 @@ def test_create_run_and_read_run_data(tracking_uri: str, artifact_root_uri: str)
     assert tags["schema.age"] == "int"
 
 
+def test_list_monitoring_runs_with_tag_returns_only_active_matching_runs(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
+    client = MonitorMLflowClient(tracking_uri=tracking_uri)
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    experiment_id = client.get_or_create_monitoring_experiment(
+        "allocation-search-monitoring",
+        artifact_location=artifact_root_uri,
+    )
+    matching = client.create_monitoring_run(
+        experiment_id,
+        tags={"training.source_run_id": "source-1"},
+    )
+    client.terminate_monitoring_run(matching.run_id, "FINISHED")
+    unrelated = client.create_monitoring_run(
+        experiment_id,
+        tags={"monitoring.sequence_index": "1"},
+    )
+    deleted = client.create_monitoring_run(
+        experiment_id,
+        tags={"training.source_run_id": "source-deleted"},
+    )
+    raw.delete_run(deleted.run_id)
+
+    snapshots = client.list_monitoring_runs_with_tag(
+        experiment_id,
+        "training.source_run_id",
+    )
+
+    assert tuple(snapshot.run_id for snapshot in snapshots) == (matching.run_id,)
+    assert snapshots[0].tags["training.source_run_id"] == "source-1"
+    assert unrelated.run_id not in {snapshot.run_id for snapshot in snapshots}
+
+
 def test_get_run_returns_none_for_missing_run(tracking_uri: str) -> None:
     client = MonitorMLflowClient(tracking_uri=tracking_uri)
 
