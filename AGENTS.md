@@ -19,8 +19,17 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 - Use the local `tdd` skill for behavior-changing work; skip it for docs-only or formatting-only edits.
 - Use the local `seeking-design-truth` skill for ticket-driven work, design questions, behavior clarification, and other tasks that need grounding in the repo's design docs before implementation or review.
 - Use the local `commit-discipline` skill for commit follow-through after green ticket slices.
-- Commit very frequently by default.
+- Commit frequently at coherent green, reviewable slices.
 - Do not log PII.
+
+## Private maintainer overlay
+
+- If `.agents/v0-development.md` exists, read it completely before maintainer
+  release or ticket work. It supplements this public file with private design
+  authority, sequencing, and release rules.
+- Its absence in a public clone is expected. Do not infer or request the private
+  plan when it is unavailable.
+- Never stage or publish files under `.agents/`.
 
 ## Review rules
 
@@ -41,24 +50,40 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 
 Use Python 3.12+ and `uv`.
 
+During TDD, run the narrowest relevant pytest target for red/green iteration. Before
+each green ticket commit, run focused tests plus the applicable Ruff and Pyright
+checks. Before closing a ticket, run the complete gate:
+
 ```bash
 uv sync --extra dev
 uv run pytest
 uv run ruff check .
-uv run ruff format .
+uv run ruff format --check .
+uv run pyright
 uv build
 ```
 
+Release transitions and final acceptance require the complete gate with no
+omissions. Use `uv run ruff format .` only as an intentional formatting action,
+never as proof that formatting was already valid.
+
 ## Branch naming
 
-- For Plane work items with an internal ticket, use
-  `MM-<plane-work-item-number>/<ticket-id>-<short-description>`.
-- For GitHub issues, use
-  `issue/<github-issue-number>-<short-description>`.
+- For ticketed work, use
+  `ticket/<lowercase-ticket-id>-<short-description>`.
+- For GitHub issues, use `issue/<github-issue-number>-<short-description>`.
+- For critical maintenance branched from a release tag, use
+  `hotfix/<release-version>-<short-description>`.
 - For exploratory work, use `spike/<short-description>`.
-- For other work, use a concise descriptive branch name.
+- For other work, use `work/<short-description>`.
+- Use one branch per ticket and normalize ticket IDs to lowercase.
 - Use lowercase, hyphen-separated descriptions.
 - Continue revisions on the original branch when possible.
+- Do not include Plane IDs unless the user explicitly identifies Plane as the
+  source of work.
+- Branch a critical release correction from the relevant release tag and merge the
+  correction forward into the active development line.
+- Never move or reuse a published release tag.
 
 ## Commit messages
 
