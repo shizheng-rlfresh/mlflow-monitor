@@ -2,42 +2,62 @@
 
 ML monitoring as a first-class workflow, built on MLflow.
 
-MLflow-Monitor reads existing MLflow training runs, checks whether comparison is meaningful, and stores monitoring state in its own namespace. Training runs stay read-only.
+MLflow-Monitor reads existing MLflow training runs, checks whether comparison is
+meaningful, and stores monitoring state in its own namespace. Training runs stay
+read-only.
 
-What that means in practice:
+> **Development status:** `main` is the active development line for the v0 product
+> scope and currently identifies as `0.2.0.dev0`. It is not the immutable MVP
+> snapshot. For the reproducible `create -> prepare -> check` product and its
+> executable demo, use the [`v0.1.0` MVP Release](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/tag/v0.1.0).
 
-- Comparability checks before metric interpretation
-- Baseline-pinned monitoring timelines
-- Traceable monitoring state and history in MLflow
-- Monitoring kept separate from training
+## Choose a Track
 
-For the design philosophy and world model behind these choices, see [docs/worldview.md](docs/site/source/worldview.md).
+| Track | Use it for | Starting point |
+| --- | --- | --- |
+| **MVP Release (`v0.1.0`)** | A stable portfolio artifact, the shipped `create -> prepare -> check` workflow, and the executable fraud-monitoring demo | [Release](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/tag/v0.1.0) · [README](https://github.com/shizheng-rlfresh/mlflow-monitor/blob/v0.1.0/README.md) · [Demo](https://github.com/shizheng-rlfresh/mlflow-monitor/blob/v0.1.0/demo/README.md) |
+| **Active development (`main`)** | Following or contributing to the evolving v0 implementation | This README and the source at the current revision |
 
-<p align="center">
-  <img src="docs/site/source/_static/system_diagram_v3.jpg" alt="MLflow-Monitor overview" width="500">
-</p>
+The active development line remains green as capabilities are added, but it does
+not carry the MVP Release's stability promise. Public documentation on `main`
+describes only behavior implemented at that revision.
 
-## Why This Project Exists
+## What the MVP Ships
 
-MLflow tracks training runs well, but it does not provide a structured layer for deciding whether a new run is meaningfully comparable to a trusted baseline over time.
+The MVP Release covers the first three monitoring lifecycle stages:
 
-In practice, teams often fill that gap with ad hoc scripts, naming conventions, and manual checks. As systems grow, those checks become harder to trust, harder to trace, and harder to reproduce.
+- first-run bootstrap with an explicit baseline
+- later monitoring runs that reuse the pinned baseline
+- comparability outcomes of `pass`, `warn`, and `fail` against real MLflow
+- persisted monitoring runs with `outputs/result.json` artifacts
+- read-only treatment of training experiments throughout
 
-MLflow-Monitor exists to make that monitoring step explicit. It treats monitoring as a first-class workflow with its own lifecycle, state, and persistence inside MLflow, while keeping training runs read-only.
+Analyze, close, metric diffs, findings, and explicit LKG management are outside the
+MVP snapshot and are not implied by the `v0.1.0` release.
 
-## Try It
-
-Clone the repo and sync the environment:
+## Run the Stable MVP
 
 ```bash
 git clone https://github.com/shizheng-rlfresh/mlflow-monitor.git
 cd mlflow-monitor
+git checkout v0.1.0
 uv sync
 ```
 
-Then follow the walkthrough in [demo/README.md](demo/README.md) for the full setup and monitoring commands.
+Then follow the tagged [MVP Demo walkthrough](https://github.com/shizheng-rlfresh/mlflow-monitor/blob/v0.1.0/demo/README.md).
+The permanent in-repository release pointer is
+[`docs/releases/v0.1.0-mvp.md`](docs/releases/v0.1.0-mvp.md).
 
-## How to Use
+## Use the Active Development Line
+
+```bash
+git clone https://github.com/shizheng-rlfresh/mlflow-monitor.git
+cd mlflow-monitor
+git switch main
+uv sync
+```
+
+The Python API remains the primary programmatic entry point while v0 develops:
 
 ```python
 from mlflow_monitor import monitor
@@ -45,35 +65,29 @@ from mlflow_monitor import monitor
 result = monitor.run(
     subject_id="fraud_model",
     source_run_id="training_run_id",
-    baseline_source_run_id="baseline_run_id",
+    baseline_source_run_id="baseline_source_run_id",
 )
 
 print(result.lifecycle_status)
 print(result.comparability_status)
 ```
 
-The `baseline_source_run_id` is required on the first run for a subject. Later runs reuse the pinned baseline automatically.
+`baseline_source_run_id` is required for the first Monitoring Run for a
+`subject_id`. Later Monitoring Runs reuse the pinned Baseline Source Run.
 
+The executable MVP Demo belongs to `v0.1.0`; it is not an evolving test surface
+for `main`.
 
-## Current Status
+## Architecture and Worldview
 
-Early alpha. The shipped runtime covers the first three stages of the monitoring lifecycle: create, prepare, and check. This means:
-
-- First-run bootstrap with an explicit baseline
-- Later runs that reuse the pinned baseline
-- Comparability verdicts of `pass`, `warn`, and `fail` against real MLflow
-- Persisted monitoring runs with `outputs/result.json` artifacts
-- Read-only treatment of training experiments throughout
-
-The later lifecycle stages (analyze, close, diff, findings, LKG promotion) are designed but not yet in the runtime.
-
-This is a repo-first alpha: clone the repository, sync the environment with `uv`, and run the demo or Python API from source.
-
-## Architecture
-
-For a closer look at how the system is structured, including the layering between orchestration, workflow, and the MLflow gateway, see [docs/architecture.md](docs/site/source/architecture.md).
+The current [architecture](docs/site/source/architecture.md) and
+[worldview](docs/site/source/worldview.md) pages are retained MVP-era presentation
+documents. Their banners describe that historical status while active v0
+development proceeds.
 
 ## Development Setup
+
+Use Python 3.12 or newer and `uv`:
 
 ```bash
 uv sync --extra dev
@@ -81,6 +95,7 @@ uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
+uv build
 ```
 
 ## License

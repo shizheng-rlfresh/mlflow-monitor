@@ -1,4 +1,10 @@
 # Worldview
+
+> **MVP-era worldview:** This document presents the product worldview shipped with
+> the [`v0.1.0` MVP Release](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/tag/v0.1.0).
+> It is retained for historical context during active v0 development and is not a
+> specification of every behavior on `main`.
+
 <p align="center">
 <img src="_static/worldview.png" alt="MLflow-Monitor overview" width="500" align="center"></p>
 
