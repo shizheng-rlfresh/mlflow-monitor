@@ -64,13 +64,16 @@ def test_canonical_entities_can_be_constructed() -> None:
     diff = Diff(
         diff_id="diff-1",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-2",
         reference=DiffReference(
             kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-0",
         ),
-        metric_deltas={"f1": -0.02},
-        metadata={"window": "full"},
+        metric_name="f1",
+        current_value=0.75,
+        reference_value=0.5,
+        delta=0.25,
     )
     finding = Finding(
         finding_id="finding-1",
@@ -250,16 +253,6 @@ def test_diff_requires_source_run_id_for_baseline_reference() -> None:
             kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="",
-        )
-
-
-def test_diff_structural_reference_kind_temporarily_forbids_run_identity() -> None:
-    """Legacy structural references should remain identity-free until V0-003 removes them."""
-    with pytest.raises(ValueError, match="must not set run identity"):
-        DiffReference(
-            kind=DiffReferenceKind.STRUCTURAL,
-            monitoring_run_id=None,
-            source_run_id="train-run-0",
         )
 
 

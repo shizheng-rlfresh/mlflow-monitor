@@ -43,7 +43,6 @@ class DiffReferenceKind(StrEnum):
     PREVIOUS = "previous"
     LKG = "lkg"
     CUSTOM = "custom"
-    STRUCTURAL = "structural"
 
 
 class FindingSeverity(StrEnum):
@@ -235,11 +234,6 @@ class DiffReference:
 
     def __post_init__(self) -> None:
         """Validate that reference identity presence matches the reference kind."""
-        if self.kind is DiffReferenceKind.STRUCTURAL:
-            if self.monitoring_run_id is not None or self.source_run_id is not None:
-                raise ValueError("DiffReference with kind='structural' must not set run identity.")
-            return
-
         _validate_reference_identity(
             entity="DiffReference",
             kind=self.kind,
@@ -275,16 +269,22 @@ class Diff:
     Attributes:
         diff_id: Unique identifier for the diff record.
         monitoring_run_id: The ID of the monitoring run this diff is associated with.
+        source_run_id: The immutable source training run ID of the monitoring run.
         reference: Reference descriptor containing both reference kind and reference id.
-        metric_deltas: A mapping of metric names to their delta values compared to the reference.
-        metadata: A mapping of additional metadata keys to values providing context for the diff.
+        metric_name: The name of the metric being compared.
+        current_value: The value of the metric for the current run.
+        reference_value: The value of the metric for the reference run.
+        delta: current_value - reference_value.
     """
 
     diff_id: str
     monitoring_run_id: str
+    source_run_id: str
     reference: DiffReference
-    metric_deltas: dict[str, float]
-    metadata: dict[str, str]
+    metric_name: str
+    current_value: float
+    reference_value: float
+    delta: float
 
 
 @dataclass(frozen=True, slots=True)
