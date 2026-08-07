@@ -47,8 +47,10 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 - Keep docstrings concise and focused on purpose, inputs, returns, and important failure behavior.
 - Developer documentation is published on Read the Docs from `docs/site/`; treat
   it as a maintained product surface.
-- Every implementation ticket must update the corresponding `docs/site/` content
-  in the same branch and pull request. The implementation is incomplete until the
+- Every implementation ticket must assess its `docs/site/` impact. When an
+  implementation adds, removes, or changes behavior that requires corresponding
+  developer documentation, add, remove, or edit the matching `.rst` content in
+  the same branch and pull request. The implementation is incomplete until the
   developer documentation matches the delivered behavior.
 
 ## Validation
