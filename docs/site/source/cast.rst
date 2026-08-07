@@ -21,3 +21,10 @@ Result Contract
 .. automodule:: mlflow_monitor.result_contract
    :members:
    :show-inheritance:
+
+Identity
+---------
+
+.. automodule:: mlflow_monitor.identity
+   :members:
+   :show-inheritance:

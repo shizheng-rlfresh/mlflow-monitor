@@ -18,8 +18,8 @@ from mlflow_monitor.domain import (
 )
 from mlflow_monitor.errors import InvariantViolation
 from mlflow_monitor.identity import (
-    CompatibilityEvidenceIdentity,
-    DiffIdentity,
+    _CompatibilityEvidenceIdentity,
+    _DiffIdentity,
     make_compatibility_evidence_id,
     make_diff_id,
 )
@@ -88,7 +88,7 @@ def _compatibility_evidence(
 
 
 def test_diff_identity_container_serializes_semantic_components() -> None:
-    identity = DiffIdentity(
+    identity = _DiffIdentity(
         monitoring_run_id="monitoring-run-current",
         source_run_id="train-run-current",
         reference=_baseline_reference(),
@@ -108,7 +108,7 @@ def test_diff_identity_container_serializes_semantic_components() -> None:
 
 
 def test_compatibility_evidence_identity_container_serializes_semantic_components() -> None:
-    identity = CompatibilityEvidenceIdentity(
+    identity = _CompatibilityEvidenceIdentity(
         monitoring_run_id="monitoring-run-current",
         source_run_id="train-run-current",
         baseline_source_run_id="train-run-baseline",

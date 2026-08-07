@@ -12,7 +12,7 @@ IDENTITY_SCHEME_VERSION = "v1"
 
 
 @dataclass(frozen=True, slots=True)
-class DiffIdentity:
+class _DiffIdentity:
     """Deterministic identity for one atomic metric Diff.
 
     Attributes:
@@ -42,7 +42,7 @@ class DiffIdentity:
 
 
 @dataclass(frozen=True, slots=True)
-class CompatibilityEvidenceIdentity:
+class _CompatibilityEvidenceIdentity:
     """Deterministic identity for one Compatibility Evidence record.
 
     Attributes:
@@ -94,7 +94,7 @@ def make_diff_id(
     return _make_identity(
         entity_type="diff",
         prefix="diff",
-        payload=DiffIdentity(
+        payload=_DiffIdentity(
             monitoring_run_id=monitoring_run_id,
             source_run_id=source_run_id,
             reference=reference,
@@ -128,7 +128,7 @@ def make_compatibility_evidence_id(
     return _make_identity(
         entity_type="compatibility_evidence",
         prefix="compatibility-evidence",
-        payload=CompatibilityEvidenceIdentity(
+        payload=_CompatibilityEvidenceIdentity(
             monitoring_run_id=monitoring_run_id,
             source_run_id=source_run_id,
             baseline_source_run_id=baseline_source_run_id,
@@ -143,7 +143,7 @@ def _make_identity(
     *,
     entity_type: str,
     prefix: str,
-    payload: DiffIdentity | CompatibilityEvidenceIdentity,
+    payload: _DiffIdentity | _CompatibilityEvidenceIdentity,
 ) -> str:
     """Hash one canonical versioned identity payload."""
     canonical_payload = {
