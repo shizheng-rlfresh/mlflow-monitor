@@ -38,6 +38,14 @@ def _previous_reference() -> DiffReference:
     )
 
 
+def _lkg_reference() -> DiffReference:
+    return DiffReference(
+        kind=DiffReferenceKind.LKG,
+        monitoring_run_id="monitoring-run-lkg",
+        source_run_id="train-run-lkg",
+    )
+
+
 def _diff(**overrides: object) -> Diff:
     values: dict[str, object] = {
         "diff_id": "diff-accuracy-baseline",
@@ -264,6 +272,10 @@ def test_coverage_is_immutable() -> None:
 @pytest.mark.parametrize(
     ("status_name", "overrides"),
     [
+        (
+            "COMPLETED",
+            {"reference_kind": DiffReferenceKind.LKG, "reference": _baseline_reference()},
+        ),
         ("COMPLETED", {"reference": None}),
         ("COMPLETED", {"reason": "current_not_comparable"}),
         ("SKIPPED", {"reference": None, "reason": "current_not_comparable"}),
@@ -296,6 +308,37 @@ def test_coverage_is_immutable() -> None:
                 "reference": None,
                 "reason": "previous_reference_missing",
                 "metric_unavailability": _ONE_METRIC_UNAVAILABILITY,
+            },
+        ),
+        (
+            "UNAVAILABLE",
+            {
+                "reference_kind": DiffReferenceKind.PREVIOUS,
+                "reference": _previous_reference(),
+                "reason": "lkg_not_selected",
+            },
+        ),
+        (
+            "UNAVAILABLE",
+            {
+                "reference_kind": DiffReferenceKind.PREVIOUS,
+                "reference": _previous_reference(),
+                "reason": "lkg_selection_inconsistent",
+            },
+        ),
+        (
+            "UNAVAILABLE",
+            {
+                "reference_kind": DiffReferenceKind.LKG,
+                "reference": _lkg_reference(),
+                "reason": "previous_reference_missing",
+            },
+        ),
+        (
+            "UNAVAILABLE",
+            {
+                "reference": _lkg_reference(),
+                "reason": "lkg_not_selected",
             },
         ),
     ],

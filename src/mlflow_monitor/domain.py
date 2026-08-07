@@ -499,7 +499,14 @@ class ReferenceComparisonCoverage:
 
     def __post_init__(self) -> None:
         """Validate ReferenceComparisonCoverage for atomic shape."""
+        if self.reference_kind not in DiffReferenceKind:
+            raise ValueError(
+                f"ReferenceComparisonCoverage has an unrecognized reference_kind: {self.reference_kind!r}."
+            )
+
         if self.reference:
+            if not isinstance(self.reference, DiffReference):
+                raise ValueError("Coverage reference must be a DiffReference.")
             if self.reference_kind != self.reference.kind:
                 raise ValueError(
                     "ReferenceComparisonCoverage 'reference_kind' must match the kind of the provided 'reference'."
@@ -555,34 +562,30 @@ class ReferenceComparisonCoverage:
         if self.diff_ids or self.metric_unavailability:
             raise ValueError("Unavailable coverage cannot contain metric results.")
 
-        # Global resolved-reference invariant.
-        if self.reference is not None:
-            if not isinstance(self.reference, DiffReference):
-                raise ValueError("Coverage reference must be a DiffReference.")
-            if self.reference.kind is not self.reference_kind:
-                raise ValueError("Coverage reference kind must match reference_kind.")
+        if self.reason is None or self.reason not in _UNAVAILABILITY_REFERENCE_COMPARISON_REASONS:
+            raise ValueError(
+                "ReferenceComparisonCoverage with status UNAVAILABLE must have a reason code "
+                f"from {_UNAVAILABILITY_REFERENCE_COMPARISON_REASONS}."
+            )
 
-        if self.reason == "previous_reference_missing":
-            if self.reference_kind is not DiffReferenceKind.PREVIOUS:
+        elif self.reason == "previous_reference_missing":
+            if self.reference_kind != DiffReferenceKind.PREVIOUS:
                 raise ValueError("previous_reference_missing requires reference_kind='previous'.")
             if self.reference is not None:
                 raise ValueError("previous_reference_missing requires reference=None.")
 
         elif self.reason == "lkg_not_selected":
-            if self.reference_kind is not DiffReferenceKind.LKG:
+            if self.reference_kind != DiffReferenceKind.LKG:
                 raise ValueError("lkg_not_selected requires reference_kind='lkg'.")
             if self.reference is not None:
                 raise ValueError("lkg_not_selected requires reference=None.")
 
         elif self.reason == "lkg_selection_inconsistent":
-            if self.reference_kind is not DiffReferenceKind.LKG:
+            if self.reference_kind != DiffReferenceKind.LKG:
                 raise ValueError("lkg_selection_inconsistent requires reference_kind='lkg'.")
             if self.reference is not None:
                 raise ValueError("lkg_selection_inconsistent requires reference=None.")
 
-        elif self.reason == "reference_source_run_missing":
+        else:
             if self.reference is None:
                 raise ValueError("reference_source_run_missing requires a retained reference.")
-
-        else:
-            raise ValueError(f"Unknown unavailable coverage reason {self.reason!r}.")
