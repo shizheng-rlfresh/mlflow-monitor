@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
@@ -150,6 +150,39 @@ def test_compile_recipe_accepts_mapping_through_the_strict_parser() -> None:
     assert compile_recipe(build_system_default_recipe()) == compile_recipe(
         parse_recipe(build_system_default_recipe())
     )
+
+
+def test_compile_recipe_revalidates_typed_recipe_inputs() -> None:
+    parsed = parse_recipe(build_system_default_recipe())
+    invalid = replace(
+        parsed,
+        recipe_schema_version="unsupported",
+        source_requirements=replace(
+            parsed.source_requirements,
+            required_metric_names=("accuracy", "accuracy"),
+        ),
+    )
+
+    with pytest.raises(RecipeValidationError) as exc_info:
+        compile_recipe(invalid)
+
+    assert [(issue.code, issue.section, issue.field) for issue in exc_info.value.issues] == [
+        ("unsupported_version", "recipe", "recipe_schema_version"),
+        ("duplicate_value", "source_requirements", "required_metric_names"),
+    ]
+
+
+def test_compile_recipe_reports_invalid_typed_recipe_sections() -> None:
+    invalid = replace(
+        parse_recipe(build_system_default_recipe()),
+        identity=None,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RecipeValidationError) as exc_info:
+        compile_recipe(invalid)
+
+    issue = exc_info.value.issues[0]
+    assert (issue.code, issue.section, issue.field) == ("invalid_type", "identity", None)
 
 
 def test_compile_recipe_is_immutable() -> None:
