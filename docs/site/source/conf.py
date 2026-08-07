@@ -9,7 +9,8 @@ sys.path.insert(0, str(ROOT / "src"))
 project = "mlflow-monitor"
 copyright = "2026, Zheng Shi"
 author = "Zheng Shi"
-release = "0.1.0"
+release = "0.2.0.dev0"
+version = "0.2.0"
 
 autodoc_mock_imports = ["haystack"]
 
