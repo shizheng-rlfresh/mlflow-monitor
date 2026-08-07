@@ -10,12 +10,14 @@ from mlflow_monitor.contract_checker import ContractChecker
 from mlflow_monitor.domain import (
     Contract,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
     CheckStageError,
     ContractResolutionError,
+    GatewayConsistencyViolation,
     PrepareStageError,
     RecipeValidationError,
     TerminalRunRetryError,
@@ -150,7 +152,7 @@ def _resolve_orchestration_state(
     create_or_reuse_result = gateway.create_or_reuse_monitoring_run(idempotency_key)
     state = OrchestrationState(
         subject_id=subject_id,
-        source_run_id=source_run_id,
+        source_run_id=create_or_reuse_result.source_run_id,
         baseline_source_run_id=baseline_source_run_id,
         compiled_plan=compiled_plan,
         resolved_contract=resolved_contract,
@@ -227,6 +229,7 @@ def _run_prepare_monitoring_run_slice(
         gateway.upsert_monitoring_run(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
+            source_run_id=state.source_run_id,
             lifecycle_status=LifecycleStatus.CREATED,
             sequence_index=state.sequence_index,
         )
@@ -245,6 +248,7 @@ def _run_prepare_monitoring_run_slice(
         gateway.upsert_monitoring_run(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
+            source_run_id=state.source_run_id,
             lifecycle_status=LifecycleStatus.FAILED,
             sequence_index=state.sequence_index,
         )
@@ -268,6 +272,7 @@ def _run_prepare_monitoring_run_slice(
         gateway.upsert_monitoring_run(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
+            source_run_id=state.source_run_id,
             lifecycle_status=LifecycleStatus.PREPARED,
             sequence_index=state.sequence_index,
         )
@@ -307,6 +312,7 @@ def _run_check_monitoring_run_slice(
         gateway.upsert_monitoring_run(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
+            source_run_id=state.source_run_id,
             lifecycle_status=LifecycleStatus.FAILED,
             sequence_index=state.sequence_index,
         )
@@ -326,10 +332,11 @@ def _run_check_monitoring_run_slice(
     gateway.upsert_monitoring_run(
         subject_id=state.subject_id,
         monitoring_run_id=state.monitoring_run_id,
+        source_run_id=state.source_run_id,
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=state.sequence_index,
         contract_check_result=contract_check_result,
-        references=_build_monitoring_run_references(prepared_context),
+        references=_build_monitoring_run_references(prepared_context, gateway),
     )
     result = _build_success_monitoring_run_result(
         subject_id=state.subject_id,
@@ -375,7 +382,7 @@ def _build_success_monitoring_run_result(
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        references=_build_monitoring_run_references(prepared_context),
+        references=_build_monitoring_run_references(prepared_context, gateway),
         error=None,
     )
 
@@ -457,43 +464,80 @@ def _build_failure_monitoring_run_result(
 
 def _build_monitoring_run_references(
     prepared_context,
+    gateway: MonitoringGateway,
 ) -> tuple[MonitoringRunReference, ...]:
     """Build ordered typed references for persistence.
 
     Args:
         prepared_context: The prepared context produced by the prepare stage for this run.
+        gateway: Gateway used to hydrate source identity for monitoring-run references.
 
     Returns:
         Ordered typed references used during contract check.
     """
     references = [
         MonitoringRunReference(
-            kind="baseline",
-            reference_run_id=prepared_context.baseline_source_run_id,
+            kind=DiffReferenceKind.BASELINE,
+            monitoring_run_id=None,
+            source_run_id=prepared_context.baseline_source_run_id,
         )
     ]
     if prepared_context.previous_monitoring_run_id is not None:
         references.append(
-            MonitoringRunReference(
-                kind="previous",
-                reference_run_id=prepared_context.previous_monitoring_run_id,
+            _hydrate_monitoring_run_reference(
+                kind=DiffReferenceKind.PREVIOUS,
+                subject_id=prepared_context.subject_id,
+                monitoring_run_id=prepared_context.previous_monitoring_run_id,
+                gateway=gateway,
             )
         )
     if prepared_context.active_lkg_monitoring_run_id is not None:
         references.append(
-            MonitoringRunReference(
-                kind="lkg",
-                reference_run_id=prepared_context.active_lkg_monitoring_run_id,
+            _hydrate_monitoring_run_reference(
+                kind=DiffReferenceKind.LKG,
+                subject_id=prepared_context.subject_id,
+                monitoring_run_id=prepared_context.active_lkg_monitoring_run_id,
+                gateway=gateway,
             )
         )
     if prepared_context.custom_reference_monitoring_run_id is not None:
         references.append(
-            MonitoringRunReference(
-                kind="custom",
-                reference_run_id=prepared_context.custom_reference_monitoring_run_id,
+            _hydrate_monitoring_run_reference(
+                kind=DiffReferenceKind.CUSTOM,
+                subject_id=prepared_context.subject_id,
+                monitoring_run_id=prepared_context.custom_reference_monitoring_run_id,
+                gateway=gateway,
             )
         )
     return tuple(references)
+
+
+def _hydrate_monitoring_run_reference(
+    *,
+    kind: DiffReferenceKind,
+    subject_id: str,
+    monitoring_run_id: str,
+    gateway: MonitoringGateway,
+) -> MonitoringRunReference:
+    """Hydrate a complete reference pair from a monitoring-run pointer."""
+    record = gateway.get_monitoring_run(subject_id, monitoring_run_id)
+    if record is None:
+        raise GatewayConsistencyViolation(
+            code="monitoring_reference_inconsistent",
+            message=(
+                "Monitoring reference could not be hydrated for "
+                f"monitoring_run_id={monitoring_run_id!r}."
+            ),
+            details=(
+                ("kind", kind.value),
+                ("monitoring_run_id", monitoring_run_id),
+            ),
+        )
+    return MonitoringRunReference(
+        kind=kind,
+        monitoring_run_id=record.monitoring_run_id,
+        source_run_id=record.source_run_id,
+    )
 
 
 def _error_code_for_stage(stage: str, error: Exception) -> str:

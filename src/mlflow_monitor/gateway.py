@@ -74,6 +74,7 @@ class MonitoringRunRecord:
 
     Attributes:
         monitoring_run_id: Monitoring run identifier.
+        source_run_id: Immutable source training run identifier.
         sequence_index: Monotonic per-subject sequence index.
         lifecycle_status: Current lifecycle status.
         comparability_status: Optional comparability status for the run.
@@ -82,6 +83,7 @@ class MonitoringRunRecord:
     """
 
     monitoring_run_id: str
+    source_run_id: str
     sequence_index: int
     lifecycle_status: LifecycleStatus
     comparability_status: ComparabilityStatus | None = None
@@ -89,7 +91,9 @@ class MonitoringRunRecord:
     references: tuple[MonitoringRunReference, ...] = ()
 
     def __post_init__(self) -> None:
-        """Freeze persisted references after a defensive copy."""
+        """Validate source identity and freeze references after a defensive copy."""
+        if not self.source_run_id.strip():
+            raise ValueError("MonitoringRunRecord.source_run_id must be non-empty.")
         object.__setattr__(
             self,
             "references",
@@ -133,6 +137,7 @@ class CreateOrReuseMonitoringRunResult:
 
     Attributes:
         monitoring_run_id: Monitoring run identifier owned by the gateway.
+        source_run_id: Immutable source training run identifier.
         sequence_index: Monotonic per-subject sequence index.
         existing_monitoring_run: Existing stored monitoring run record, if any. This may be
             None even when a prior idempotency binding already exists.
@@ -141,6 +146,7 @@ class CreateOrReuseMonitoringRunResult:
     """
 
     monitoring_run_id: str
+    source_run_id: str
     sequence_index: int
     existing_monitoring_run: MonitoringRunRecord | None
     allocated: bool
@@ -221,6 +227,7 @@ class MonitoringGateway(Protocol):
         self,
         subject_id: str,
         monitoring_run_id: str,
+        source_run_id: str,
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
@@ -329,6 +336,7 @@ class InMemoryMonitoringGateway:
             )
             return CreateOrReuseMonitoringRunResult(
                 monitoring_run_id=existing_monitoring_run_id,
+                source_run_id=key.source_run_id,
                 sequence_index=sequence_index,
                 existing_monitoring_run=existing_monitoring_run,
                 allocated=False,
@@ -340,6 +348,7 @@ class InMemoryMonitoringGateway:
         self._idempotency_bindings[key] = (new_monitoring_run_id, sequence_index)
         return CreateOrReuseMonitoringRunResult(
             monitoring_run_id=new_monitoring_run_id,
+            source_run_id=key.source_run_id,
             sequence_index=sequence_index,
             existing_monitoring_run=None,
             allocated=True,
@@ -422,6 +431,7 @@ class InMemoryMonitoringGateway:
         self,
         subject_id: str,
         monitoring_run_id: str,
+        source_run_id: str,
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
@@ -432,6 +442,7 @@ class InMemoryMonitoringGateway:
         Args:
             subject_id: Monitored subject identifier.
             monitoring_run_id: Monitoring run identifier.
+            source_run_id: Immutable source training run identifier.
             lifecycle_status: Current lifecycle status of the run.
             sequence_index: Monotonic per-subject sequence index for ordering.
             contract_check_result: Optional contract check result to persist for the run.
@@ -446,6 +457,15 @@ class InMemoryMonitoringGateway:
         """
         self._validate_subject_id(subject_id)
         self._validate_monitoring_namespace(subject_id)
+        self._validate_allocated_source_identity(
+            subject_id=subject_id,
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+        )
+        self._validate_reference_source_identities(
+            subject_id=subject_id,
+            references=references,
+        )
 
         comparability_status: ComparabilityStatus | None = (
             contract_check_result.status if contract_check_result else None
@@ -457,6 +477,7 @@ class InMemoryMonitoringGateway:
         if monitoring_run is None:
             subject_runs[monitoring_run_id] = MonitoringRunRecord(
                 monitoring_run_id=monitoring_run_id,
+                source_run_id=source_run_id,
                 sequence_index=sequence_index,
                 lifecycle_status=lifecycle_status,
                 comparability_status=comparability_status,
@@ -467,6 +488,7 @@ class InMemoryMonitoringGateway:
 
         self._validate_upsert_existing_monitoring_run(
             monitoring_run,
+            source_run_id,
             sequence_index,
             contract_check_result,
             references,
@@ -828,6 +850,7 @@ class InMemoryMonitoringGateway:
     def _validate_upsert_existing_monitoring_run(
         self,
         monitoring_run: MonitoringRunRecord,
+        source_run_id: str,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None,
         references: tuple[MonitoringRunReference, ...] | None,
@@ -836,6 +859,7 @@ class InMemoryMonitoringGateway:
 
         Args:
             monitoring_run: The existing monitoring run record being updated.
+            source_run_id: The source run identifier being written for the run.
             sequence_index: The new sequence index being written for the run.
             contract_check_result: The new contract check result being written for the run.
             references: The new typed references being written for the run.
@@ -848,6 +872,9 @@ class InMemoryMonitoringGateway:
             None
         """
         details: tuple[tuple[str, str | int | None], ...] = ()
+
+        if monitoring_run.source_run_id != source_run_id:
+            details += (("source_run_id", source_run_id),)
 
         if monitoring_run.sequence_index != sequence_index:
             details += (("sequence_index", sequence_index),)
@@ -917,12 +944,68 @@ class InMemoryMonitoringGateway:
         )
         self._monitoring_runs_by_subject[subject_id][monitoring_run_id] = MonitoringRunRecord(
             monitoring_run_id=monitoring_run_id,
+            source_run_id=monitoring_run.source_run_id,
             sequence_index=monitoring_run.sequence_index,
             lifecycle_status=lifecycle_status,
             comparability_status=effective_comparability_status,
             contract_check_result=effective_contract_check_result,
             references=effective_references,
         )
+
+    def _validate_allocated_source_identity(
+        self,
+        *,
+        subject_id: str,
+        monitoring_run_id: str,
+        source_run_id: str,
+    ) -> None:
+        """Reject a source identity that conflicts with an existing allocation."""
+        for key, binding in self._idempotency_bindings.items():
+            allocated_monitoring_run_id, _ = binding
+            if key.subject_id != subject_id or allocated_monitoring_run_id != monitoring_run_id:
+                continue
+            if key.source_run_id != source_run_id:
+                raise GatewayConsistencyViolation(
+                    code="monitoring_run_upsert_field_override",
+                    message=(
+                        "Attempted to upsert monitoring run with immutable field value: "
+                        f"source_run_id={source_run_id!r}"
+                    ),
+                    details=(("source_run_id", source_run_id),),
+                )
+            return
+
+    def _validate_reference_source_identities(
+        self,
+        *,
+        subject_id: str,
+        references: tuple[MonitoringRunReference, ...] | None,
+    ) -> None:
+        """Reject a reference pair that contradicts an existing monitoring record."""
+        if references is None:
+            return
+        subject_runs = self._monitoring_runs_by_subject.get(subject_id, {})
+        for reference in references:
+            if reference.monitoring_run_id is None:
+                continue
+            persisted_reference = subject_runs.get(reference.monitoring_run_id)
+            if (
+                persisted_reference is None
+                or persisted_reference.source_run_id == reference.source_run_id
+            ):
+                continue
+            raise GatewayConsistencyViolation(
+                code="monitoring_run_upsert_field_override",
+                message=(
+                    "Monitoring run source identity is inconsistent for "
+                    f"monitoring_run_id={reference.monitoring_run_id!r}."
+                ),
+                details=(
+                    ("monitoring_run_id", reference.monitoring_run_id),
+                    ("source_run_id", reference.source_run_id),
+                    ("persisted_source_run_id", persisted_reference.source_run_id),
+                ),
+            )
 
     def _generate_monitoring_run_id(self) -> str:
         """Return a new opaque monitoring run identifier."""

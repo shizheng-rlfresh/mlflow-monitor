@@ -37,6 +37,7 @@ from mlflow_monitor.contract_checker import ContractEvidence
 from mlflow_monitor.domain import (
     ComparabilityStatus,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
 )
@@ -151,6 +152,7 @@ class MLflowMonitoringGateway:
         if existing_allocation is not None:
             return CreateOrReuseMonitoringRunResult(
                 monitoring_run_id=existing_allocation.monitoring_run_id,
+                source_run_id=existing_allocation.key.source_run_id,
                 sequence_index=existing_allocation.sequence_index,
                 existing_monitoring_run=self.get_monitoring_run(
                     key.subject_id,
@@ -184,6 +186,7 @@ class MLflowMonitoringGateway:
         )
         return CreateOrReuseMonitoringRunResult(
             monitoring_run_id=monitoring_run_info.run_id,
+            source_run_id=key.source_run_id,
             sequence_index=sequence_index,
             existing_monitoring_run=None,
             allocated=True,
@@ -267,6 +270,7 @@ class MLflowMonitoringGateway:
         self,
         subject_id: str,
         monitoring_run_id: str,
+        source_run_id: str,
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
@@ -282,6 +286,7 @@ class MLflowMonitoringGateway:
         Args:
             subject_id: Monitored subject identifier.
             monitoring_run_id: Monitoring run id to update.
+            source_run_id: Immutable source training run identifier.
             lifecycle_status: Lifecycle status to persist.
             sequence_index: Stable timeline sequence index for the run.
             contract_check_result: Optional check result used to derive the
@@ -289,6 +294,25 @@ class MLflowMonitoringGateway:
             references: Optional ordered references used during check.
         """
         self._validate_subject_id(subject_id)
+        if self.resolve_timeline_monitoring_run_id(subject_id, monitoring_run_id) is None:
+            raise GatewayConsistencyViolation(
+                code="monitoring_run_subject_inconsistent",
+                message=(
+                    f"Monitoring run {monitoring_run_id!r} is not indexed on "
+                    f"subject_id={subject_id!r}."
+                ),
+                details=(
+                    ("subject_id", subject_id),
+                    ("monitoring_run_id", monitoring_run_id),
+                ),
+            )
+        persisted_source_run_id = self._mlflow.get_run_tags(monitoring_run_id).get(_SOURCE_RUN_TAG)
+        if persisted_source_run_id != source_run_id:
+            raise self._source_identity_consistency_error(
+                monitoring_run_id=monitoring_run_id,
+                source_run_id=source_run_id,
+                persisted_source_run_id=persisted_source_run_id,
+            )
         monitoring_tags = {
             _SEQUENCE_INDEX_TAG: str(sequence_index),
             _LIFECYCLE_STATUS_TAG: lifecycle_status.value,
@@ -297,8 +321,22 @@ class MLflowMonitoringGateway:
             monitoring_tags[_COMPARABILITY_STATUS_TAG] = contract_check_result.status.value
         if references is not None:
             for reference in references:
-                monitoring_tags[f"{_REFERENCE_TAG_PREFIX}{reference.kind}"] = (
-                    reference.reference_run_id
+                if reference.kind is DiffReferenceKind.BASELINE:
+                    reference_tag_value = reference.source_run_id
+                else:
+                    assert reference.monitoring_run_id is not None
+                    persisted_reference_source_run_id = self._mlflow.get_run_tags(
+                        reference.monitoring_run_id
+                    ).get(_SOURCE_RUN_TAG)
+                    if persisted_reference_source_run_id != reference.source_run_id:
+                        raise self._source_identity_consistency_error(
+                            monitoring_run_id=reference.monitoring_run_id,
+                            source_run_id=reference.source_run_id,
+                            persisted_source_run_id=persisted_reference_source_run_id,
+                        )
+                    reference_tag_value = reference.monitoring_run_id
+                monitoring_tags[f"{_REFERENCE_TAG_PREFIX}{reference.kind.value}"] = (
+                    reference_tag_value
                 )
         self._mlflow.set_monitoring_run_tags(monitoring_run_id, monitoring_tags)
 
@@ -333,7 +371,8 @@ class MLflowMonitoringGateway:
             return None
         lifecycle_status_value = run_tags.get(_LIFECYCLE_STATUS_TAG)
         sequence_index_value = run_tags.get(_SEQUENCE_INDEX_TAG)
-        if lifecycle_status_value is None or sequence_index_value is None:
+        source_run_id = run_tags.get(_SOURCE_RUN_TAG)
+        if lifecycle_status_value is None or sequence_index_value is None or not source_run_id:
             return None
 
         try:
@@ -357,6 +396,7 @@ class MLflowMonitoringGateway:
 
         return MonitoringRunRecord(
             monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
             sequence_index=sequence_index,
             lifecycle_status=lifecycle_status,
             comparability_status=comparability_status,
@@ -1038,11 +1078,58 @@ class MLflowMonitoringGateway:
         """
         references: list[MonitoringRunReference] = []
         for kind in _REFERENCE_KINDS:
-            reference_run_id = run_tags.get(f"{_REFERENCE_TAG_PREFIX}{kind}")
-            if not reference_run_id:
+            reference_tag_value = run_tags.get(f"{_REFERENCE_TAG_PREFIX}{kind}")
+            if not reference_tag_value:
                 continue
-            references.append(MonitoringRunReference(kind=kind, reference_run_id=reference_run_id))
+            reference_kind = DiffReferenceKind(kind)
+            if reference_kind is DiffReferenceKind.BASELINE:
+                references.append(
+                    MonitoringRunReference(
+                        kind=reference_kind,
+                        monitoring_run_id=None,
+                        source_run_id=reference_tag_value,
+                    )
+                )
+                continue
+            reference_monitoring_run_id = reference_tag_value
+            reference_source_run_id = self._mlflow.get_run_tags(reference_monitoring_run_id).get(
+                _SOURCE_RUN_TAG
+            )
+            if not reference_source_run_id:
+                raise self._source_identity_consistency_error(
+                    monitoring_run_id=reference_monitoring_run_id,
+                    source_run_id=None,
+                    persisted_source_run_id=reference_source_run_id,
+                )
+            references.append(
+                MonitoringRunReference(
+                    kind=reference_kind,
+                    monitoring_run_id=reference_monitoring_run_id,
+                    source_run_id=reference_source_run_id,
+                )
+            )
         return tuple(references)
+
+    def _source_identity_consistency_error(
+        self,
+        *,
+        monitoring_run_id: str,
+        source_run_id: str | None,
+        persisted_source_run_id: str | None,
+    ) -> GatewayConsistencyViolation:
+        """Build a structured error for one contradictory monitoring/source pair."""
+        return GatewayConsistencyViolation(
+            code="monitoring_run_upsert_field_override",
+            message=(
+                "Monitoring run source identity is inconsistent for "
+                f"monitoring_run_id={monitoring_run_id!r}."
+            ),
+            details=(
+                ("monitoring_run_id", monitoring_run_id),
+                ("source_run_id", source_run_id),
+                ("persisted_source_run_id", persisted_source_run_id),
+            ),
+        )
 
     def _validate_namespace_prefix(self, prefix: str) -> None:
         """Validate namespace prefix can safely compose a monitoring namespace."""

@@ -128,8 +128,10 @@ def test_mlflow_gateway_repairs_zero_tag_orphan_before_next_allocation(
     repaired_experiment = raw.get_experiment(experiment.experiment_id)
     monitoring_runs = raw.search_runs(experiment_ids=[experiment.experiment_id])
     assert recovered.monitoring_run_id == orphaned_run_id
+    assert recovered.source_run_id == first_source_run_id
     assert recovered.sequence_index == 0
     assert recovered.allocated is False
+    assert second.source_run_id == second_source_run_id
     assert second.sequence_index == 1
     assert second.allocated is True
     assert len(monitoring_runs) == 2
@@ -190,7 +192,11 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     assert result.lifecycle_status is LifecycleStatus.CHECKED
     assert result.comparability_status is ComparabilityStatus.PASS
     assert result.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id=baseline_run_id),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id=baseline_run_id,
+        ),
     )
     assert experiment.tags["training.baseline_run_id"] == baseline_run_id
     assert experiment.tags["monitoring.latest_run_id"] == result.monitoring_run_id
@@ -368,8 +374,16 @@ def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
     experiment = raw.get_experiment_by_name("mlflow_monitor/churn_model")
     assert experiment is not None
     assert second.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id=baseline_run_id),
-        MonitoringRunReference(kind="previous", reference_run_id=first.monitoring_run_id),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id=baseline_run_id,
+        ),
+        MonitoringRunReference(
+            kind="previous",
+            monitoring_run_id=first.monitoring_run_id,
+            source_run_id=first_current_run_id,
+        ),
     )
     assert second.comparability_status is ComparabilityStatus.FAIL
     assert replay.monitoring_run_id == second.monitoring_run_id

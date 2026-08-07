@@ -31,10 +31,12 @@ def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:
     second = gateway.create_or_reuse_monitoring_run(key)
 
     assert first.monitoring_run_id.startswith("monitoring-run-")
+    assert first.source_run_id == "train-run-1"
     assert first.sequence_index == 0
     assert first.existing_monitoring_run is None
     assert first.allocated is True
     assert second.monitoring_run_id == first.monitoring_run_id
+    assert second.source_run_id == first.source_run_id
     assert second.sequence_index == first.sequence_index
     assert second.existing_monitoring_run is None
     assert second.allocated is False
@@ -180,18 +182,21 @@ def test_list_timeline_runs_includes_failed_by_default() -> None:
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
         monitoring_run_id="monitoring-run-created",
+        source_run_id="train-run-created",
         lifecycle_status=LifecycleStatus.CREATED,
         sequence_index=0,
     )
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
         monitoring_run_id="monitoring-run-failed",
+        source_run_id="train-run-failed",
         lifecycle_status=LifecycleStatus.FAILED,
         sequence_index=1,
     )
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
         monitoring_run_id="monitoring-run-closed",
+        source_run_id="train-run-closed",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=2,
     )
@@ -212,18 +217,21 @@ def test_list_timeline_runs_excludes_failed_when_requested() -> None:
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
         monitoring_run_id="monitoring-run-checked",
+        source_run_id="train-run-checked",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
     )
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=1,
     )
     gateway.upsert_monitoring_run(
         subject_id=subject_id,
         monitoring_run_id="monitoring-run-2",
+        source_run_id="train-run-2",
         lifecycle_status=LifecycleStatus.FAILED,
         sequence_index=2,
     )
@@ -249,6 +257,7 @@ def test_namespace_violation_raises_on_invalid_monitoring_write() -> None:
         gateway.upsert_monitoring_run(
             subject_id="team/churn_model",
             monitoring_run_id="monitoring-run-1",
+            source_run_id="train-run-1",
             lifecycle_status=LifecycleStatus.CREATED,
             sequence_index=0,
         )
@@ -415,12 +424,14 @@ def test_resolve_timeline_monitoring_run_id_requires_same_subject_timeline() -> 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
     gateway.upsert_monitoring_run(
         subject_id="fraud_model",
         monitoring_run_id="monitoring-run-foreign",
+        source_run_id="train-run-foreign",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
@@ -475,6 +486,7 @@ def test_upsert_monitoring_run_comparability_status_is_derived_from_contract_che
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
@@ -502,6 +514,7 @@ def test_upsert_monitoring_run_stores_contract_check_outputs() -> None:
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
@@ -533,22 +546,111 @@ def test_upsert_monitoring_run_stores_references() -> None:
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
         references=(
-            MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
-            MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+            MonitoringRunReference(
+                kind="baseline",
+                monitoring_run_id=None,
+                source_run_id="train-run-baseline",
+            ),
+            MonitoringRunReference(
+                kind="lkg",
+                monitoring_run_id="monitoring-run-lkg",
+                source_run_id="train-run-lkg",
+            ),
         ),
     )
 
     stored = gateway.get_monitoring_run("churn_model", "monitoring-run-1")
 
     assert stored is not None
+    assert stored.source_run_id == "train-run-1"
     assert stored.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
-        MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-baseline",
+        ),
+        MonitoringRunReference(
+            kind="lkg",
+            monitoring_run_id="monitoring-run-lkg",
+            source_run_id="train-run-lkg",
+        ),
     )
+
+
+def test_upsert_monitoring_run_rejects_source_identity_conflict() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-1",
+            recipe_id="default",
+            recipe_version="v0",
+        )
+    )
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            monitoring_run_id=allocation.monitoring_run_id,
+            source_run_id="train-run-2",
+            lifecycle_status=LifecycleStatus.CREATED,
+            sequence_index=allocation.sequence_index,
+        )
+
+    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert exc_info.value.details == (("source_run_id", "train-run-2"),)
+
+
+def test_upsert_monitoring_run_requires_nonempty_source_run_id() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(ValueError, match="MonitoringRunRecord.source_run_id must be non-empty"):
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            monitoring_run_id="monitoring-run-1",
+            source_run_id="",
+            lifecycle_status=LifecycleStatus.CREATED,
+            sequence_index=0,
+        )
+
+
+def test_upsert_monitoring_run_rejects_conflicting_reference_pair() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id="monitoring-run-previous",
+        source_run_id="train-run-persisted-reference",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=0,
+    )
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            monitoring_run_id="monitoring-run-current",
+            source_run_id="train-run-current",
+            lifecycle_status=LifecycleStatus.CHECKED,
+            sequence_index=1,
+            references=(
+                MonitoringRunReference(
+                    kind="previous",
+                    monitoring_run_id="monitoring-run-previous",
+                    source_run_id="train-run-claimed-reference",
+                ),
+            ),
+        )
+
+    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert dict(exc_info.value.details) == {
+        "monitoring_run_id": "monitoring-run-previous",
+        "source_run_id": "train-run-claimed-reference",
+        "persisted_source_run_id": "train-run-persisted-reference",
+    }
 
 
 def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_status_changes() -> None:
@@ -567,18 +669,28 @@ def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_statu
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=result,
         references=(
-            MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
-            MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+            MonitoringRunReference(
+                kind="baseline",
+                monitoring_run_id=None,
+                source_run_id="train-run-baseline",
+            ),
+            MonitoringRunReference(
+                kind="lkg",
+                monitoring_run_id="monitoring-run-lkg",
+                source_run_id="train-run-lkg",
+            ),
         ),
     )
 
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
@@ -590,8 +702,16 @@ def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_statu
     assert stored.comparability_status is ComparabilityStatus.FAIL
     assert stored.contract_check_result == result
     assert stored.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
-        MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-baseline",
+        ),
+        MonitoringRunReference(
+            kind="lkg",
+            monitoring_run_id="monitoring-run-lkg",
+            source_run_id="train-run-lkg",
+        ),
     )
 
 
@@ -601,6 +721,7 @@ def test_upsert_monitoring_run_rejects_changed_sequence_index() -> None:
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CREATED,
         sequence_index=0,
     )
@@ -609,6 +730,7 @@ def test_upsert_monitoring_run_rejects_changed_sequence_index() -> None:
         gateway.upsert_monitoring_run(
             subject_id="churn_model",
             monitoring_run_id="monitoring-run-1",
+            source_run_id="train-run-1",
             lifecycle_status=LifecycleStatus.CREATED,
             sequence_index=1,
         )
@@ -644,6 +766,7 @@ def test_upsert_monitoring_run_reports_all_immutable_field_overrides() -> None:
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=original_result,
@@ -653,6 +776,7 @@ def test_upsert_monitoring_run_reports_all_immutable_field_overrides() -> None:
         gateway.upsert_monitoring_run(
             subject_id="churn_model",
             monitoring_run_id="monitoring-run-1",
+            source_run_id="train-run-1",
             lifecycle_status=LifecycleStatus.CLOSED,
             sequence_index=1,
             contract_check_result=replacement_result,
@@ -692,6 +816,7 @@ def test_upsert_monitoring_run_rejects_changed_contract_check_result_after_initi
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=0,
         contract_check_result=original_result,
@@ -701,6 +826,7 @@ def test_upsert_monitoring_run_rejects_changed_contract_check_result_after_initi
         gateway.upsert_monitoring_run(
             subject_id="churn_model",
             monitoring_run_id="monitoring-run-1",
+            source_run_id="train-run-1",
             lifecycle_status=LifecycleStatus.CHECKED,
             sequence_index=0,
             contract_check_result=replacement_result,

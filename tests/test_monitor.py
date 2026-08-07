@@ -82,6 +82,7 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
         self,
         subject_id: str,
         monitoring_run_id: str,
+        source_run_id: str,
         lifecycle_status: LifecycleStatus,
         sequence_index: int,
         contract_check_result: ContractCheckResult | None = None,
@@ -95,6 +96,7 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
         super().upsert_monitoring_run(
             subject_id=subject_id,
             monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
             lifecycle_status=lifecycle_status,
             sequence_index=sequence_index,
             contract_check_result=contract_check_result,
@@ -152,6 +154,7 @@ class AllocationOnlyReplayGateway(InMemoryMonitoringGateway):
         self._replayed = True
         return CreateOrReuseMonitoringRunResult(
             monitoring_run_id=replayed.monitoring_run_id,
+            source_run_id=replayed.source_run_id,
             sequence_index=replayed.sequence_index,
             existing_monitoring_run=None,
             allocated=False,
@@ -192,13 +195,18 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
     assert result.comparability_status is ComparabilityStatus.PASS
     assert result.timeline_id == "timeline-churn_model"
     assert result.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-baseline",
+        ),
     )
     assert result.finding_ids == ()
     assert result.diff_ids == ()
     assert result.summary is None
     assert result.error is None
     assert stored is not None
+    assert stored.source_run_id == "train-run-current"
     assert stored.sequence_index == 0
     assert stored.lifecycle_status is LifecycleStatus.CHECKED
     assert stored.comparability_status is ComparabilityStatus.PASS
@@ -272,8 +280,16 @@ def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
     assert first.lifecycle_status is LifecycleStatus.CHECKED
     assert second.lifecycle_status is LifecycleStatus.CHECKED
     assert second.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
-        MonitoringRunReference(kind="previous", reference_run_id=first.monitoring_run_id),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-baseline",
+        ),
+        MonitoringRunReference(
+            kind="previous",
+            monitoring_run_id=first.monitoring_run_id,
+            source_run_id="train-run-current",
+        ),
     )
 
 
@@ -693,13 +709,24 @@ def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> N
     assert second.lifecycle_status is LifecycleStatus.CHECKED
     assert second.comparability_status is ComparabilityStatus.PASS
     assert second.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-baseline",
+        ),
     )
     assert second.error is None
 
 
 def test_run_orchestration_checked_rerun_preserves_references() -> None:
     gateway = make_gateway()
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id="monitoring-run-lkg",
+        source_run_id="train-run-lkg",
+        lifecycle_status=LifecycleStatus.CREATED,
+        sequence_index=0,
+    )
     gateway.set_active_lkg_monitoring_run_id("churn_model", "monitoring-run-lkg")
 
     first = run_orchestration(
@@ -718,8 +745,16 @@ def test_run_orchestration_checked_rerun_preserves_references() -> None:
     )
 
     assert first.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id="train-run-baseline"),
-        MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-lkg"),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-baseline",
+        ),
+        MonitoringRunReference(
+            kind="lkg",
+            monitoring_run_id="monitoring-run-lkg",
+            source_run_id="train-run-lkg",
+        ),
     )
     assert second.monitoring_run_id == first.monitoring_run_id
     assert second.references == first.references
