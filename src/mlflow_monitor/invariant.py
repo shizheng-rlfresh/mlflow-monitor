@@ -1,6 +1,6 @@
 """Invariant checks for the MLflow-Monitor runtime."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from mlflow_monitor.contract_checker import CONTRACT_CHECK_REASON_MESSAGE
 from mlflow_monitor.domain import (
@@ -168,6 +168,34 @@ def validate_finding_evidence(
         evidence.compatibility_evidence_id: evidence for evidence in compatibility_evidence
     }
 
+    validate_finding_evidence_references(
+        finding,
+        diffs_by_id=diffs_by_id,
+        compatibility_evidence_by_id=compatibility_evidence_by_id,
+    )
+
+
+def validate_finding_evidence_references(
+    finding: Finding,
+    *,
+    diffs_by_id: Mapping[str, Diff],
+    compatibility_evidence_by_id: Mapping[str, CompatibilityEvidence],
+) -> None:
+    """Validate Finding references against prevalidated evidence indexes.
+
+    Args:
+        finding: Finding whose evidence references should be validated.
+        diffs_by_id: Identity-consistent Diff records indexed by identity.
+        compatibility_evidence_by_id: Identity-consistent Compatibility Evidence
+            records indexed by identity.
+
+    Raises:
+        InvariantViolation: If a referenced identity is missing or its evidence
+            belongs to another current pair.
+
+    Returns:
+        None if every evidence reference is valid.
+    """
     for diff_id in finding.evidence_diff_ids:
         diff = diffs_by_id.get(diff_id)
         if diff is None:

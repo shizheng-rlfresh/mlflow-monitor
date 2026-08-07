@@ -17,7 +17,7 @@ from mlflow_monitor.identity import make_finding_id
 from mlflow_monitor.invariant import (
     validate_compatibility_evidence_identity_consistency,
     validate_diff_identity_consistency,
-    validate_finding_evidence,
+    validate_finding_evidence_references,
     validate_finding_identity,
 )
 
@@ -95,7 +95,8 @@ def materialize_finding_drafts(
             to the policy.
 
     Returns:
-        Canonically ordered materialized Findings with identical retries removed.
+        Canonically ordered materialized Findings with evidence identities sorted
+        and deduplicated and identical retries removed.
 
     Raises:
         InvariantViolation: If a draft is invalid, references invalid evidence, or
@@ -103,6 +104,10 @@ def materialize_finding_drafts(
     """
     validate_diff_identity_consistency(diffs)
     validate_compatibility_evidence_identity_consistency(compatibility_evidence)
+    diffs_by_id = {diff.diff_id: diff for diff in diffs}
+    compatibility_evidence_by_id = {
+        evidence.compatibility_evidence_id: evidence for evidence in compatibility_evidence
+    }
 
     findings_by_id: dict[str, Finding] = {}
     for draft in drafts:
@@ -113,8 +118,8 @@ def materialize_finding_drafts(
                 entity="FindingDraft",
             )
 
-        evidence_diff_ids = tuple(sorted(draft.evidence_diff_ids))
-        evidence_compatibility_ids = tuple(sorted(draft.evidence_compatibility_ids))
+        evidence_diff_ids = tuple(sorted(set(draft.evidence_diff_ids)))
+        evidence_compatibility_ids = tuple(sorted(set(draft.evidence_compatibility_ids)))
         finding = Finding(
             finding_id=make_finding_id(
                 monitoring_run_id=monitoring_run_id,
@@ -137,10 +142,10 @@ def materialize_finding_drafts(
             evidence_diff_ids=evidence_diff_ids,
             evidence_compatibility_ids=evidence_compatibility_ids,
         )
-        validate_finding_evidence(
+        validate_finding_evidence_references(
             finding,
-            diffs=diffs,
-            compatibility_evidence=compatibility_evidence,
+            diffs_by_id=diffs_by_id,
+            compatibility_evidence_by_id=compatibility_evidence_by_id,
         )
         validate_finding_identity(finding)
 

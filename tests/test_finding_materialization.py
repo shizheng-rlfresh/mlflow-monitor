@@ -163,6 +163,31 @@ def test_materialization_canonicalizes_each_evidence_collection() -> None:
     assert finding.evidence_compatibility_ids == tuple(sorted(draft.evidence_compatibility_ids))
 
 
+def test_materialization_deduplicates_repeated_evidence_identities() -> None:
+    diff = _diff()
+    compatibility_evidence = _compatibility_evidence()
+    draft = _draft(
+        evidence_diff_ids=(diff.diff_id, diff.diff_id),
+        evidence_compatibility_ids=(
+            compatibility_evidence.compatibility_evidence_id,
+            compatibility_evidence.compatibility_evidence_id,
+        ),
+    )
+
+    (finding,) = materialize_finding_drafts(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        finding_policy_id=FINDING_POLICY_ID,
+        finding_policy_version=FINDING_POLICY_VERSION,
+        drafts=(draft,),
+        diffs=(diff,),
+        compatibility_evidence=(compatibility_evidence,),
+    )
+
+    assert finding.evidence_diff_ids == (diff.diff_id,)
+    assert finding.evidence_compatibility_ids == (compatibility_evidence.compatibility_evidence_id,)
+
+
 def test_materialization_accepts_empty_draft_output() -> None:
     assert (
         materialize_finding_drafts(

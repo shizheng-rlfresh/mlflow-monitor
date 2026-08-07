@@ -105,6 +105,22 @@ def test_finding_id_is_independent_of_evidence_order() -> None:
     )
 
 
+def test_finding_id_is_independent_of_repeated_evidence_identities() -> None:
+    values = _identity_values()
+    repeated = {
+        **values,
+        "evidence_diff_ids": (*values["evidence_diff_ids"], "diff-v1-a"),  # type: ignore[misc]
+        "evidence_compatibility_ids": (
+            *values["evidence_compatibility_ids"],  # type: ignore[misc]
+            "compatibility-evidence-v1-a",
+        ),
+    }
+
+    assert identity.make_finding_id(**values) == identity.make_finding_id(  # type: ignore[arg-type]
+        **repeated  # type: ignore[arg-type]
+    )
+
+
 def test_finding_id_keeps_diff_and_compatibility_evidence_separate() -> None:
     first = identity.make_finding_id(
         monitoring_run_id="monitoring-run-current",

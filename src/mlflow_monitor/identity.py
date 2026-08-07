@@ -104,8 +104,8 @@ class _FindingIdentity:
             "finding_policy_id": self.finding_policy_id,
             "finding_policy_version": self.finding_policy_version,
             "finding_rule_id": self.finding_rule_id,
-            "evidence_diff_ids": sorted(self.evidence_diff_ids),
-            "evidence_compatibility_ids": sorted(self.evidence_compatibility_ids),
+            "evidence_diff_ids": sorted(set(self.evidence_diff_ids)),
+            "evidence_compatibility_ids": sorted(set(self.evidence_compatibility_ids)),
         }
 
 
