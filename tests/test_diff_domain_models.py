@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 import mlflow_monitor.domain as domain
+from mlflow_monitor.domain import Diff, DiffReference, DiffReferenceKind
 
 METRIC_UNAVAILABILITY_REASONS = (
     "current_metric_missing",
@@ -21,23 +22,23 @@ def _domain_type(name: str) -> Any:
     return getattr(domain, name)
 
 
-def _baseline_reference() -> domain.DiffReference:
-    return domain.DiffReference(
-        kind=domain.DiffReferenceKind.BASELINE,
+def _baseline_reference() -> DiffReference:
+    return DiffReference(
+        kind=DiffReferenceKind.BASELINE,
         monitoring_run_id=None,
         source_run_id="train-run-baseline",
     )
 
 
-def _previous_reference() -> domain.DiffReference:
-    return domain.DiffReference(
-        kind=domain.DiffReferenceKind.PREVIOUS,
+def _previous_reference() -> DiffReference:
+    return DiffReference(
+        kind=DiffReferenceKind.PREVIOUS,
         monitoring_run_id="monitoring-run-previous",
         source_run_id="train-run-previous",
     )
 
 
-def _diff(**overrides: object) -> domain.Diff:
+def _diff(**overrides: object) -> Diff:
     values: dict[str, object] = {
         "diff_id": "diff-accuracy-baseline",
         "monitoring_run_id": "monitoring-run-current",
@@ -49,7 +50,7 @@ def _diff(**overrides: object) -> domain.Diff:
         "delta": 0.25,
     }
     values.update(overrides)
-    return domain.Diff(**values)  # type: ignore[arg-type]
+    return Diff(**values)  # type: ignore[arg-type]
 
 
 def _metric_unavailability(**overrides: object) -> Any:
@@ -65,7 +66,7 @@ def _metric_unavailability(**overrides: object) -> Any:
 def _coverage(**overrides: object) -> Any:
     status_type = _domain_type("ReferenceComparisonStatus")
     values: dict[str, object] = {
-        "reference_kind": domain.DiffReferenceKind.BASELINE,
+        "reference_kind": DiffReferenceKind.BASELINE,
         "reference": _baseline_reference(),
         "status": status_type.COMPLETED,
         "diff_ids": (),
@@ -77,20 +78,8 @@ def _coverage(**overrides: object) -> Any:
     return model_type(**values)
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "MetricComparisonUnavailable",
-        "ReferenceComparisonCoverage",
-        "ReferenceComparisonStatus",
-    ],
-)
-def test_diff_and_coverage_domain_types_are_exported(name: str) -> None:
-    assert hasattr(domain, name)
-
-
 def test_diff_reference_kind_contains_only_metric_reference_kinds() -> None:
-    assert {kind.value for kind in domain.DiffReferenceKind} == {
+    assert {kind.value for kind in DiffReferenceKind} == {
         "baseline",
         "previous",
         "lkg",
@@ -236,19 +225,19 @@ def test_skipped_coverage_requires_a_resolved_reference_and_exact_reason() -> No
 @pytest.mark.parametrize(
     ("reference_kind", "reference", "reason"),
     [
-        (domain.DiffReferenceKind.PREVIOUS, None, "previous_reference_missing"),
-        (domain.DiffReferenceKind.LKG, None, "lkg_not_selected"),
-        (domain.DiffReferenceKind.LKG, None, "lkg_selection_inconsistent"),
+        (DiffReferenceKind.PREVIOUS, None, "previous_reference_missing"),
+        (DiffReferenceKind.LKG, None, "lkg_not_selected"),
+        (DiffReferenceKind.LKG, None, "lkg_selection_inconsistent"),
         (
-            domain.DiffReferenceKind.PREVIOUS,
+            DiffReferenceKind.PREVIOUS,
             _previous_reference(),
             "reference_source_run_missing",
         ),
     ],
 )
 def test_unavailable_coverage_accepts_each_reference_reason(
-    reference_kind: domain.DiffReferenceKind,
-    reference: domain.DiffReference | None,
+    reference_kind: DiffReferenceKind,
+    reference: DiffReference | None,
     reason: str,
 ) -> None:
     status_type = _domain_type("ReferenceComparisonStatus")
@@ -345,7 +334,7 @@ def test_coverage_reference_kind_must_match_resolved_reference(
 
     with pytest.raises(ValueError):
         _coverage(
-            reference_kind=domain.DiffReferenceKind.PREVIOUS,
+            reference_kind=DiffReferenceKind.PREVIOUS,
             reference=_baseline_reference(),
             status=getattr(status_type, status_name),
             reason=reason,

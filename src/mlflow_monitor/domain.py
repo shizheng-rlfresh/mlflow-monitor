@@ -7,6 +7,7 @@ workflow rules and invariant enforcement live in the higher-level runtime.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -63,6 +64,14 @@ class ContractCheckReasonCode(StrEnum):
     DATA_SCOPE_MISMATCH = "data_scope_mismatch"
 
 
+class ReferenceComparisonStatus(StrEnum):
+    """Status outcomes for metrics comparison in diff."""
+
+    COMPLETED = "completed"
+    SKIPPED = "skipped"
+    UNAVAILABLE = "unavailable"
+
+
 CONTRACT_CHECK_REASON_CODE_BLOCKING = MappingProxyType(
     {
         ContractCheckReasonCode.ENV_MISMATCH: False,
@@ -78,6 +87,16 @@ _MONITORING_RUN_REFERENCE_KINDS = frozenset(
         DiffReferenceKind.PREVIOUS,
         DiffReferenceKind.LKG,
         DiffReferenceKind.CUSTOM,
+    )
+)
+
+_METRIC_UNAVAILABLITY_REASONS = frozenset(
+    (
+        "current_metric_missing",
+        "reference_metric_missing",
+        "current_metric_not_finite",
+        "reference_metric_not_finite",
+        "delta_not_finite",
     )
 )
 
@@ -286,6 +305,41 @@ class Diff:
     reference_value: float
     delta: float
 
+    def __post_init__(self) -> None:
+        """Validate Diff for atomic shape."""
+        for field_name in (
+            "diff_id",
+            "monitoring_run_id",
+            "source_run_id",
+            "metric_name",
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Diff requires a non-empty string for field {field_name!r}.")
+
+        if not isinstance(self.reference, DiffReference):
+            raise ValueError("Diff requires a valid DiffReference for the 'reference' field.")
+
+        for field_name in ("current_value", "reference_value", "delta"):
+            value = getattr(self, field_name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"Diff requires a finite float for field {field_name!r}.")
+
+            if isinstance(value, int):
+                object.__setattr__(self, field_name, float(value))
+
+        expected_delta = self.current_value - self.reference_value
+
+        if not math.isfinite(expected_delta):
+            raise ValueError("Diff computed delta must be a finite float.")
+
+        if self.delta != expected_delta:
+            raise ValueError("Diff delta must equal current_value - reference_value.")
+
 
 @dataclass(frozen=True, slots=True)
 class Finding:
@@ -377,3 +431,53 @@ class Timeline:
     monitoring_run_ids: list[str]
     active_lkg_monitoring_run_id: str | None
     active_contract: Contract
+
+
+@dataclass(frozen=True, slots=True)
+class MetricComparisonUnavailable:
+    """Information about a metric that could not be compared in a diff.
+
+    Attributes:
+        metric_name: The name of the metric that is unavailable for comparison.
+        reason: The reason why the metric comparison is unavailable.
+    """
+
+    metric_name: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        """Validate MetricComparisonUnavailable for atomic shape."""
+        for field_name in ("metric_name", "reason"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"MetricComparisonUnavailable requires a non-empty string for "
+                    f"field {field_name!r}."
+                )
+        metric_level_reason = self.reason
+        if metric_level_reason not in _METRIC_UNAVAILABLITY_REASONS:
+            raise ValueError(
+                f"MetricComparisonUnavailable 'reason' must be one of "
+                f"{_METRIC_UNAVAILABLITY_REASONS}, got {metric_level_reason!r}."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceComparisonCoverage:
+    """Coverage information for a specific reference kind in a diff comparison.
+
+    Attributes:
+        reference_kind: The kind of reference (e.g., baseline, previous, lkg, custom).
+        reference: The specific reference instance being compared, if applicable.
+        status: The status of the reference comparison (e.g., completed, skipped, unavailable).
+        diff_ids: A tuple of diff IDs associated with this reference comparison.
+        metric_unavailability: A tuple of MetricComparisonUnavailable instances indicating metrics that could not be compared.
+        reason: An optional human-readable reason explaining the status of the reference comparison.
+    """  # noqa: E501
+
+    reference_kind: DiffReferenceKind
+    reference: DiffReference | None
+    status: ReferenceComparisonStatus
+    diff_ids: tuple[str, ...]
+    metric_unavailability: tuple[MetricComparisonUnavailable, ...]
+    reason: str | None
