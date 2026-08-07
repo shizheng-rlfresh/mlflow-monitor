@@ -9,11 +9,6 @@ from mlflow_monitor.domain import (
     Contract,
     ContractCheckReason,
     ContractCheckResult,
-    Diff,
-    DiffReference,
-    DiffReferenceKind,
-    Finding,
-    FindingSeverity,
     LifecycleStatus,
     Run,
     Timeline,
@@ -22,7 +17,6 @@ from mlflow_monitor.errors import InvariantViolation
 from mlflow_monitor.invariant import (
     validate_baseline_immutability,
     validate_contract_check_result,
-    validate_finding_to_diff_evidence,
     validate_lkg_membership,
     validate_timeline_ownership,
 )
@@ -76,34 +70,6 @@ RUN = Run(
     contract_check_result=None,
     diff_ids=("diff_1",),
     finding_ids=("finding_1",),
-)
-
-FINDING = Finding(
-    finding_id="finding-1",
-    monitoring_run_id="monitoring-run-2",
-    severity=FindingSeverity.HIGH,
-    category="data_drift",
-    summary="Significant data drift detected in feature 'age'",
-    evidence_diff_ids=(
-        "diff-1",
-        "diff-2",
-    ),
-    recommendation="Investigate recent changes",
-)
-
-DIFF = Diff(
-    diff_id="diff-1",
-    monitoring_run_id="monitoring-run-2",
-    source_run_id="train-run-2",
-    reference=DiffReference(
-        kind=DiffReferenceKind.BASELINE,
-        monitoring_run_id=None,
-        source_run_id="training-run-1",
-    ),
-    metric_name="kl",
-    current_value=0.25,
-    reference_value=0.5,
-    delta=-0.25,
 )
 
 
@@ -258,78 +224,6 @@ class TestInvariantLKGMembership:
         assert error.field == "active_lkg_monitoring_run_id"
         assert error.entity == "LKG"
         assert error.message == f"LKG {non_active_lkg} does not belong to Timeline {TIMELINE}"
-
-
-class TestInvariantFindingToDiffEvidence:
-    def test_finding_to_diff_evidence_valid(self) -> None:
-        """Finding with all evidence diff_ids present in the timeline should pass validation."""
-
-        validate_finding_to_diff_evidence(FINDING, DIFF)
-
-    def test_finding_to_diff_evidence_different_monitoring_run_id_invalid(self) -> None:
-        """Diff with monitoring_run_id different from Finding's monitoring_run_id should raise InvariantViolation."""  # noqa: E501
-
-        mismatch_monitoring_run_id_diff = Diff(
-            diff_id="diff-1",
-            monitoring_run_id="monitoring-run-3",
-            source_run_id="train-run-3",
-            reference=DiffReference(
-                kind=DiffReferenceKind.BASELINE,
-                monitoring_run_id=None,
-                source_run_id="train-run-3",
-            ),
-            metric_name="kl",
-            current_value=0.25,
-            reference_value=0.5,
-            delta=-0.25,
-        )
-
-        monitoring_run_id = FINDING.monitoring_run_id
-
-        with pytest.raises(InvariantViolation) as exc_info:
-            validate_finding_to_diff_evidence(FINDING, mismatch_monitoring_run_id_diff)
-
-        error = exc_info.value
-        assert error.code == "finding_diff_evidence_violation"
-        assert error.field == "monitoring_run_id"
-        assert error.entity == "Diff"
-        assert (
-            error.message
-            == f"Diff monitoring_run_id {mismatch_monitoring_run_id_diff.monitoring_run_id} "
-            f"does not match Finding monitoring_run_id {monitoring_run_id}"
-        )
-
-    def test_finding_to_diff_evidence_diff_id_not_in_evidence_invalid(self) -> None:
-        """Diff with diff_id not in Finding's evidence_diff_ids should raise InvariantViolation."""
-
-        non_evidence_diff = Diff(
-            diff_id="diff-3",  # diff_id not in FINDING.evidence_diff_ids to trigger violation
-            monitoring_run_id="monitoring-run-2",
-            source_run_id="train-run-2",
-            reference=DiffReference(
-                kind=DiffReferenceKind.BASELINE,
-                monitoring_run_id=None,
-                source_run_id="train-run-1",
-            ),
-            metric_name="kl",
-            current_value=0.25,
-            reference_value=0.5,
-            delta=-0.25,
-        )
-
-        diff_ids = [diff_id for diff_id in FINDING.evidence_diff_ids]
-
-        with pytest.raises(InvariantViolation) as exc_info:
-            validate_finding_to_diff_evidence(FINDING, non_evidence_diff)
-
-        error = exc_info.value
-        assert error.code == "finding_diff_evidence_violation"
-        assert error.field == "diff_id"
-        assert error.entity == "Diff"
-        assert (
-            error.message
-            == f"Diff diff_id {non_evidence_diff.diff_id} is not in Finding evidence {diff_ids}"
-        )
 
 
 class TestInvariantContractCheckResult:

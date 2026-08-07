@@ -78,11 +78,16 @@ def test_canonical_entities_can_be_constructed() -> None:
     finding = Finding(
         finding_id="finding-1",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-2",
+        finding_policy_id="relative-regression",
+        finding_policy_version="1",
+        finding_rule_id="quality.f1_regression",
         severity=FindingSeverity.HIGH,
         category="performance_regression",
         summary="F1 regressed against baseline",
-        evidence_diff_ids=("diff-1",),
         recommendation="Investigate feature changes before promotion.",
+        evidence_diff_ids=("diff-1",),
+        evidence_compatibility_ids=(),
     )
     run = Run(
         monitoring_run_id="monitoring-run-1",
@@ -176,11 +181,16 @@ def test_finding_references_one_or_more_diffs() -> None:
     finding = Finding(
         finding_id="finding-1",
         monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-2",
+        finding_policy_id="relative-regression",
+        finding_policy_version="1",
+        finding_rule_id="quality.regression",
         severity=FindingSeverity.MEDIUM,
         category="quality",
         summary="Regression detected",
-        evidence_diff_ids=("diff-1", "diff-2"),
         recommendation="Review the latest run.",
+        evidence_diff_ids=("diff-1", "diff-2"),
+        evidence_compatibility_ids=(),
     )
 
     assert finding.evidence_diff_ids == ("diff-1", "diff-2")
