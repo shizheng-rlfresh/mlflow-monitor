@@ -3,7 +3,6 @@
 import pytest
 
 from mlflow_monitor.domain import (
-    LKG,
     Baseline,
     ComparabilityStatus,
     Contract,
@@ -15,9 +14,11 @@ from mlflow_monitor.domain import (
     Finding,
     FindingSeverity,
     LifecycleStatus,
+    LKGSelection,
     MonitoringRunReference,
     Run,
     Timeline,
+    TimelineEntry,
 )
 
 
@@ -41,15 +42,6 @@ def test_canonical_entities_can_be_constructed() -> None:
         run_config_ref="config-v1",
         metric_snapshot={"f1": 0.87},
         environment_context={"python": "3.12"},
-    )
-    timeline = Timeline(
-        timeline_id="timeline-1",
-        subject_id="churn_model",
-        monitoring_namespace="mlflow_monitor/churn_model",
-        baseline=baseline,
-        monitoring_run_ids=["monitoring-run-1"],
-        active_lkg_monitoring_run_id="monitoring-run-1",
-        active_contract=contract,
     )
     contract_check = ContractCheckResult(
         status=ComparabilityStatus.WARN,
@@ -103,14 +95,33 @@ def test_canonical_entities_can_be_constructed() -> None:
         diff_ids=("diff-1",),
         finding_ids=("finding-1",),
     )
-    lkg = LKG(timeline_id="timeline-1", monitoring_run_id="monitoring-run-1")
+    timeline_entry = TimelineEntry(
+        monitoring_run_id=run.monitoring_run_id,
+        source_run_id=run.source_run_id,
+        sequence_index=run.sequence_index,
+        lifecycle_status=run.lifecycle_status,
+        comparability_status=run.comparability_status,
+    )
+    timeline = Timeline(
+        timeline_id="timeline-1",
+        subject_id="churn_model",
+        baseline_source_run_id=baseline.source_run_id,
+        entries=(timeline_entry,),
+    )
+    lkg_selection = LKGSelection(
+        lkg_selection_id="lkg-selection-1",
+        timeline_id="timeline-1",
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-2",
+        supersedes_lkg_selection_ids=(),
+    )
 
-    assert timeline.baseline.source_run_id == "train-run-1"
+    assert timeline.baseline_source_run_id == "train-run-1"
     assert run.contract_check_result is not None
     assert run.contract_check_result.status is ComparabilityStatus.WARN
     assert diff.reference.kind is DiffReferenceKind.BASELINE
     assert finding.evidence_diff_ids == ("diff-1",)
-    assert lkg.monitoring_run_id == "monitoring-run-1"
+    assert lkg_selection.monitoring_run_id == "monitoring-run-1"
 
 
 def test_status_vocabularies_are_fixed() -> None:
@@ -147,33 +158,36 @@ def test_relationship_shapes_match_cast() -> None:
         metric_snapshot={},
         environment_context={},
     )
-    timeline = Timeline(
-        timeline_id="timeline-1",
-        subject_id="churn_model",
-        monitoring_namespace="mlflow_monitor/churn_model",
-        baseline=baseline,
-        monitoring_run_ids=["monitoring-run-1", "monitoring-run-2"],
-        active_lkg_monitoring_run_id=None,
-        active_contract=contract,
-    )
     run = Run(
         monitoring_run_id="monitoring-run-1",
-        timeline_id=timeline.timeline_id,
+        timeline_id="timeline-1",
         sequence_index=0,
-        subject_id=timeline.subject_id,
+        subject_id="churn_model",
         source_run_id="train-run-2",
         baseline_source_run_id=baseline.source_run_id,
         contract=contract,
-        lifecycle_status=LifecycleStatus.CREATED,
+        lifecycle_status=LifecycleStatus.CLOSED,
         comparability_status=ComparabilityStatus.PASS,
         contract_check_result=None,
         diff_ids=(),
         finding_ids=(),
     )
+    timeline_entry = TimelineEntry(
+        monitoring_run_id=run.monitoring_run_id,
+        source_run_id=run.source_run_id,
+        sequence_index=run.sequence_index,
+        lifecycle_status=run.lifecycle_status,
+        comparability_status=run.comparability_status,
+    )
+    timeline = Timeline(
+        timeline_id="timeline-1",
+        subject_id="churn_model",
+        baseline_source_run_id=baseline.source_run_id,
+        entries=(timeline_entry,),
+    )
 
     assert run.timeline_id == timeline.timeline_id
-    assert timeline.active_contract.contract_id == "default"
-    assert timeline.monitoring_run_ids == ["monitoring-run-1", "monitoring-run-2"]
+    assert timeline.entries == (timeline_entry,)
 
 
 def test_finding_references_one_or_more_diffs() -> None:
@@ -312,3 +326,15 @@ def test_baseline_snapshot_mappings_are_immutable() -> None:
     else:
         msg = "expected baseline metric snapshot to reject mutation"
         raise AssertionError(msg)
+
+
+def test_lkg_selection_supersession_should_not_contain_lkg_selection_id() -> None:
+    """Test that an LKG selection cannot supersede itself."""
+    with pytest.raises(ValueError, match="cannot supersede itself"):
+        LKGSelection(
+            lkg_selection_id="lkg-selection-1",
+            timeline_id="timeline-1",
+            monitoring_run_id="monitoring-run-1",
+            source_run_id="train-run-2",
+            supersedes_lkg_selection_ids=("lkg-selection-1",),
+        )

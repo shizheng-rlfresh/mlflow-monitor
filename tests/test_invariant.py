@@ -3,7 +3,6 @@
 import pytest
 
 from mlflow_monitor.domain import (
-    LKG,
     Baseline,
     ComparabilityStatus,
     Contract,
@@ -17,7 +16,6 @@ from mlflow_monitor.errors import InvariantViolation
 from mlflow_monitor.invariant import (
     validate_baseline_immutability,
     validate_contract_check_result,
-    validate_lkg_membership,
     validate_timeline_ownership,
 )
 
@@ -42,19 +40,11 @@ BASELINE = Baseline(
     environment_context={"python": "3.12"},
 )
 
-LAST_KNOWN_GOOD = LKG(
-    timeline_id="timeline-1",
-    monitoring_run_id="monitoring-run-1",
-)
-
 TIMELINE = Timeline(
     timeline_id="timeline-1",
     subject_id="churn_model",
-    monitoring_namespace="mlflow_monitor/churn_model",
-    baseline=BASELINE,
-    monitoring_run_ids=["monitoring-run-1", "monitoring-run-2"],
-    active_lkg_monitoring_run_id="monitoring-run-1",
-    active_contract=CONTRACT,
+    baseline_source_run_id=BASELINE.source_run_id,
+    entries=(),
 )
 
 RUN = Run(
@@ -75,7 +65,7 @@ RUN = Run(
 
 class TestInvariantTimelineOwnership:
     def test_valid_timeline_ownership(self) -> None:
-        validate_timeline_ownership(TIMELINE, baseline=BASELINE, lkg=LAST_KNOWN_GOOD, runs=[RUN])
+        validate_timeline_ownership(TIMELINE, baseline=BASELINE, runs=[RUN])
 
     def test_timeline_run_ownership(self) -> None:
         run = Run(
@@ -94,7 +84,7 @@ class TestInvariantTimelineOwnership:
         )
 
         with pytest.raises(InvariantViolation) as exc_info:
-            validate_timeline_ownership(TIMELINE, baseline=None, lkg=None, runs=[run])
+            validate_timeline_ownership(TIMELINE, baseline=None, runs=[run])
 
         error = exc_info.value
         assert error.code == "run_timeline_mismatch"
@@ -118,7 +108,7 @@ class TestInvariantTimelineOwnership:
         )
 
         with pytest.raises(InvariantViolation) as exc_info:
-            validate_timeline_ownership(TIMELINE, baseline=baseline, lkg=None, runs=None)
+            validate_timeline_ownership(TIMELINE, baseline=baseline, runs=None)
 
         error = exc_info.value
         assert error.code == "baseline_timeline_mismatch"
@@ -127,24 +117,6 @@ class TestInvariantTimelineOwnership:
         assert (
             error.message
             == f"Baseline {baseline.timeline_id} does not match Timeline {TIMELINE.timeline_id}"
-        )
-
-    def test_timeline_lkg_ownership(self) -> None:
-
-        lkg = LKG(
-            timeline_id="timeline-2",  # different timeline_id to trigger violation
-            monitoring_run_id="monitoring-run-1",
-        )
-
-        with pytest.raises(InvariantViolation) as exc_info:
-            validate_timeline_ownership(TIMELINE, baseline=None, lkg=lkg, runs=None)
-
-        error = exc_info.value
-        assert error.code == "lkg_timeline_mismatch"
-        assert error.field == "timeline_id"
-        assert error.entity == "LKG"
-        assert (
-            error.message == f"LKG {lkg.timeline_id} does not match Timeline {TIMELINE.timeline_id}"
         )
 
 
@@ -173,57 +145,6 @@ class TestInvariantBaselineImmutability:
         error = exc_info.value
         assert error.code == "baseline_immutability_violation"
         assert "source_run_id, parameter_fingerprint" == error.field
-
-
-class TestInvariantLKGMembership:
-    def test_lkg_membership_valid(self) -> None:
-        """LKG with matching timeline_id and monitoring_run_id should pass validation."""
-
-        validate_lkg_membership(TIMELINE, LAST_KNOWN_GOOD)
-
-    def test_lkg_not_in_timeline_invalid(self) -> None:
-        """LKG with non-matching timeline_id or monitoring_run_id should raise InvariantViolation."""  # noqa: E501
-
-        different_timeline_lkg = LKG(timeline_id="timeline-2", monitoring_run_id="monitoring-run-1")
-
-        with pytest.raises(InvariantViolation) as exc_info:
-            validate_lkg_membership(TIMELINE, different_timeline_lkg)
-
-        error = exc_info.value
-        assert error.code == "lkg_membership_violation"
-        assert error.field == "timeline_id"
-        assert error.entity == "LKG"
-        assert (
-            error.message == f"LKG {different_timeline_lkg} does not belong to Timeline {TIMELINE}"
-        )
-
-    def test_lkg_in_timeline_but_not_in_runs_invalid(self) -> None:
-        """LKG with matching timeline_id but in monitoring_run_ids should raise InvariantViolation."""  # noqa: E501
-
-        nonmember_lkg = LKG(timeline_id="timeline-1", monitoring_run_id="monitoring-run-3")
-
-        with pytest.raises(InvariantViolation) as exc_info:
-            validate_lkg_membership(TIMELINE, nonmember_lkg)
-
-        error = exc_info.value
-        assert error.code == "lkg_membership_violation"
-        assert error.field == "monitoring_run_id"
-        assert error.entity == "LKG"
-        assert error.message == f"LKG {nonmember_lkg} does not belong to Timeline {TIMELINE}"
-
-    def test_lkg_in_timeline_but_not_active_lkg_invalid(self) -> None:
-        """LKG matching timeline_id but monitoring_run_id not active lkg should raise InvariantViolation."""  # noqa: E501
-
-        non_active_lkg = LKG(timeline_id="timeline-1", monitoring_run_id="monitoring-run-2")
-
-        with pytest.raises(InvariantViolation) as exc_info:
-            validate_lkg_membership(TIMELINE, non_active_lkg)
-
-        error = exc_info.value
-        assert error.code == "lkg_membership_violation"
-        assert error.field == "active_lkg_monitoring_run_id"
-        assert error.entity == "LKG"
-        assert error.message == f"LKG {non_active_lkg} does not belong to Timeline {TIMELINE}"
 
 
 class TestInvariantContractCheckResult:

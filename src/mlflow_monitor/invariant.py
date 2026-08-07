@@ -5,7 +5,6 @@ from collections.abc import Mapping, Sequence
 from mlflow_monitor.contract_checker import CONTRACT_CHECK_REASON_MESSAGE
 from mlflow_monitor.domain import (
     CONTRACT_CHECK_REASON_CODE_BLOCKING,
-    LKG,
     Baseline,
     ComparabilityStatus,
     CompatibilityEvidence,
@@ -28,7 +27,6 @@ from mlflow_monitor.identity import (
 def validate_timeline_ownership(
     timeline: Timeline,
     baseline: Baseline | None = None,
-    lkg: LKG | None = None,
     runs: Sequence[Run] | None = None,
 ) -> None:
     """Validate that all provided records are owned by the same timeline.
@@ -36,7 +34,6 @@ def validate_timeline_ownership(
     Args:
         timeline: The timeline record to validate against.
         baseline: Optional baseline record to check ownership of.
-        lkg: Optional last-known-good record to check ownership of.
         runs: Optional sequence of run records to check ownership of.
 
     Raises:
@@ -47,8 +44,6 @@ def validate_timeline_ownership(
     """
     if baseline is not None:
         _validate_baseline_ownership(timeline, baseline)
-    if lkg is not None:
-        _validate_lkg_ownership(timeline, lkg)
     if runs is not None:
         for run in runs:
             _validate_run_ownership(timeline, run)
@@ -96,46 +91,6 @@ def validate_baseline_immutability(
             entity="Baseline",
             field=", ".join(fields) if fields else None,
         )
-    return None
-
-
-def validate_lkg_membership(timeline: Timeline, lkg: LKG) -> None:
-    """Validate that the LKG record belongs to the same timeline.
-
-    Args:
-        timeline: The timeline record to validate against.
-        lkg: The LKG record to check membership of.
-
-    Raises:
-        InvariantViolation: If the LKG is found to not belong to the same timeline.
-
-    Returns:
-        None if the LKG is valid.
-    """
-    if lkg.timeline_id != timeline.timeline_id:
-        raise InvariantViolation(
-            code="lkg_membership_violation",
-            message=f"LKG {lkg} does not belong to Timeline {timeline}",
-            entity="LKG",
-            field="timeline_id",
-        )
-
-    if lkg.monitoring_run_id not in timeline.monitoring_run_ids:
-        raise InvariantViolation(
-            code="lkg_membership_violation",
-            message=f"LKG {lkg} does not belong to Timeline {timeline}",
-            entity="LKG",
-            field="monitoring_run_id",
-        )
-
-    if lkg.monitoring_run_id != timeline.active_lkg_monitoring_run_id:
-        raise InvariantViolation(
-            code="lkg_membership_violation",
-            message=f"LKG {lkg} does not belong to Timeline {timeline}",
-            entity="LKG",
-            field="active_lkg_monitoring_run_id",
-        )
-
     return None
 
 
@@ -589,28 +544,6 @@ def _validate_baseline_ownership(timeline: Timeline, baseline: Baseline) -> None
             code="baseline_timeline_mismatch",
             message=f"Baseline {baseline.timeline_id} does not match Timeline {timeline_id}",
             entity="Baseline",
-            field="timeline_id",
-        )
-
-
-def _validate_lkg_ownership(timeline: Timeline, lkg: LKG) -> None:
-    """Validate that the LKG record is owned by the same timeline.
-
-    Args:
-        timeline: The timeline record to validate against.
-        lkg: The LKG record to check ownership of.
-
-    Raises:
-        InvariantViolation: If the LKG is found to violate timeline ownership.
-
-    Returns:
-        None if the LKG is valid.
-    """
-    if lkg.timeline_id != timeline.timeline_id:
-        raise InvariantViolation(
-            code="lkg_timeline_mismatch",
-            message=f"LKG {lkg.timeline_id} does not match Timeline {timeline.timeline_id}",
-            entity="LKG",
             field="timeline_id",
         )
 
