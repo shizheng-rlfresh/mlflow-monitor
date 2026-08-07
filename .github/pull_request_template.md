@@ -19,8 +19,8 @@
 - [ ] `uv run ruff check .`
 - [ ] `uv run ruff format --check .`
 - [ ] `uv run pyright`
-- [ ] `uv build`
 - [ ] `uv run --group doc sphinx-build -W -b html docs/site/source docs/site/build/html`
+- [ ] `uv build`
 - [ ] Update `docs/v0/`
 
 <!-- Validation omissions, if any: -->
