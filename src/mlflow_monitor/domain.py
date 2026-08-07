@@ -621,6 +621,22 @@ class TimelineEntry:
                 "TimelineEntry comparability_status must be a ComparabilityStatus or None."
             )
 
+    def to_dict(self) -> dict[str, object]:
+        """Serialize this Timeline Entry into a deterministic dictionary.
+
+        Returns:
+            JSON-compatible Timeline Entry content.
+        """
+        return {
+            "monitoring_run_id": self.monitoring_run_id,
+            "source_run_id": self.source_run_id,
+            "sequence_index": self.sequence_index,
+            "lifecycle_status": self.lifecycle_status.value,
+            "comparability_status": (
+                self.comparability_status.value if self.comparability_status is not None else None
+            ),
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class Timeline:
@@ -669,6 +685,19 @@ class Timeline:
         if len(monitoring_run_ids) != len(set(monitoring_run_ids)):
             raise ValueError("Timeline entries must have unique monitoring_run_id values.")
         object.__setattr__(self, "entries", entries)
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize this Timeline into a deterministic dictionary.
+
+        Returns:
+            JSON-compatible Timeline content with ordered entries.
+        """
+        return {
+            "timeline_id": self.timeline_id,
+            "subject_id": self.subject_id,
+            "baseline_source_run_id": self.baseline_source_run_id,
+            "entries": [entry.to_dict() for entry in self.entries],
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -725,6 +754,20 @@ class LKGSelection:
             "supersedes_lkg_selection_ids",
             tuple(sorted(set(supersedes_ids))),
         )
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize this LKG Selection into a deterministic dictionary.
+
+        Returns:
+            JSON-compatible LKG Selection content.
+        """
+        return {
+            "lkg_selection_id": self.lkg_selection_id,
+            "timeline_id": self.timeline_id,
+            "monitoring_run_id": self.monitoring_run_id,
+            "source_run_id": self.source_run_id,
+            "supersedes_lkg_selection_ids": list(self.supersedes_lkg_selection_ids),
+        }
 
 
 @dataclass(frozen=True, slots=True)

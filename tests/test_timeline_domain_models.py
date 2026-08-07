@@ -206,3 +206,80 @@ def test_lkg_selection_requires_nonempty_identity_collections(
 ) -> None:
     with pytest.raises(ValueError):
         _selection(supersedes_lkg_selection_ids=supersedes_lkg_selection_ids)
+
+
+def test_timeline_entry_serializes_to_an_exact_dictionary() -> None:
+    assert _entry().to_dict() == {
+        "monitoring_run_id": "monitoring-run-1",
+        "source_run_id": "train-run-1",
+        "sequence_index": 0,
+        "lifecycle_status": "closed",
+        "comparability_status": "pass",
+    }
+    assert _entry(
+        lifecycle_status=LifecycleStatus.FAILED,
+        comparability_status=None,
+    ).to_dict() == {
+        "monitoring_run_id": "monitoring-run-1",
+        "source_run_id": "train-run-1",
+        "sequence_index": 0,
+        "lifecycle_status": "failed",
+        "comparability_status": None,
+    }
+
+
+def test_timeline_serializes_nullable_baseline_and_ordered_entries() -> None:
+    first = _entry()
+    third = _entry(
+        monitoring_run_id="monitoring-run-3",
+        source_run_id="train-run-3",
+        sequence_index=2,
+        lifecycle_status=LifecycleStatus.FAILED,
+        comparability_status=None,
+    )
+
+    assert _timeline(
+        baseline_source_run_id=None,
+        entries=[third, first],
+    ).to_dict() == {
+        "timeline_id": "timeline-1",
+        "subject_id": "churn-model",
+        "baseline_source_run_id": None,
+        "entries": [first.to_dict(), third.to_dict()],
+    }
+
+
+def test_lkg_selection_serializes_canonical_supersession_history() -> None:
+    assert _selection(
+        supersedes_lkg_selection_ids=(
+            "lkg-selection-b",
+            "lkg-selection-a",
+            "lkg-selection-a",
+        )
+    ).to_dict() == {
+        "lkg_selection_id": "lkg-selection-1",
+        "timeline_id": "timeline-1",
+        "monitoring_run_id": "monitoring-run-1",
+        "source_run_id": "train-run-1",
+        "supersedes_lkg_selection_ids": [
+            "lkg-selection-a",
+            "lkg-selection-b",
+        ],
+    }
+
+
+def test_equivalent_collection_inputs_serialize_identically() -> None:
+    first = _entry()
+    second = _entry(
+        monitoring_run_id="monitoring-run-2",
+        source_run_id="train-run-2",
+        sequence_index=1,
+    )
+
+    assert (
+        _timeline(entries=[second, first]).to_dict() == _timeline(entries=(first, second)).to_dict()
+    )
+    assert (
+        _selection(supersedes_lkg_selection_ids=["lkg-selection-b", "lkg-selection-a"]).to_dict()
+        == _selection(supersedes_lkg_selection_ids=("lkg-selection-a", "lkg-selection-b")).to_dict()
+    )
