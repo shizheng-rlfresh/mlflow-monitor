@@ -66,7 +66,11 @@ def test_monitor_run_defaults_to_real_mlflow_gateway(
     assert result.lifecycle_status is LifecycleStatus.CHECKED
     assert result.comparability_status is ComparabilityStatus.PASS
     assert result.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id=baseline_run_id),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id=baseline_run_id,
+        ),
     )
     assert experiment.tags["monitoring.latest_run_id"] == result.monitoring_run_id
 

@@ -17,7 +17,13 @@ def test_monitor_run_result_success_envelope_construction() -> None:
         summary={"status": "ok"},
         finding_ids=("finding-1",),
         diff_ids=("diff-1",),
-        references=(MonitoringRunReference(kind="baseline", reference_run_id="train-run-1"),),
+        references=(
+            MonitoringRunReference(
+                kind="baseline",
+                monitoring_run_id=None,
+                source_run_id="train-run-1",
+            ),
+        ),
     )
 
     assert result.monitoring_run_id == "monitoring-run-1"
@@ -29,7 +35,11 @@ def test_monitor_run_result_success_envelope_construction() -> None:
     assert result.finding_ids == ("finding-1",)
     assert result.diff_ids == ("diff-1",)
     assert result.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id="train-run-1"),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-1",
+        ),
     )
     assert result.error is None
 
@@ -77,7 +87,13 @@ def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
         summary={"outcome": "failed"},
         finding_ids=("finding-2",),
         diff_ids=("diff-2",),
-        references=(MonitoringRunReference(kind="baseline", reference_run_id="train-run-2"),),
+        references=(
+            MonitoringRunReference(
+                kind="baseline",
+                monitoring_run_id=None,
+                source_run_id="train-run-2",
+            ),
+        ),
         error=error,
     )
 
@@ -91,7 +107,13 @@ def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
         "stage": "check",
         "details": {"checker": "default"},
     }
-    assert serialized["references"] == [{"kind": "baseline", "reference_run_id": "train-run-2"}]
+    assert serialized["references"] == [
+        {
+            "kind": "baseline",
+            "monitoring_run_id": None,
+            "source_run_id": "train-run-2",
+        }
+    ]
 
 
 def test_monitor_run_result_to_dict_stable_keys_for_success_and_failure() -> None:
@@ -192,7 +214,13 @@ def test_monitor_run_error_details_are_immutable_after_construction() -> None:
 def test_monitor_run_result_collections_are_immutable_after_construction() -> None:
     """Result collection fields should be copied defensively and immutable."""
     summary = {"status": "ok"}
-    references = [MonitoringRunReference(kind="baseline", reference_run_id="train-run-1")]
+    references = [
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-1",
+        )
+    ]
     finding_ids = ["finding-1"]
     diff_ids = ["diff-1"]
     result = MonitorRunResult(
@@ -208,13 +236,23 @@ def test_monitor_run_result_collections_are_immutable_after_construction() -> No
     )
 
     summary["status"] = "mutated"
-    references.append(MonitoringRunReference(kind="lkg", reference_run_id="monitoring-run-1"))
+    references.append(
+        MonitoringRunReference(
+            kind="lkg",
+            monitoring_run_id="monitoring-run-1",
+            source_run_id="train-run-lkg",
+        )
+    )
     finding_ids.append("finding-2")
     diff_ids.append("diff-2")
 
     assert result.summary == {"status": "ok"}
     assert result.references == (
-        MonitoringRunReference(kind="baseline", reference_run_id="train-run-1"),
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-1",
+        ),
     )
     assert result.finding_ids == ("finding-1",)
     assert result.diff_ids == ("diff-1",)

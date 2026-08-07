@@ -98,12 +98,14 @@ def make_gateway_with_timeline() -> InMemoryMonitoringGateway:
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-prev",
+        source_run_id="train-run-prev",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
         monitoring_run_id="monitoring-run-custom-1",
+        source_run_id="train-run-custom-1",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=1,
     )
@@ -888,6 +890,7 @@ def test_prepare_run_context_fails_when_custom_reference_is_on_another_subject()
     gateway.upsert_monitoring_run(
         subject_id="fraud_model",
         monitoring_run_id="monitoring-run-foreign",
+        source_run_id="train-run-foreign",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )

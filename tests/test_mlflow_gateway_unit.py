@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from mlflow_monitor.domain import LifecycleStatus
+from mlflow_monitor.domain import DiffReferenceKind, LifecycleStatus, MonitoringRunReference
 from mlflow_monitor.errors import GatewayConsistencyViolation, GatewayNamespaceViolation
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_client import MonitoringRunInfo, MonitoringRunTagSnapshot
@@ -104,6 +104,7 @@ def test_create_or_reuse_monitoring_run_repairs_partial_allocation_index(
     )
 
     assert result.monitoring_run_id == "monitoring-run-1"
+    assert result.source_run_id == "train-run-1"
     assert result.sequence_index == 0
     assert result.allocated is False
     assert stub_client.set_monitoring_experiment_tag.call_args_list == [
@@ -141,6 +142,7 @@ def test_create_or_reuse_monitoring_run_repairs_orphan_before_new_allocation() -
     )
 
     assert result.monitoring_run_id == "monitoring-run-2"
+    assert result.source_run_id == "train-run-2"
     assert result.sequence_index == 1
     assert result.allocated is True
     stub_client.create_monitoring_run.assert_called_once_with(
@@ -654,6 +656,111 @@ def test_get_monitoring_run_returns_none_for_malformed_persisted_tags(
     assert gateway.get_monitoring_run("churn_model", "monitoring-run-1") is None
 
 
+def test_get_monitoring_run_hydrates_source_and_reference_pairs() -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.0": "monitoring-run-previous",
+        "monitoring.run.1": "monitoring-run-current",
+    }
+
+    def get_run_tags(monitoring_run_id: str) -> dict[str, str]:
+        if monitoring_run_id == "monitoring-run-current":
+            return {
+                "training.source_run_id": "train-run-current",
+                "monitoring.sequence_index": "1",
+                "monitoring.lifecycle_status": "checked",
+                "monitoring.reference.baseline": "train-run-baseline",
+                "monitoring.reference.previous": "monitoring-run-previous",
+            }
+        return {"training.source_run_id": "train-run-previous"}
+
+    stub_client.get_run_tags.side_effect = get_run_tags
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    record = gateway.get_monitoring_run("churn_model", "monitoring-run-current")
+
+    assert record is not None
+    assert record.source_run_id == "train-run-current"
+    assert record.references == (
+        MonitoringRunReference(
+            kind=DiffReferenceKind.BASELINE,
+            monitoring_run_id=None,
+            source_run_id="train-run-baseline",
+        ),
+        MonitoringRunReference(
+            kind=DiffReferenceKind.PREVIOUS,
+            monitoring_run_id="monitoring-run-previous",
+            source_run_id="train-run-previous",
+        ),
+    )
+
+
+def test_upsert_monitoring_run_rejects_conflicting_reference_pair() -> None:
+    stub_client = MagicMock()
+
+    def get_run_tags(monitoring_run_id: str) -> dict[str, str]:
+        if monitoring_run_id == "monitoring-run-current":
+            return {"training.source_run_id": "train-run-current"}
+        return {"training.source_run_id": "train-run-persisted-reference"}
+
+    stub_client.get_run_tags.side_effect = get_run_tags
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            monitoring_run_id="monitoring-run-current",
+            source_run_id="train-run-current",
+            lifecycle_status=LifecycleStatus.CHECKED,
+            sequence_index=1,
+            references=(
+                MonitoringRunReference(
+                    kind=DiffReferenceKind.PREVIOUS,
+                    monitoring_run_id="monitoring-run-previous",
+                    source_run_id="train-run-claimed-reference",
+                ),
+            ),
+        )
+
+    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert dict(exc_info.value.details) == {
+        "monitoring_run_id": "monitoring-run-previous",
+        "source_run_id": "train-run-claimed-reference",
+        "persisted_source_run_id": "train-run-persisted-reference",
+    }
+
+
+def test_upsert_monitoring_run_rejects_conflicting_primary_pair() -> None:
+    stub_client = MagicMock()
+    stub_client.get_run_tags.return_value = {
+        "training.source_run_id": "train-run-persisted",
+    }
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            monitoring_run_id="monitoring-run-1",
+            source_run_id="train-run-claimed",
+            lifecycle_status=LifecycleStatus.CREATED,
+            sequence_index=0,
+        )
+
+    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert dict(exc_info.value.details) == {
+        "monitoring_run_id": "monitoring-run-1",
+        "source_run_id": "train-run-claimed",
+        "persisted_source_run_id": "train-run-persisted",
+    }
+
+
 def test_resolve_timeline_monitoring_run_id_ignores_malformed_index_tag_keys() -> None:
     stub_client = MagicMock()
     stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
@@ -699,6 +806,7 @@ def test_list_timeline_monitoring_runs_skips_malformed_reconstructed_run() -> No
             "monitoring.lifecycle_status": "checked",
         },
         {
+            "training.source_run_id": "train-run-good",
             "monitoring.sequence_index": "1",
             "monitoring.lifecycle_status": "checked",
             "monitoring.comparability_status": "pass",

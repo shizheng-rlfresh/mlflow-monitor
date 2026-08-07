@@ -15,6 +15,7 @@ from mlflow_monitor.domain import (
     Finding,
     FindingSeverity,
     LifecycleStatus,
+    MonitoringRunReference,
     Run,
     Timeline,
 )
@@ -65,7 +66,8 @@ def test_canonical_entities_can_be_constructed() -> None:
         monitoring_run_id="monitoring-run-1",
         reference=DiffReference(
             kind=DiffReferenceKind.BASELINE,
-            reference_id="train-run-0",
+            monitoring_run_id=None,
+            source_run_id="train-run-0",
         ),
         metric_deltas={"f1": -0.02},
         metadata={"window": "full"},
@@ -181,21 +183,83 @@ def test_finding_references_one_or_more_diffs() -> None:
     assert finding.evidence_diff_ids == ("diff-1", "diff-2")
 
 
-def test_diff_requires_reference_id_for_non_structural_reference_kinds() -> None:
-    """Non-structural diff references should require a concrete reference id."""
-    with pytest.raises(ValueError, match="requires a non-empty reference_id"):
-        DiffReference(
+def test_monitoring_run_reference_serializes_paired_identity() -> None:
+    """Monitoring-run references should expose explicit paired identity fields."""
+    reference = MonitoringRunReference(
+        kind=DiffReferenceKind.PREVIOUS,
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
+    )
+
+    assert reference.to_dict() == {
+        "kind": "previous",
+        "monitoring_run_id": "monitoring-run-1",
+        "source_run_id": "train-run-1",
+    }
+
+
+@pytest.mark.parametrize("reference_type", [MonitoringRunReference, DiffReference])
+def test_baseline_reference_requires_source_only(reference_type: type) -> None:
+    """Baseline references should carry the baseline source without a monitoring run."""
+    reference = reference_type(
+        kind=DiffReferenceKind.BASELINE,
+        monitoring_run_id=None,
+        source_run_id="train-run-baseline",
+    )
+
+    assert reference.monitoring_run_id is None
+    assert reference.source_run_id == "train-run-baseline"
+
+    with pytest.raises(ValueError, match="must not set monitoring_run_id"):
+        reference_type(
             kind=DiffReferenceKind.BASELINE,
-            reference_id=None,
+            monitoring_run_id="monitoring-run-baseline",
+            source_run_id="train-run-baseline",
         )
 
 
-def test_diff_structural_reference_kind_forbids_reference_id() -> None:
-    """Structural diffs should not carry a concrete reference id."""
-    with pytest.raises(ValueError, match="must not set reference_id"):
+@pytest.mark.parametrize("reference_type", [MonitoringRunReference, DiffReference])
+@pytest.mark.parametrize(
+    "kind",
+    [DiffReferenceKind.PREVIOUS, DiffReferenceKind.LKG, DiffReferenceKind.CUSTOM],
+)
+def test_monitoring_reference_kinds_require_paired_identity(
+    reference_type: type,
+    kind: DiffReferenceKind,
+) -> None:
+    """Monitoring-run-backed references should require both immutable IDs."""
+    with pytest.raises(ValueError, match="requires a non-empty monitoring_run_id"):
+        reference_type(
+            kind=kind,
+            monitoring_run_id=None,
+            source_run_id="train-run-1",
+        )
+
+    with pytest.raises(ValueError, match="requires a non-empty source_run_id"):
+        reference_type(
+            kind=kind,
+            monitoring_run_id="monitoring-run-1",
+            source_run_id="",
+        )
+
+
+def test_diff_requires_source_run_id_for_baseline_reference() -> None:
+    """Baseline diff references should require a concrete source run id."""
+    with pytest.raises(ValueError, match="requires a non-empty source_run_id"):
+        DiffReference(
+            kind=DiffReferenceKind.BASELINE,
+            monitoring_run_id=None,
+            source_run_id="",
+        )
+
+
+def test_diff_structural_reference_kind_temporarily_forbids_run_identity() -> None:
+    """Legacy structural references should remain identity-free until V0-003 removes them."""
+    with pytest.raises(ValueError, match="must not set run identity"):
         DiffReference(
             kind=DiffReferenceKind.STRUCTURAL,
-            reference_id="train-run-0",
+            monitoring_run_id=None,
+            source_run_id="train-run-0",
         )
 
 

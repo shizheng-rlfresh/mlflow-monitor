@@ -96,7 +96,8 @@ DIFF = Diff(
     monitoring_run_id="monitoring-run-2",
     reference=DiffReference(
         kind=DiffReferenceKind.BASELINE,
-        reference_id="training-run-1",
+        monitoring_run_id=None,
+        source_run_id="training-run-1",
     ),
     metric_deltas={"kl": -0.05},
     metadata={"feature": "age"},
@@ -270,7 +271,8 @@ class TestInvariantFindingToDiffEvidence:
             monitoring_run_id="monitoring-run-3",
             reference=DiffReference(
                 kind=DiffReferenceKind.BASELINE,
-                reference_id="train-run-3",
+                monitoring_run_id=None,
+                source_run_id="train-run-3",
             ),
             metric_deltas={"kl": -0.05},
             metadata={"feature": "age"},
@@ -299,7 +301,8 @@ class TestInvariantFindingToDiffEvidence:
             monitoring_run_id="monitoring-run-2",
             reference=DiffReference(
                 kind=DiffReferenceKind.BASELINE,
-                reference_id="train-run-1",
+                monitoring_run_id=None,
+                source_run_id="train-run-1",
             ),
             metric_deltas={"kl": -0.05},
             metadata={"feature": "age"},
