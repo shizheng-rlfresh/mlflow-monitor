@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from mlflow_monitor.builtins import SYSTEM_DEFAULT_CONTRACT_ID, SYSTEM_DEFAULT_RECIPE_ID
-from mlflow_monitor.contract import resolve_contract_v0
 from mlflow_monitor.contract_checker import ContractChecker
 from mlflow_monitor.domain import (
-    Contract,
     ContractCheckResult,
     DiffReferenceKind,
     LifecycleStatus,
@@ -16,10 +13,8 @@ from mlflow_monitor.domain import (
 )
 from mlflow_monitor.errors import (
     CheckStageError,
-    ContractResolutionError,
     GatewayConsistencyViolation,
     PrepareStageError,
-    RecipeValidationError,
     TerminalRunRetryError,
 )
 from mlflow_monitor.gateway import (
@@ -27,11 +22,10 @@ from mlflow_monitor.gateway import (
     MonitoringGateway,
     MonitoringRunRecord,
 )
-from mlflow_monitor.recipe import (
-    RecipeReferenceCatalog,
-    resolve_recipe_v0_lite,
+from mlflow_monitor.recipe_compiler import (
+    SYSTEM_DEFAULT_COMPILED_RECIPE,
+    CompiledRecipe,
 )
-from mlflow_monitor.recipe_compiler import CompiledRunPlan, compile_recipe_v0_lite
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 from mlflow_monitor.workflow import (
     PreparedContext,
@@ -42,8 +36,6 @@ from mlflow_monitor.workflow import (
 _OWNED_FAILURES = (
     PrepareStageError,
     CheckStageError,
-    ContractResolutionError,
-    RecipeValidationError,
 )
 
 
@@ -55,8 +47,7 @@ class OrchestrationState:
         subject_id: The ID of the monitored subject this run is associated with.
         source_run_id: The original run ID from the training system that produced this run.
         baseline_source_run_id: The source run ID of the baseline this run is compared against
-        compiled_plan: The compiled recipe plan for this run.
-        resolved_contract: The resolved contract for this run.
+        compiled_recipe: The execution-ready compiled Recipe for this run.
         monitoring_run_id: The unique ID of the monitoring run to be executed.
         existing_monitoring_run: The existing monitoring run record, if any.
         is_new_monitoring_run: Whether this is a new monitoring run.
@@ -67,8 +58,7 @@ class OrchestrationState:
     subject_id: str
     source_run_id: str
     baseline_source_run_id: str | None
-    compiled_plan: CompiledRunPlan
-    resolved_contract: Contract
+    compiled_recipe: CompiledRecipe
     monitoring_run_id: str
     existing_monitoring_run: MonitoringRunRecord | None
     is_new_monitoring_run: bool
@@ -96,13 +86,12 @@ def run_orchestration(
         The result of the monitoring run execution, including comparability status and any findings.
 
     """  # noqa: E501
-    compiled_plan, resolved_contract = _resolve_startup()
+    compiled_recipe = _resolve_startup()
     state_or_result = _resolve_orchestration_state(
         subject_id=subject_id,
         source_run_id=source_run_id,
         baseline_source_run_id=baseline_source_run_id,
-        compiled_plan=compiled_plan,
-        resolved_contract=resolved_contract,
+        compiled_recipe=compiled_recipe,
         gateway=gateway,
     )
     if isinstance(state_or_result, MonitorRunResult):
@@ -120,17 +109,9 @@ def run_orchestration(
     )
 
 
-def _resolve_startup() -> tuple[CompiledRunPlan, Contract]:
-    """Resolve the fixed startup inputs used by orchestration."""
-    references = RecipeReferenceCatalog(
-        contract_ids=frozenset({SYSTEM_DEFAULT_CONTRACT_ID}),
-        finding_policy_profiles=frozenset(),
-        summary_modes=frozenset(),
-    )
-    recipe = resolve_recipe_v0_lite(None, references=references)
-    compiled_plan = compile_recipe_v0_lite(recipe)
-    resolved_contract = resolve_contract_v0(compiled_plan.contract.contract_id)
-    return compiled_plan, resolved_contract
+def _resolve_startup() -> CompiledRecipe:
+    """Return the precompiled system-default Recipe before allocation."""
+    return SYSTEM_DEFAULT_COMPILED_RECIPE
 
 
 def _resolve_orchestration_state(
@@ -138,24 +119,22 @@ def _resolve_orchestration_state(
     subject_id: str,
     source_run_id: str,
     baseline_source_run_id: str | None,
-    compiled_plan: CompiledRunPlan,
-    resolved_contract: Contract,
+    compiled_recipe: CompiledRecipe,
     gateway: MonitoringGateway,
 ) -> OrchestrationState | MonitorRunResult:
     """Resolve idempotency state and apply rerun short-circuit policy."""
     idempotency_key = IdempotencyKey(
         subject_id=subject_id,
         source_run_id=source_run_id,
-        recipe_id=SYSTEM_DEFAULT_RECIPE_ID,
-        recipe_version=compiled_plan.identity.recipe_version,
+        recipe_id=compiled_recipe.identity.recipe_id,
+        recipe_version=compiled_recipe.identity.recipe_version,
     )
     create_or_reuse_result = gateway.create_or_reuse_monitoring_run(idempotency_key)
     state = OrchestrationState(
         subject_id=subject_id,
         source_run_id=create_or_reuse_result.source_run_id,
         baseline_source_run_id=baseline_source_run_id,
-        compiled_plan=compiled_plan,
-        resolved_contract=resolved_contract,
+        compiled_recipe=compiled_recipe,
         monitoring_run_id=create_or_reuse_result.monitoring_run_id,
         existing_monitoring_run=create_or_reuse_result.existing_monitoring_run,
         is_new_monitoring_run=create_or_reuse_result.existing_monitoring_run is None,
@@ -195,7 +174,7 @@ def _short_circuit_existing_monitoring_run(
     replay_error = _validate_checked_monitoring_run_rerun_inputs(
         subject_id=state.subject_id,
         baseline_source_run_id=state.baseline_source_run_id,
-        source_experiment=state.compiled_plan.input.source_experiment,
+        source_experiment=state.compiled_recipe.source_requirements.source_experiment,
         gateway=gateway,
     )
     if replay_error is not None:
@@ -238,10 +217,9 @@ def _run_prepare_monitoring_run_slice(
         prepared_context = prepare_run_context(
             monitoring_run_id=state.monitoring_run_id,
             subject_id=state.subject_id,
-            compiled_plan=state.compiled_plan,
-            resolved_contract=state.resolved_contract,
+            compiled_recipe=state.compiled_recipe,
             gateway=gateway,
-            runtime_source_run_id=state.source_run_id,
+            source_run_id=state.source_run_id,
             baseline_source_run_id=state.baseline_source_run_id,
         )
     except _OWNED_FAILURES as exc:
@@ -624,7 +602,7 @@ def _validate_checked_monitoring_run_rerun_inputs(
     resolved_baseline_source_run_id = gateway.resolve_source_run_id(
         subject_id=subject_id,
         source_experiment=source_experiment,
-        run_selector=baseline_source_run_id,
+        source_run_id=baseline_source_run_id,
     )
     if resolved_baseline_source_run_id == timeline_state.baseline_source_run_id:
         return None

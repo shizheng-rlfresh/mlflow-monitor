@@ -53,7 +53,6 @@ from mlflow_monitor.errors import (
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
 )
-from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 from mlflow_monitor.result_contract import MonitorRunResult
 
 
@@ -256,10 +255,9 @@ class MonitoringGateway(Protocol):
         self,
         subject_id: str,
         source_experiment: str | None,
-        run_selector: str,
-        runtime_source_run_id: str | None = None,
+        source_run_id: str,
     ) -> str | None:
-        """Resolve one concrete source training run id for prepare-stage use."""
+        """Resolve one invocation-owned Source Training Run identifier."""
         ...
 
     def get_missing_source_run_metrics(
@@ -613,17 +611,14 @@ class InMemoryMonitoringGateway:
         self,
         subject_id: str,
         source_experiment: str | None,
-        run_selector: str,
-        runtime_source_run_id: str | None = None,
+        source_run_id: str,
     ) -> str | None:
-        """Resolve one concrete source training run id for prepare-stage use.
+        """Resolve one invocation-owned Source Training Run identifier.
 
         Args:
             subject_id: Monitored subject identifier.
             source_experiment: Optional source experiment name to filter candidate runs.
-            run_selector: Run selector string, either a concrete run id or a system token.
-            runtime_source_run_id: Optional source run id from runtime context, used if the selector
-                                    is the system default token.
+            source_run_id: Caller-supplied Source Training Run identifier.
 
         Raises:
             GatewayNamespaceViolation: If the subject_id is invalid or does not match the expected
@@ -633,15 +628,10 @@ class InMemoryMonitoringGateway:
             The resolved source run id if a matching run is found, or None if not found.
         """
         self._validate_subject_id(subject_id)
-        candidate_source_run_id = (
-            runtime_source_run_id
-            if run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
-            else run_selector
-        )
-        if not candidate_source_run_id:
+        if not source_run_id:
             return None
 
-        source_run = self._source_runs_by_id.get(candidate_source_run_id)
+        source_run = self._source_runs_by_id.get(source_run_id)
         if source_run is None:
             return None
         if source_run.subject_id != subject_id:

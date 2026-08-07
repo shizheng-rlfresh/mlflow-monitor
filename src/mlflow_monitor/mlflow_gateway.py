@@ -55,7 +55,6 @@ from mlflow_monitor.gateway import (
     TimelineState,
 )
 from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflowClient
-from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 from mlflow_monitor.result_contract import MonitorRunResult
 
 _BASELINE_TAG = "training.baseline_run_id"
@@ -473,19 +472,15 @@ class MLflowMonitoringGateway:
         self,
         subject_id: str,
         source_experiment: str | None,
-        run_selector: str,
-        runtime_source_run_id: str | None = None,
+        source_run_id: str,
     ) -> str | None:
-        """Resolve a concrete source training run id via direct MLflow lookup.
+        """Resolve an invocation-owned Source Training Run via direct MLflow lookup.
 
         Args:
             subject_id: Monitored subject identifier.
             source_experiment: Optional source experiment filter from the
                 compiled recipe.
-            run_selector: Either a concrete run id or the reserved runtime
-                selector token.
-            runtime_source_run_id: Caller-supplied training run id used only
-                when the selector is the reserved runtime token.
+            source_run_id: Caller-supplied Source Training Run identifier.
 
         Returns:
             The resolved source training run id when MLflow can fetch it;
@@ -499,23 +494,18 @@ class MLflowMonitoringGateway:
             name of that run.
         """
         self._validate_subject_id(subject_id)
-        candidate_source_run_id = (
-            runtime_source_run_id
-            if run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
-            else run_selector
-        )
-        if not candidate_source_run_id:
+        if not source_run_id:
             return None
-        if self._mlflow.get_run(candidate_source_run_id) is None:
+        if self._mlflow.get_run(source_run_id) is None:
             return None
-        experiment_name = self._mlflow.get_run_experiment_name(candidate_source_run_id)
+        experiment_name = self._mlflow.get_run_experiment_name(source_run_id)
         if experiment_name is not None and experiment_name.startswith(
             f"{self._config.namespace_prefix}/"
         ):
             return None
         if source_experiment is None:
-            return candidate_source_run_id
-        return candidate_source_run_id if experiment_name == source_experiment else None
+            return source_run_id
+        return source_run_id if experiment_name == source_experiment else None
 
     def get_missing_source_run_metrics(
         self,

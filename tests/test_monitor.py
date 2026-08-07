@@ -117,16 +117,14 @@ class ReplaySensitiveGateway(InMemoryMonitoringGateway):
         self,
         subject_id: str,
         source_experiment: str | None,
-        run_selector: str,
-        runtime_source_run_id: str | None = None,
+        source_run_id: str,
     ) -> str | None:
         if self.block_source_resolution:
             return None
         return super().resolve_source_run_id(
             subject_id=subject_id,
             source_experiment=source_experiment,
-            run_selector=run_selector,
-            runtime_source_run_id=runtime_source_run_id,
+            source_run_id=source_run_id,
         )
 
     def get_source_run_contract_evidence(self, source_run_id: str):
