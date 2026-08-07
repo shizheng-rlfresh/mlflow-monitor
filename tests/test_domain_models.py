@@ -166,7 +166,7 @@ def test_relationship_shapes_match_cast() -> None:
         source_run_id="train-run-2",
         baseline_source_run_id=baseline.source_run_id,
         contract=contract,
-        lifecycle_status=LifecycleStatus.CREATED,
+        lifecycle_status=LifecycleStatus.CLOSED,
         comparability_status=ComparabilityStatus.PASS,
         contract_check_result=None,
         diff_ids=(),

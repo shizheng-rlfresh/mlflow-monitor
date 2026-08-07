@@ -191,11 +191,11 @@ class CompatibilityEvidence:
 
 @dataclass(frozen=True, slots=True)
 class Contract:
-    """Resolved versioned comparability contract bound to a timeline.
+    """Resolved versioned comparability contract bound to a Monitoring Run.
 
-    This is the effective contract attached to a run or timeline after any
-    recipe-layer selection has been resolved. It is not the recipe-facing
-    profile/binding mechanism itself.
+    This is the effective contract attached to a Monitoring Run after any
+    recipe-layer selection has been resolved. It is not the recipe-facing profile
+    or binding mechanism itself.
 
     Attributes:
         contract_id: Unique identifier for the contract.
@@ -588,7 +588,7 @@ class TimelineEntry:
         monitoring_run_id: Monitoring Run summarized by this entry.
         source_run_id: Source Training Run evaluated by the Monitoring Run.
         sequence_index: Stable allocation order within the Timeline.
-        lifecycle_status: Current lifecycle state of the Monitoring Run.
+        lifecycle_status: Terminal lifecycle state of the Monitoring Run.
         comparability_status: Contract-check outcome when available.
     """
 
@@ -614,6 +614,8 @@ class TimelineEntry:
             raise ValueError("TimelineEntry sequence_index must be a nonnegative integer.")
         if not isinstance(self.lifecycle_status, LifecycleStatus):
             raise ValueError("TimelineEntry lifecycle_status must be a LifecycleStatus.")
+        if self.lifecycle_status not in (LifecycleStatus.CLOSED, LifecycleStatus.FAILED):
+            raise ValueError("TimelineEntry lifecycle_status must be closed or failed.")
         if self.comparability_status is not None and not isinstance(
             self.comparability_status, ComparabilityStatus
         ):

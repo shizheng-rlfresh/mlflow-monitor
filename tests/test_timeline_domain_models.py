@@ -108,6 +108,22 @@ def test_timeline_entry_requires_typed_statuses(field: str, value: object) -> No
         _entry(**{field: value})
 
 
+@pytest.mark.parametrize(
+    "lifecycle_status",
+    [
+        LifecycleStatus.CREATED,
+        LifecycleStatus.PREPARED,
+        LifecycleStatus.CHECKED,
+        LifecycleStatus.ANALYZED,
+    ],
+)
+def test_timeline_entry_rejects_nonterminal_lifecycle_states(
+    lifecycle_status: LifecycleStatus,
+) -> None:
+    with pytest.raises(ValueError):
+        _entry(lifecycle_status=lifecycle_status)
+
+
 def test_timeline_entry_allows_missing_comparability() -> None:
     assert _entry(comparability_status=None).comparability_status is None
 
