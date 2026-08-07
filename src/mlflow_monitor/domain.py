@@ -650,6 +650,10 @@ class Timeline:
         baseline_source_run_id: Pinned Baseline Source Run, or None before
             bootstrap succeeds.
         entries: Canonically ordered Monitoring Run summaries.
+
+    Note:
+        A Timeline with an empty baseline cannot have closed entries;
+            only failed entries are allowed with an empty baseline.
     """
 
     timeline_id: str
@@ -679,15 +683,16 @@ class Timeline:
         if any(not isinstance(entry, TimelineEntry) for entry in supplied_entries):
             raise ValueError("Timeline entries must contain only TimelineEntry values.")
 
-        entries = tuple(sorted(supplied_entries, key=lambda entry: entry.sequence_index))
-
+        # Timeline without valid baseline cannot have closed entries,
+        # only failed entries are allowed.
         if self.baseline_source_run_id is None and any(
-            entry.lifecycle_status == LifecycleStatus.CLOSED for entry in entries
+            entry.lifecycle_status == LifecycleStatus.CLOSED for entry in supplied_entries
         ):
             raise ValueError(
                 "Timeline cannot accept closed entries without a baseline_source_run_id."
             )
 
+        entries = tuple(sorted(supplied_entries, key=lambda entry: entry.sequence_index))
         sequence_indexes = tuple(entry.sequence_index for entry in entries)
         if len(sequence_indexes) != len(set(sequence_indexes)):
             raise ValueError("Timeline entries must have unique sequence_index values.")

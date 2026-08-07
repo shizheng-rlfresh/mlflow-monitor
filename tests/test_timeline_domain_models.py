@@ -5,10 +5,16 @@ from dataclasses import FrozenInstanceError, fields
 import pytest
 
 import mlflow_monitor.domain as domain
-from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus
+from mlflow_monitor.domain import (
+    ComparabilityStatus,
+    LifecycleStatus,
+    LKGSelection,
+    Timeline,
+    TimelineEntry,
+)
 
 
-def _entry(**overrides: object) -> domain.TimelineEntry:
+def _entry(**overrides: object) -> TimelineEntry:
     values: dict[str, object] = {
         "monitoring_run_id": "monitoring-run-1",
         "source_run_id": "train-run-1",
@@ -17,10 +23,10 @@ def _entry(**overrides: object) -> domain.TimelineEntry:
         "comparability_status": ComparabilityStatus.PASS,
     }
     values.update(overrides)
-    return domain.TimelineEntry(**values)  # type: ignore[arg-type]
+    return TimelineEntry(**values)  # type: ignore[arg-type]
 
 
-def _timeline(**overrides: object) -> domain.Timeline:
+def _timeline(**overrides: object) -> Timeline:
     values: dict[str, object] = {
         "timeline_id": "timeline-1",
         "subject_id": "churn-model",
@@ -28,10 +34,10 @@ def _timeline(**overrides: object) -> domain.Timeline:
         "entries": (),
     }
     values.update(overrides)
-    return domain.Timeline(**values)  # type: ignore[arg-type]
+    return Timeline(**values)  # type: ignore[arg-type]
 
 
-def _selection(**overrides: object) -> domain.LKGSelection:
+def _selection(**overrides: object) -> LKGSelection:
     values: dict[str, object] = {
         "lkg_selection_id": "lkg-selection-1",
         "timeline_id": "timeline-1",
@@ -40,7 +46,7 @@ def _selection(**overrides: object) -> domain.LKGSelection:
         "supersedes_lkg_selection_ids": (),
     }
     values.update(overrides)
-    return domain.LKGSelection(**values)  # type: ignore[arg-type]
+    return LKGSelection(**values)  # type: ignore[arg-type]
 
 
 def test_timeline_models_have_the_approved_shapes() -> None:
@@ -180,7 +186,7 @@ def test_timeline_freezes_and_orders_entries_by_sequence() -> None:
     ],
 )
 def test_timeline_rejects_duplicate_entry_identity_or_sequence(
-    entries: tuple[domain.TimelineEntry, ...],
+    entries: tuple[TimelineEntry, ...],
 ) -> None:
     with pytest.raises(ValueError):
         _timeline(entries=entries)
@@ -245,7 +251,7 @@ def test_timeline_entry_serializes_to_an_exact_dictionary() -> None:
 
 
 def test_timeline_serializes_nullable_baseline_and_ordered_entries() -> None:
-    first = _entry()
+    first = _entry(lifecycle_status=LifecycleStatus.FAILED)
     third = _entry(
         monitoring_run_id="monitoring-run-3",
         source_run_id="train-run-3",
@@ -299,3 +305,33 @@ def test_equivalent_collection_inputs_serialize_identically() -> None:
         _selection(supersedes_lkg_selection_ids=["lkg-selection-b", "lkg-selection-a"]).to_dict()
         == _selection(supersedes_lkg_selection_ids=("lkg-selection-a", "lkg-selection-b")).to_dict()
     )
+
+
+def test_timeline_with_null_baseline_cannot_accept_closed_entries() -> None:
+    """Test that a Timeline with a null baseline cannot accept closed entries."""
+
+    closed_timeline_entry = TimelineEntry(
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
+        sequence_index=0,
+        lifecycle_status=LifecycleStatus.CLOSED,
+        comparability_status=ComparabilityStatus.FAIL,
+    )
+
+    failed_timeline_entry = TimelineEntry(
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
+        sequence_index=1,
+        lifecycle_status=LifecycleStatus.FAILED,
+        comparability_status=ComparabilityStatus.FAIL,
+    )
+
+    with pytest.raises(
+        ValueError, match="cannot accept closed entries without a baseline_source_run_id"
+    ):
+        Timeline(
+            timeline_id="timeline-1",
+            subject_id="churn_model",
+            baseline_source_run_id=None,
+            entries=(closed_timeline_entry, failed_timeline_entry),
+        )
