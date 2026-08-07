@@ -700,6 +700,10 @@ def test_get_monitoring_run_hydrates_source_and_reference_pairs() -> None:
 
 def test_upsert_monitoring_run_rejects_conflicting_reference_pair() -> None:
     stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.1": "monitoring-run-current",
+    }
 
     def get_run_tags(monitoring_run_id: str) -> dict[str, str]:
         if monitoring_run_id == "monitoring-run-current":
@@ -737,6 +741,10 @@ def test_upsert_monitoring_run_rejects_conflicting_reference_pair() -> None:
 
 def test_upsert_monitoring_run_rejects_conflicting_primary_pair() -> None:
     stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.0": "monitoring-run-1",
+    }
     stub_client.get_run_tags.return_value = {
         "training.source_run_id": "train-run-persisted",
     }
@@ -759,6 +767,37 @@ def test_upsert_monitoring_run_rejects_conflicting_primary_pair() -> None:
         "source_run_id": "train-run-claimed",
         "persisted_source_run_id": "train-run-persisted",
     }
+
+
+def test_upsert_monitoring_run_rejects_run_outside_subject_timeline_before_run_access() -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-churn"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.0": "monitoring-run-churn",
+    }
+    stub_client.get_run_tags.return_value = {
+        "training.source_run_id": "train-run-foreign",
+    }
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            monitoring_run_id="monitoring-run-foreign",
+            source_run_id="train-run-foreign",
+            lifecycle_status=LifecycleStatus.CHECKED,
+            sequence_index=0,
+        )
+
+    assert exc_info.value.code == "monitoring_run_subject_inconsistent"
+    assert exc_info.value.details == (
+        ("subject_id", "churn_model"),
+        ("monitoring_run_id", "monitoring-run-foreign"),
+    )
+    stub_client.get_run_tags.assert_not_called()
+    stub_client.set_monitoring_run_tags.assert_not_called()
 
 
 def test_resolve_timeline_monitoring_run_id_ignores_malformed_index_tag_keys() -> None:
@@ -802,6 +841,7 @@ def test_list_timeline_monitoring_runs_skips_malformed_reconstructed_run() -> No
     }
     stub_client.get_run_tags.side_effect = [
         {
+            "training.source_run_id": "train-run-bad",
             "monitoring.sequence_index": "not-an-int",
             "monitoring.lifecycle_status": "checked",
         },

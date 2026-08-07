@@ -294,6 +294,18 @@ class MLflowMonitoringGateway:
             references: Optional ordered references used during check.
         """
         self._validate_subject_id(subject_id)
+        if self.resolve_timeline_monitoring_run_id(subject_id, monitoring_run_id) is None:
+            raise GatewayConsistencyViolation(
+                code="monitoring_run_subject_inconsistent",
+                message=(
+                    f"Monitoring run {monitoring_run_id!r} is not indexed on "
+                    f"subject_id={subject_id!r}."
+                ),
+                details=(
+                    ("subject_id", subject_id),
+                    ("monitoring_run_id", monitoring_run_id),
+                ),
+            )
         persisted_source_run_id = self._mlflow.get_run_tags(monitoring_run_id).get(_SOURCE_RUN_TAG)
         if persisted_source_run_id != source_run_id:
             raise self._source_identity_consistency_error(
