@@ -31,7 +31,7 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
   plan when it is unavailable.
 - Never stage or publish files under `.agents/`.
 
-## Review rules
+## Code Review Rules
 
 - Default to a code review mindset when asked to review.
 - Prioritize correctness issues, behavioral regressions, edge cases, and missing tests.
@@ -40,6 +40,27 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 - Call out assumptions, unclear intent, or test gaps when they affect confidence.
 - If no findings are discovered, say so explicitly and note any residual risks or coverage gaps.
 - Do not focus on style-only feedback unless it affects correctness, maintainability, or project consistency.
+
+### Pull request context
+
+- Read the pull request's `Review context` before reviewing the diff.
+- Use only the public documents named there as ticket-specific design context.
+- Treat `Required behavior` and `Out of scope` as review boundaries, but flag any
+  conflict with repository guidance, shipped public behavior, code, or tests.
+- If the review context is absent or incomplete, do not invent intent. Review the
+  diff against the repository guidance, relevant public documentation, code, and
+  tests, and state the resulting uncertainty.
+
+### Monitoring boundaries
+
+- Flag any change that mutates a Source Training Run or stores monitoring-owned
+  state or artifacts on it. Source Training Runs are read-only; monitoring state
+  belongs to the subject's monitoring experiment or a Monitoring Run.
+- Flag any materialized domain value or public result that contains
+  `monitoring_run_id` without its immutable `source_run_id`, or that accepts a
+  conflicting pair. A Baseline Source Run is source-only and has no
+  `monitoring_run_id`; low-level MLflow adapters may use `run_id` only at the
+  upstream API boundary.
 
 ## Documentation
 
