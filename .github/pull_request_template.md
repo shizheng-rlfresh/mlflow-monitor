@@ -35,8 +35,8 @@ Give reviewers only the context needed for this diff.
 - [ ] `uv run ruff check .`
 - [ ] `uv run ruff format --check .`
 - [ ] `uv run pyright`
+- [ ] Matching `docs/site/` content is updated, or no developer-doc change is required
 - [ ] `uv run --group doc sphinx-build -W -b html docs/site/source docs/site/build/html`
 - [ ] `uv build`
-- [ ] Matching `docs/site/` content is updated, or no developer-doc change is required
 
 <!-- Validation omissions, if any: -->
