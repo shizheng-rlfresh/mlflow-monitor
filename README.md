@@ -81,9 +81,8 @@ for `main`.
 ## Architecture and Worldview
 
 The current [architecture](docs/site/source/architecture.md) and
-[worldview](docs/site/source/worldview.md) pages are retained MVP-era presentation
-documents. Their banners describe that historical status while active v0
-development proceeds.
+[worldview](docs/site/source/worldview.md) pages are retained MVP-staged presentation
+documents.
 
 ## Development Setup
 
