@@ -18,7 +18,11 @@ from mlflow_monitor.domain import (
     Timeline,
 )
 from mlflow_monitor.errors import InvariantViolation
-from mlflow_monitor.identity import make_compatibility_evidence_id, make_diff_id
+from mlflow_monitor.identity import (
+    make_compatibility_evidence_id,
+    make_diff_id,
+    make_finding_id,
+)
 
 
 def validate_timeline_ownership(
@@ -221,6 +225,62 @@ def _validate_finding_evidence_pair(
                 entity=entity,
                 field=field_name,
             )
+
+
+def validate_finding_identity(finding: Finding) -> None:
+    """Validate that a Finding carries its derived deterministic identity.
+
+    Args:
+        finding: Finding whose identity should be validated.
+
+    Raises:
+        InvariantViolation: If the supplied Finding identity is not canonical.
+
+    Returns:
+        None if the Finding identity is canonical.
+    """
+    expected_finding_id = make_finding_id(
+        monitoring_run_id=finding.monitoring_run_id,
+        source_run_id=finding.source_run_id,
+        finding_policy_id=finding.finding_policy_id,
+        finding_policy_version=finding.finding_policy_version,
+        finding_rule_id=finding.finding_rule_id,
+        evidence_diff_ids=finding.evidence_diff_ids,
+        evidence_compatibility_ids=finding.evidence_compatibility_ids,
+    )
+    if finding.finding_id != expected_finding_id:
+        raise InvariantViolation(
+            code="finding_identity_mismatch",
+            message=f"Finding identity {finding.finding_id!r} does not match its derived identity.",
+            entity="Finding",
+            field="finding_id",
+        )
+
+
+def validate_finding_identity_consistency(findings: Sequence[Finding]) -> None:
+    """Reject conflicting Finding content under one deterministic identity.
+
+    Args:
+        findings: Finding records to validate together.
+
+    Raises:
+        InvariantViolation: If an identity is invalid or maps to different content.
+
+    Returns:
+        None if all Finding identities and content are consistent.
+    """
+    findings_by_id: dict[str, Finding] = {}
+    for finding in findings:
+        validate_finding_identity(finding)
+        existing = findings_by_id.get(finding.finding_id)
+        if existing is not None and existing != finding:
+            raise InvariantViolation(
+                code="finding_identity_content_conflict",
+                message=f"Finding identity {finding.finding_id!r} maps to conflicting content.",
+                entity="Finding",
+                field="finding_id",
+            )
+        findings_by_id[finding.finding_id] = finding
 
 
 def validate_diff_identity(diff: Diff) -> None:
