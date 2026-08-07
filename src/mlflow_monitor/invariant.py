@@ -8,6 +8,7 @@ from mlflow_monitor.domain import (
     LKG,
     Baseline,
     ComparabilityStatus,
+    CompatibilityEvidence,
     ContractCheckReason,
     ContractCheckReasonCode,
     ContractCheckResult,
@@ -17,6 +18,7 @@ from mlflow_monitor.domain import (
     Timeline,
 )
 from mlflow_monitor.errors import InvariantViolation
+from mlflow_monitor.identity import make_compatibility_evidence_id, make_diff_id
 
 
 def validate_timeline_ownership(
@@ -168,6 +170,129 @@ def validate_finding_to_diff_evidence(finding: Finding, diff: Diff) -> None:
         )
 
     return None
+
+
+def validate_diff_identity(diff: Diff) -> None:
+    """Validate that a Diff carries its derived deterministic identity.
+
+    Args:
+        diff: Diff whose identity should be validated.
+
+    Raises:
+        InvariantViolation: If the supplied Diff identity is not canonical.
+
+    Returns:
+        None if the Diff identity is canonical.
+    """
+    expected_diff_id = make_diff_id(
+        monitoring_run_id=diff.monitoring_run_id,
+        source_run_id=diff.source_run_id,
+        reference=diff.reference,
+        metric_name=diff.metric_name,
+    )
+    if diff.diff_id != expected_diff_id:
+        raise InvariantViolation(
+            code="diff_identity_mismatch",
+            message=f"Diff identity {diff.diff_id!r} does not match its derived identity.",
+            entity="Diff",
+            field="diff_id",
+        )
+
+
+def validate_diff_identity_consistency(diffs: Sequence[Diff]) -> None:
+    """Reject conflicting Diff content under one deterministic identity.
+
+    Args:
+        diffs: Diff records to validate together.
+
+    Raises:
+        InvariantViolation: If an identity is invalid or maps to different content.
+
+    Returns:
+        None if all Diff identities and content are consistent.
+    """
+    diffs_by_id: dict[str, Diff] = {}
+    for diff in diffs:
+        validate_diff_identity(diff)
+        existing = diffs_by_id.get(diff.diff_id)
+        if existing is not None and existing != diff:
+            raise InvariantViolation(
+                code="diff_identity_content_conflict",
+                message=f"Diff identity {diff.diff_id!r} maps to conflicting content.",
+                entity="Diff",
+                field="diff_id",
+            )
+        diffs_by_id[diff.diff_id] = diff
+
+
+def validate_compatibility_evidence_identity(evidence: CompatibilityEvidence) -> None:
+    """Validate one Compatibility Evidence identity and reason.
+
+    Args:
+        evidence: Compatibility Evidence to validate.
+
+    Raises:
+        InvariantViolation: If its reason or supplied identity is invalid.
+
+    Returns:
+        None if the Compatibility Evidence identity and reason are valid.
+    """
+    _validate_compatibility_evidence_id(evidence)
+    validate_contract_check_reason(evidence.reason)
+
+
+def validate_compatibility_evidence_identity_consistency(
+    evidence_records: Sequence[CompatibilityEvidence],
+) -> None:
+    """Reject conflicting Compatibility Evidence under one identity.
+
+    Args:
+        evidence_records: Compatibility Evidence records to validate together.
+
+    Raises:
+        InvariantViolation: If an identity is invalid or maps to different content.
+
+    Returns:
+        None if all Compatibility Evidence identities and content are consistent.
+    """
+    evidence_by_id: dict[str, CompatibilityEvidence] = {}
+    for evidence in evidence_records:
+        _validate_compatibility_evidence_id(evidence)
+        existing = evidence_by_id.get(evidence.compatibility_evidence_id)
+        if existing is not None and existing != evidence:
+            raise InvariantViolation(
+                code="compatibility_evidence_identity_content_conflict",
+                message=(
+                    "Compatibility Evidence identity "
+                    f"{evidence.compatibility_evidence_id!r} maps to conflicting content."
+                ),
+                entity="CompatibilityEvidence",
+                field="compatibility_evidence_id",
+            )
+        validate_contract_check_reason(evidence.reason)
+        evidence_by_id[evidence.compatibility_evidence_id] = evidence
+
+
+def _validate_compatibility_evidence_id(evidence: CompatibilityEvidence) -> None:
+    """Validate only the deterministic portion of Compatibility Evidence."""
+    expected_evidence_id = make_compatibility_evidence_id(
+        monitoring_run_id=evidence.monitoring_run_id,
+        source_run_id=evidence.source_run_id,
+        baseline_source_run_id=evidence.baseline_source_run_id,
+        contract_id=evidence.contract_id,
+        contract_version=evidence.contract_version,
+        reason_code=evidence.reason.code,
+    )
+    if evidence.compatibility_evidence_id != expected_evidence_id:
+        raise InvariantViolation(
+            code="compatibility_evidence_identity_mismatch",
+            message=(
+                "Compatibility Evidence identity "
+                f"{evidence.compatibility_evidence_id!r} does not match its derived identity."
+            ),
+            entity="CompatibilityEvidence",
+            field="compatibility_evidence_id",
+        )
 
 
 def validate_contract_check_result(result: ContractCheckResult) -> None:
