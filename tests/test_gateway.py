@@ -16,7 +16,6 @@ from mlflow_monitor.errors import (
     TrainingRunMutationViolation,
 )
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey, InMemoryMonitoringGateway
-from mlflow_monitor.recipe import SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
 
 
 def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:
@@ -290,13 +289,13 @@ def test_resolve_source_run_id_returns_matching_raw_run_id() -> None:
     resolved = gateway.resolve_source_run_id(
         subject_id="churn_model",
         source_experiment="training/churn",
-        run_selector="train-run-1",
+        source_run_id="train-run-1",
     )
 
     assert resolved == "train-run-1"
 
 
-def test_resolve_source_run_id_uses_runtime_source_run_id_for_reserved_token() -> None:
+def test_resolve_source_run_id_uses_invocation_owned_source_run_id() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
@@ -313,8 +312,7 @@ def test_resolve_source_run_id_uses_runtime_source_run_id_for_reserved_token() -
     resolved = gateway.resolve_source_run_id(
         subject_id="churn_model",
         source_experiment=None,
-        run_selector=SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
-        runtime_source_run_id="train-run-2",
+        source_run_id="train-run-2",
     )
 
     assert resolved == "train-run-2"
@@ -337,7 +335,7 @@ def test_resolve_source_run_id_allows_omitted_source_experiment_filter() -> None
     resolved = gateway.resolve_source_run_id(
         subject_id="churn_model",
         source_experiment=None,
-        run_selector="train-run-3",
+        source_run_id="train-run-3",
     )
 
     assert resolved == "train-run-3"
@@ -361,7 +359,7 @@ def test_resolve_source_run_id_returns_none_for_missing_or_mismatched_run() -> N
         gateway.resolve_source_run_id(
             subject_id="churn_model",
             source_experiment="training/other",
-            run_selector="train-run-1",
+            source_run_id="train-run-1",
         )
         is None
     )
@@ -369,7 +367,7 @@ def test_resolve_source_run_id_returns_none_for_missing_or_mismatched_run() -> N
         gateway.resolve_source_run_id(
             subject_id="fraud_model",
             source_experiment="training/churn",
-            run_selector="train-run-1",
+            source_run_id="train-run-1",
         )
         is None
     )

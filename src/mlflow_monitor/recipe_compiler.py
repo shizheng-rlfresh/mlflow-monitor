@@ -1,119 +1,425 @@
-"""Recipe compilation pipeline for the built-in recipe format."""
+"""Side-effect-free compilation for strict v0 Recipes."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
 
+from mlflow_monitor.builtins import (
+    SYSTEM_COMPATIBILITY_FINDING_POLICY,
+    SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+    SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+    SYSTEM_DEFAULT_CONTRACT_ID,
+)
+from mlflow_monitor.contract import resolve_contract_v0
+from mlflow_monitor.domain import Contract
+from mlflow_monitor.errors import RecipeValidationError, RecipeValidationIssue
+from mlflow_monitor.finding_policy import (
+    FindingPolicy,
+    FrozenFindingPolicyParameters,
+    FrozenJSONValue,
+    JSONValue,
+)
 from mlflow_monitor.recipe import (
-    RecipeV0Lite,
+    FrozenRecipeJSONValue,
+    Recipe,
+    RecipeContractBinding,
+    RecipeFindingPolicyBinding,
+    RecipeIdentity,
+    RecipeSourceRequirements,
+    build_system_default_recipe,
+    parse_recipe,
 )
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledRunPlanIdentity:
-    """Compiled recipe identity fields required by workflow.
+class EffectiveFindingPolicyBinding:
+    """Serializable normalized Finding-policy binding.
 
     Attributes:
-        recipe_id: Stable recipe identifier.
-        recipe_version: Recipe version identifier.
+        finding_policy_id: Resolved policy identifier.
+        finding_policy_version: Resolved exact policy version.
+        parameters: Validated immutable effective parameters.
     """
 
-    recipe_id: str
-    recipe_version: str
+    finding_policy_id: str
+    finding_policy_version: str
+    parameters: FrozenFindingPolicyParameters
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable binding mapping.
+
+        Returns:
+            Normalized binding data without the executable policy.
+        """
+        return {
+            "finding_policy_id": self.finding_policy_id,
+            "finding_policy_version": self.finding_policy_version,
+            "parameters": _json_mapping_to_dict(self.parameters),
+        }
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledRunPlanInput:
-    """Compiled input-selection fields required by workflow.
+class EffectiveRecipeAnalysis:
+    """Normalized analysis selection persisted for replay.
 
     Attributes:
-        run_selector: Selector for the run to monitor.
-        source_experiment: Source experiment for the run to monitor.
-        required_metrics: Metric names that must exist on the source run.
-        required_artifacts: Artifact names that must exist on the source run.
-        custom_reference_monitoring_run_id: Additional timeline reference monitoring run id used for analysis diffs.
-    """  # noqa: E501
+        metric_names: Three-state normalized metric selection.
+        finding_policy_bindings: Expanded, canonically ordered policy bindings.
+    """
 
-    run_selector: str
-    source_experiment: str | None
-    required_metrics: tuple[str, ...]
-    required_artifacts: tuple[str, ...]
-    custom_reference_monitoring_run_id: str | None
+    metric_names: tuple[str, ...] | None
+    finding_policy_bindings: tuple[EffectiveFindingPolicyBinding, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        """Return JSON-serializable normalized analysis data.
+
+        Returns:
+            Normalized metric and policy selections.
+        """
+        return {
+            "metric_names": None if self.metric_names is None else list(self.metric_names),
+            "finding_policy_bindings": [
+                binding.to_dict() for binding in self.finding_policy_bindings
+            ],
+        }
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledRunPlanContract:
-    """Compiled contract-selection fields required by workflow.
+class EffectiveRecipePlan:
+    """Normalized serializable Recipe plan without executable components.
 
     Attributes:
-        contract_id: Stable contract identifier.
+        recipe_schema_version: Exact Recipe schema version.
+        identity: Stable Recipe identity.
+        source_requirements: Canonically ordered source requirements.
+        contract: Exact resolved Contract binding identity.
+        analysis: Normalized effective analysis selection.
     """
 
-    contract_id: str
+    recipe_schema_version: str
+    identity: RecipeIdentity
+    source_requirements: RecipeSourceRequirements
+    contract: RecipeContractBinding
+    analysis: EffectiveRecipeAnalysis
+
+    def to_dict(self) -> dict[str, object]:
+        """Return the complete normalized plan as JSON-compatible data.
+
+        Returns:
+            Effective Recipe data without executable objects.
+        """
+        return {
+            "recipe_schema_version": self.recipe_schema_version,
+            "identity": {
+                "recipe_id": self.identity.recipe_id,
+                "recipe_version": self.identity.recipe_version,
+            },
+            "source_requirements": {
+                "source_experiment": self.source_requirements.source_experiment,
+                "required_metric_names": list(self.source_requirements.required_metric_names),
+                "required_artifact_paths": list(self.source_requirements.required_artifact_paths),
+            },
+            "contract": {
+                "contract_id": self.contract.contract_id,
+                "contract_version": self.contract.contract_version,
+            },
+            "analysis": self.analysis.to_dict(),
+        }
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledRunPlanAnalysis:
-    """Compiled analysis-selection fields required by workflow.
+class CompiledFindingPolicyBinding:
+    """Validated parameters paired with one process-local policy implementation.
 
     Attributes:
-        metrics: Metric names selected by the recipe.
-        slices: Slice names selected by the recipe.
-        finding_policy_profile: Finding policy profile selected by the recipe.
-        summary_mode: Summary mode selected by the recipe.
+        finding_policy_id: Resolved policy identifier.
+        finding_policy_version: Resolved exact policy version.
+        parameters: Validated immutable effective parameters.
+        policy: Process-local executable policy implementation.
     """
 
-    metrics: tuple[str, ...]
-    slices: tuple[str, ...]
-    finding_policy_profile: str | None
-    summary_mode: str | None
+    finding_policy_id: str
+    finding_policy_version: str
+    parameters: FrozenFindingPolicyParameters
+    policy: FindingPolicy = field(compare=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledRunPlan:
-    """Deterministic workflow-facing recipe compilation output.
+class CompiledRecipe:
+    """Immutable execution-ready Recipe with resolved system components.
 
     Attributes:
-        identity: Compiled recipe identity fields required by workflow.
-        input: Compiled input-selection fields required by workflow.
-        contract: Compiled contract-selection fields required by workflow.
-        analysis: Compiled analysis-selection fields required by workflow.
+        effective_plan: Serializable normalized Recipe plan.
+        contract: Resolved system Contract.
+        finding_policy_bindings: Resolved process-local policy bindings.
     """
 
-    identity: CompiledRunPlanIdentity
-    input: CompiledRunPlanInput
-    contract: CompiledRunPlanContract
-    analysis: CompiledRunPlanAnalysis
+    effective_plan: EffectiveRecipePlan
+    contract: Contract
+    finding_policy_bindings: tuple[CompiledFindingPolicyBinding, ...]
+
+    @property
+    def identity(self) -> RecipeIdentity:
+        """Return the compiled Recipe identity."""
+        return self.effective_plan.identity
+
+    @property
+    def source_requirements(self) -> RecipeSourceRequirements:
+        """Return normalized source-evidence requirements."""
+        return self.effective_plan.source_requirements
+
+    @property
+    def analysis(self) -> EffectiveRecipeAnalysis:
+        """Return normalized analysis selections."""
+        return self.effective_plan.analysis
 
 
-def compile_recipe_v0_lite(recipe: RecipeV0Lite) -> CompiledRunPlan:
-    """Compile one resolved recipe into a workflow-facing run plan.
+@dataclass(frozen=True, slots=True, init=False)
+class ComponentRegistry:
+    """Minimal immutable registry containing the v0 system components.
+
+    Attributes:
+        contracts: System Contracts indexed by exact identity and version.
+        finding_policies: System policies indexed by exact identity and version.
+    """
+
+    contracts: Mapping[tuple[str, str], Contract]
+    finding_policies: Mapping[tuple[str, str], FindingPolicy]
+
+    def __init__(self) -> None:
+        """Construct the fixed system-only component registry."""
+        contract = resolve_contract_v0(SYSTEM_DEFAULT_CONTRACT_ID)
+        object.__setattr__(
+            self,
+            "contracts",
+            MappingProxyType({(contract.contract_id, contract.version): contract}),
+        )
+        object.__setattr__(
+            self,
+            "finding_policies",
+            MappingProxyType(
+                {
+                    (
+                        SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+                        SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+                    ): SYSTEM_COMPATIBILITY_FINDING_POLICY
+                }
+            ),
+        )
+
+
+SYSTEM_COMPONENT_REGISTRY = ComponentRegistry()
+
+
+def compile_recipe(
+    recipe: Recipe | Mapping[str, object] | None = None,
+    *,
+    component_registry: ComponentRegistry | None = None,
+) -> CompiledRecipe:
+    """Compile one Recipe without reads, persistence, or run allocation.
 
     Args:
-        recipe: Resolved and validated recipe runtime model.
+        recipe: Parsed Recipe or raw Mapping. Omission selects the system-default
+            Recipe.
+        component_registry: Immutable component registry. Omission selects the
+            fixed system registry.
 
     Returns:
-        Deterministic compiled run plan for downstream workflow consumption.
+        An immutable execution-ready Compiled Recipe.
+
+    Raises:
+        RecipeValidationError: If parsing, component resolution, or parameter
+            validation fails.
     """
-    return CompiledRunPlan(
-        identity=CompiledRunPlanIdentity(
-            recipe_id=recipe.identity.recipe_id,
-            recipe_version=recipe.identity.version,
+    if recipe is None:
+        parsed = parse_recipe(build_system_default_recipe())
+    elif isinstance(recipe, Recipe):
+        parsed = recipe
+    else:
+        parsed = parse_recipe(recipe)
+    registry = SYSTEM_COMPONENT_REGISTRY if component_registry is None else component_registry
+
+    contract_key = (parsed.contract.contract_id, parsed.contract.contract_version)
+    contract = registry.contracts.get(contract_key)
+    if contract is None:
+        raise RecipeValidationError(
+            issues=(
+                RecipeValidationIssue(
+                    code="unknown_component",
+                    section="contract",
+                    field="contract_id",
+                    message="Recipe Contract identity/version is not registered.",
+                ),
+            )
+        )
+
+    authored_bindings = parsed.analysis.finding_policy_bindings
+    if authored_bindings is None:
+        authored_bindings = (
+            RecipeFindingPolicyBinding(
+                finding_policy_id=SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+                finding_policy_version=SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+                parameters=MappingProxyType({}),
+            ),
+        )
+
+    compiled_bindings = _compile_policy_bindings(authored_bindings, registry)
+    effective_bindings = tuple(
+        EffectiveFindingPolicyBinding(
+            finding_policy_id=binding.finding_policy_id,
+            finding_policy_version=binding.finding_policy_version,
+            parameters=binding.parameters,
+        )
+        for binding in compiled_bindings
+    )
+    effective_plan = EffectiveRecipePlan(
+        recipe_schema_version=parsed.recipe_schema_version,
+        identity=parsed.identity,
+        source_requirements=RecipeSourceRequirements(
+            source_experiment=parsed.source_requirements.source_experiment,
+            required_metric_names=tuple(sorted(parsed.source_requirements.required_metric_names)),
+            required_artifact_paths=tuple(
+                sorted(parsed.source_requirements.required_artifact_paths)
+            ),
         ),
-        input=CompiledRunPlanInput(
-            run_selector=recipe.input_binding.run_selector,
-            source_experiment=recipe.input_binding.source_experiment,
-            required_metrics=recipe.input_binding.required_metrics,
-            required_artifacts=recipe.input_binding.required_artifacts,
-            custom_reference_monitoring_run_id=recipe.input_binding.custom_reference_monitoring_run_id,
-        ),
-        contract=CompiledRunPlanContract(
-            contract_id=recipe.contract_binding.contract_id,
-        ),
-        analysis=CompiledRunPlanAnalysis(
-            metrics=recipe.metrics_slices.metrics,
-            slices=recipe.metrics_slices.slices,
-            finding_policy_profile=recipe.finding_policy.profile,
-            summary_mode=recipe.output_binding.summary_mode,
+        contract=parsed.contract,
+        analysis=EffectiveRecipeAnalysis(
+            metric_names=(
+                None
+                if parsed.analysis.metric_names is None
+                else tuple(sorted(parsed.analysis.metric_names))
+            ),
+            finding_policy_bindings=effective_bindings,
         ),
     )
+    return CompiledRecipe(
+        effective_plan=effective_plan,
+        contract=contract,
+        finding_policy_bindings=compiled_bindings,
+    )
+
+
+def _compile_policy_bindings(
+    bindings: tuple[RecipeFindingPolicyBinding, ...],
+    registry: ComponentRegistry,
+) -> tuple[CompiledFindingPolicyBinding, ...]:
+    """Resolve, validate, and canonically order authored policy bindings."""
+    compiled: list[CompiledFindingPolicyBinding] = []
+    issues: list[RecipeValidationIssue] = []
+    for index, binding in enumerate(bindings):
+        policy_key = (binding.finding_policy_id, binding.finding_policy_version)
+        policy = registry.finding_policies.get(policy_key)
+        field = f"finding_policy_bindings[{index}]"
+        if policy is None:
+            issues.append(
+                RecipeValidationIssue(
+                    code="unknown_component",
+                    section="analysis",
+                    field=field,
+                    message="Recipe Finding-policy identity/version is not registered.",
+                )
+            )
+            continue
+        try:
+            validated = policy.validate_parameters(
+                _recipe_parameters_to_json_mapping(binding.parameters)
+            )
+            frozen = _freeze_validated_parameters(validated)
+        except (TypeError, ValueError):
+            issues.append(
+                RecipeValidationIssue(
+                    code="invalid_policy_parameters",
+                    section="analysis",
+                    field=f"{field}.parameters",
+                    message="Recipe Finding-policy parameters are invalid.",
+                )
+            )
+            continue
+        compiled.append(
+            CompiledFindingPolicyBinding(
+                finding_policy_id=binding.finding_policy_id,
+                finding_policy_version=binding.finding_policy_version,
+                parameters=frozen,
+                policy=policy,
+            )
+        )
+    if issues:
+        raise RecipeValidationError(issues=tuple(issues))
+    return tuple(
+        sorted(
+            compiled,
+            key=lambda binding: (
+                binding.finding_policy_id,
+                binding.finding_policy_version,
+            ),
+        )
+    )
+
+
+def _recipe_parameters_to_json_mapping(
+    parameters: Mapping[str, FrozenRecipeJSONValue],
+) -> Mapping[str, JSONValue]:
+    """Return a defensive JSON-compatible parameter copy for validation."""
+    return {key: _recipe_json_value_to_json(value) for key, value in sorted(parameters.items())}
+
+
+def _recipe_json_value_to_json(value: FrozenRecipeJSONValue) -> JSONValue:
+    """Thaw one immutable Recipe JSON value for policy validation."""
+    if isinstance(value, Mapping):
+        return {key: _recipe_json_value_to_json(item) for key, item in sorted(value.items())}
+    if isinstance(value, tuple):
+        return [_recipe_json_value_to_json(item) for item in value]
+    return value
+
+
+def _freeze_validated_parameters(
+    parameters: Mapping[str, FrozenJSONValue],
+) -> FrozenFindingPolicyParameters:
+    """Defensively freeze and validate one policy's effective parameters."""
+    return MappingProxyType(
+        {key: _freeze_validated_json_value(value) for key, value in sorted(parameters.items())}
+    )
+
+
+def _freeze_validated_json_value(value: FrozenJSONValue) -> FrozenJSONValue:
+    """Validate finite JSON data and defensively freeze its containers."""
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("Finding-policy parameters must contain finite numbers.")
+        return value
+    if isinstance(value, tuple):
+        return tuple(_freeze_validated_json_value(item) for item in value)
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError("Finding-policy parameter object keys must be strings.")
+        return MappingProxyType(
+            {key: _freeze_validated_json_value(value[key]) for key in sorted(value)}
+        )
+    raise TypeError("Finding-policy parameters must be frozen JSON-compatible values.")
+
+
+def _json_mapping_to_dict(
+    parameters: Mapping[str, FrozenJSONValue],
+) -> dict[str, object]:
+    """Convert frozen JSON parameters to serializable dictionaries and lists."""
+    return {key: _frozen_json_to_serializable(value) for key, value in sorted(parameters.items())}
+
+
+def _frozen_json_to_serializable(value: FrozenJSONValue) -> object:
+    """Convert one frozen JSON value to standard JSON containers."""
+    if isinstance(value, Mapping):
+        return _json_mapping_to_dict(value)
+    if isinstance(value, tuple):
+        return [_frozen_json_to_serializable(item) for item in value]
+    return value
+
+
+SYSTEM_DEFAULT_COMPILED_RECIPE = compile_recipe(
+    build_system_default_recipe(),
+    component_registry=SYSTEM_COMPONENT_REGISTRY,
+)

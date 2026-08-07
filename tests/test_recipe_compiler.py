@@ -1,135 +1,204 @@
-"""Unit tests for the v0-lite recipe compilation pipeline."""
+"""Specifications for strict v0 Recipe compilation."""
 
-from mlflow_monitor.contract import SYSTEM_DEFAULT_CONTRACT_ID
-from mlflow_monitor.recipe import (
-    SYSTEM_DEFAULT_RECIPE_ID,
-    SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
-    RecipeReferenceCatalog,
-    resolve_recipe_v0_lite,
-)
+from __future__ import annotations
+
+import json
+from dataclasses import FrozenInstanceError
+
+import pytest
+
+from mlflow_monitor.builtins import SYSTEM_DEFAULT_CONTRACT_ID
+from mlflow_monitor.errors import RecipeValidationError
+from mlflow_monitor.recipe import build_system_default_recipe, parse_recipe
 from mlflow_monitor.recipe_compiler import (
-    CompiledRunPlan,
-    compile_recipe_v0_lite,
+    SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+    SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+    SYSTEM_DEFAULT_COMPILED_RECIPE,
+    CompiledRecipe,
+    ComponentRegistry,
+    compile_recipe,
 )
 
 
-def make_valid_recipe() -> dict[str, object]:
-    """Create a valid v0-lite recipe payload for compiler tests."""
+def test_component_registry_contains_only_immutable_system_components() -> None:
+    registry = ComponentRegistry()
 
-    return {
-        "identity": {"recipe_id": "default", "version": "v0"},
-        "input_binding": {
-            "run_selector": "train-run-123",
-            "source_experiment": "training/churn",
-            "required_metrics": ["f1", "auc"],
-            "required_artifacts": ["metrics.json"],
-            "custom_reference_monitoring_run_id": "monitoring-run-custom-1",
+    assert tuple(registry.contracts) == ((SYSTEM_DEFAULT_CONTRACT_ID, "v0"),)
+    assert tuple(registry.finding_policies) == (
+        (
+            SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+            SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+        ),
+    )
+    with pytest.raises(TypeError):
+        registry.contracts[("custom", "1")] = registry.contracts[  # type: ignore[index]
+            (SYSTEM_DEFAULT_CONTRACT_ID, "v0")
+        ]
+    with pytest.raises(TypeError):
+        registry.finding_policies[("custom", "1")] = registry.finding_policies[  # type: ignore[index]
+            (
+                SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+                SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+            )
+        ]
+
+
+def test_compile_recipe_zero_configuration_expands_system_defaults() -> None:
+    compiled = compile_recipe()
+
+    assert isinstance(compiled, CompiledRecipe)
+    assert compiled.effective_plan.to_dict() == {
+        "recipe_schema_version": "v0",
+        "identity": {
+            "recipe_id": "system_default",
+            "recipe_version": "v0",
         },
-        "contract_binding": {"contract_id": "contract-default"},
-        "metrics_slices": {"metrics": ["f1", "auc"], "slices": ["region", "segment"]},
-        "finding_policy": {"profile": "default_policy"},
-        "output_binding": {"summary_mode": "standard"},
+        "source_requirements": {
+            "source_experiment": None,
+            "required_metric_names": [],
+            "required_artifact_paths": [],
+        },
+        "contract": {
+            "contract_id": "default_permissive",
+            "contract_version": "v0",
+        },
+        "analysis": {
+            "metric_names": None,
+            "finding_policy_bindings": [
+                {
+                    "finding_policy_id": "system-compatibility-findings",
+                    "finding_policy_version": "v0",
+                    "parameters": {},
+                }
+            ],
+        },
     }
-
-
-def make_reference_catalog() -> RecipeReferenceCatalog:
-    """Create a reference catalog with valid v0-lite IDs."""
-
-    return RecipeReferenceCatalog(
-        contract_ids=frozenset({"contract-default"}),
-        finding_policy_profiles=frozenset({"default_policy"}),
-        summary_modes=frozenset({"standard"}),
-    )
-
-
-def make_reference_catalog_with_system_default() -> RecipeReferenceCatalog:
-    """Create references that also include built-in system-default IDs."""
-
-    return RecipeReferenceCatalog(
-        contract_ids=frozenset({"contract-default", SYSTEM_DEFAULT_CONTRACT_ID}),
-        finding_policy_profiles=frozenset({"default_policy"}),
-        summary_modes=frozenset({"standard"}),
-    )
-
-
-def test_compile_recipe_v0_lite_compiles_user_recipe_into_run_plan() -> None:
-    recipe = resolve_recipe_v0_lite(make_valid_recipe(), references=make_reference_catalog())
-
-    compiled = compile_recipe_v0_lite(recipe)
-
-    assert isinstance(compiled, CompiledRunPlan)
-    assert compiled.identity.recipe_id == "default"
-    assert compiled.identity.recipe_version == "v0"
-    assert compiled.input.run_selector == "train-run-123"
-    assert compiled.input.source_experiment == "training/churn"
-    assert compiled.input.required_metrics == ("f1", "auc")
-    assert compiled.input.required_artifacts == ("metrics.json",)
-    assert compiled.input.custom_reference_monitoring_run_id == "monitoring-run-custom-1"
-    assert compiled.contract.contract_id == "contract-default"
-    assert compiled.analysis.metrics == ("f1", "auc")
-    assert compiled.analysis.slices == ("region", "segment")
-    assert compiled.analysis.finding_policy_profile == "default_policy"
-    assert compiled.analysis.summary_mode == "standard"
-
-
-def test_compile_recipe_v0_lite_compiles_system_default_recipe() -> None:
-    recipe = resolve_recipe_v0_lite(
-        None,
-        references=make_reference_catalog_with_system_default(),
-    )
-    compiled = compile_recipe_v0_lite(recipe)
-
-    assert compiled.identity.recipe_id == SYSTEM_DEFAULT_RECIPE_ID
-    assert compiled.identity.recipe_version == "v0"
-    assert compiled.input.run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN
-    assert compiled.input.source_experiment is None
-    assert compiled.input.required_metrics == ()
-    assert compiled.input.required_artifacts == ()
-    assert compiled.input.custom_reference_monitoring_run_id is None
     assert compiled.contract.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
-    assert compiled.analysis.metrics == ()
-    assert compiled.analysis.slices == ()
-    assert compiled.analysis.finding_policy_profile is None
-    assert compiled.analysis.summary_mode is None
+    assert compiled.contract.version == "v0"
+    assert len(compiled.finding_policy_bindings) == 1
+    binding = compiled.finding_policy_bindings[0]
+    assert binding.finding_policy_id == SYSTEM_COMPATIBILITY_FINDING_POLICY_ID
+    assert binding.finding_policy_version == SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION
+    assert binding.parameters == {}
 
 
-def test_compile_recipe_v0_lite_is_deterministic_for_same_resolved_recipe() -> None:
-    recipe = resolve_recipe_v0_lite(make_valid_recipe(), references=make_reference_catalog())
-
-    compiled_once = compile_recipe_v0_lite(recipe)
-    compiled_twice = compile_recipe_v0_lite(recipe)
-
-    assert compiled_once == compiled_twice
+def test_system_default_compiled_recipe_is_precomputed_and_reusable() -> None:
+    assert SYSTEM_DEFAULT_COMPILED_RECIPE == compile_recipe()
 
 
-def test_resolve_and_compile_recipe_v0_lite_uses_user_recipe_when_provided() -> None:
-    recipe = resolve_recipe_v0_lite(make_valid_recipe(), references=make_reference_catalog())
+def test_system_policy_evaluation_fails_closed_before_analyze_integration() -> None:
+    binding = SYSTEM_DEFAULT_COMPILED_RECIPE.finding_policy_bindings[0]
 
-    compiled = compile_recipe_v0_lite(recipe)
+    with pytest.raises(RuntimeError, match="evaluation is unavailable"):
+        binding.policy.evaluate(
+            parameters=binding.parameters,
+            diffs=(),
+            compatibility_evidence=(),
+            reference_comparison_coverage=(),
+        )
 
-    assert compiled.identity.recipe_id == "default"
-    assert compiled.contract.contract_id == "contract-default"
-    assert compiled.input.run_selector == "train-run-123"
 
-
-def test_compile_recipe_v0_lite_preserves_omitted_optional_fields() -> None:
-    raw = {
-        "identity": {"recipe_id": "default", "version": "v0"},
-        "input_binding": {"run_selector": "train-run-123"},
-        "contract_binding": {"contract_id": "contract-default"},
-        "metrics_slices": {},
-        "finding_policy": {},
-        "output_binding": {},
+def test_compile_recipe_normalizes_system_only_recipe_canonically() -> None:
+    raw = build_system_default_recipe()
+    raw["source_requirements"] = {
+        "required_metric_names": ["zeta", "alpha"],
+        "required_artifact_paths": ["z/path", "a/path"],
     }
-    recipe = resolve_recipe_v0_lite(raw, references=make_reference_catalog())
+    raw["analysis"] = {
+        "metric_names": ["zeta", "alpha"],
+        "finding_policy_bindings": [
+            {
+                "finding_policy_id": SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+                "finding_policy_version": SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+            }
+        ],
+    }
 
-    compiled = compile_recipe_v0_lite(recipe)
+    compiled = compile_recipe(parse_recipe(raw), component_registry=ComponentRegistry())
+    serialized = compiled.effective_plan.to_dict()
 
-    assert compiled.input.source_experiment is None
-    assert compiled.input.required_metrics == ()
-    assert compiled.input.required_artifacts == ()
-    assert compiled.input.custom_reference_monitoring_run_id is None
-    assert compiled.analysis.metrics == ()
-    assert compiled.analysis.slices == ()
-    assert compiled.analysis.finding_policy_profile is None
-    assert compiled.analysis.summary_mode is None
+    assert serialized["source_requirements"] == {
+        "source_experiment": None,
+        "required_metric_names": ["alpha", "zeta"],
+        "required_artifact_paths": ["a/path", "z/path"],
+    }
+    assert serialized["analysis"] == {
+        "metric_names": ["alpha", "zeta"],
+        "finding_policy_bindings": [
+            {
+                "finding_policy_id": SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+                "finding_policy_version": SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+                "parameters": {},
+            }
+        ],
+    }
+    assert json.loads(json.dumps(serialized, sort_keys=True)) == serialized
+
+
+def test_compile_recipe_preserves_explicit_empty_analysis_selections() -> None:
+    raw = build_system_default_recipe()
+    raw["analysis"] = {"metric_names": [], "finding_policy_bindings": []}
+
+    compiled = compile_recipe(raw)
+
+    assert compiled.effective_plan.analysis.metric_names == ()
+    assert compiled.effective_plan.analysis.finding_policy_bindings == ()
+    assert compiled.finding_policy_bindings == ()
+
+
+def test_compile_recipe_accepts_mapping_through_the_strict_parser() -> None:
+    assert compile_recipe(build_system_default_recipe()) == compile_recipe(
+        parse_recipe(build_system_default_recipe())
+    )
+
+
+def test_compile_recipe_is_immutable() -> None:
+    compiled = compile_recipe()
+
+    with pytest.raises(FrozenInstanceError):
+        compiled.contract = compiled.contract  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        compiled.effective_plan.identity.recipe_id = "changed"  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        compiled.finding_policy_bindings[0].parameters["changed"] = True  # type: ignore[index]
+
+
+def test_compile_recipe_rejects_unknown_policy_before_allocation() -> None:
+    raw = build_system_default_recipe()
+    raw["analysis"] = {
+        "finding_policy_bindings": [
+            {
+                "finding_policy_id": "custom-policy",
+                "finding_policy_version": "1",
+            }
+        ]
+    }
+
+    with pytest.raises(RecipeValidationError) as exc_info:
+        compile_recipe(raw)
+
+    issue = exc_info.value.issues[0]
+    assert issue.code == "unknown_component"
+    assert issue.section == "analysis"
+    assert issue.field == "finding_policy_bindings[0]"
+
+
+def test_compile_recipe_rejects_parameters_invalid_for_system_policy() -> None:
+    raw = build_system_default_recipe()
+    raw["analysis"] = {
+        "finding_policy_bindings": [
+            {
+                "finding_policy_id": SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+                "finding_policy_version": SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+                "parameters": {"threshold": 0.5},
+            }
+        ]
+    }
+
+    with pytest.raises(RecipeValidationError) as exc_info:
+        compile_recipe(raw)
+
+    issue = exc_info.value.issues[0]
+    assert issue.code == "invalid_policy_parameters"
+    assert issue.section == "analysis"
+    assert issue.field == "finding_policy_bindings[0].parameters"

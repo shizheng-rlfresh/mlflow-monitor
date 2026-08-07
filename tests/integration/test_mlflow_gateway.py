@@ -472,7 +472,7 @@ def test_mlflow_gateway_resolve_source_run_id_honors_source_experiment_filter(
         gateway.resolve_source_run_id(
             subject_id="churn_model",
             source_experiment="training/churn",
-            run_selector=training_run_id,
+            source_run_id=training_run_id,
         )
         == training_run_id
     )
@@ -480,7 +480,7 @@ def test_mlflow_gateway_resolve_source_run_id_honors_source_experiment_filter(
         gateway.resolve_source_run_id(
             subject_id="churn_model",
             source_experiment="training/other",
-            run_selector=training_run_id,
+            source_run_id=training_run_id,
         )
         is None
     )
@@ -536,7 +536,7 @@ def test_mlflow_gateway_resolve_source_run_id_rejects_monitoring_owned_runs(
         gateway.resolve_source_run_id(
             subject_id="churn_model",
             source_experiment=None,
-            run_selector=result.monitoring_run_id,
+            source_run_id=result.monitoring_run_id,
         )
         is None
     )
