@@ -16,11 +16,13 @@
 
 <!-- Check only commands that were run successfully. Explain any omissions below. -->
 
-- [ ] `uv sync --extra dev`
+- [ ] `uv sync --extra dev --group doc`
 - [ ] `uv run pytest`
 - [ ] `uv run ruff check .`
 - [ ] `uv run ruff format --check .`
 - [ ] `uv run pyright`
 - [ ] `uv build`
+- [ ] Update `docs/v0/`
+- [ ] Update `docs/site/`
 
 <!-- Validation omissions, if any: -->

@@ -94,13 +94,16 @@ FINDING = Finding(
 DIFF = Diff(
     diff_id="diff-1",
     monitoring_run_id="monitoring-run-2",
+    source_run_id="train-run-2",
     reference=DiffReference(
         kind=DiffReferenceKind.BASELINE,
         monitoring_run_id=None,
         source_run_id="training-run-1",
     ),
-    metric_deltas={"kl": -0.05},
-    metadata={"feature": "age"},
+    metric_name="kl",
+    current_value=0.25,
+    reference_value=0.5,
+    delta=-0.25,
 )
 
 
@@ -269,13 +272,16 @@ class TestInvariantFindingToDiffEvidence:
         mismatch_monitoring_run_id_diff = Diff(
             diff_id="diff-1",
             monitoring_run_id="monitoring-run-3",
+            source_run_id="train-run-3",
             reference=DiffReference(
                 kind=DiffReferenceKind.BASELINE,
                 monitoring_run_id=None,
                 source_run_id="train-run-3",
             ),
-            metric_deltas={"kl": -0.05},
-            metadata={"feature": "age"},
+            metric_name="kl",
+            current_value=0.25,
+            reference_value=0.5,
+            delta=-0.25,
         )
 
         monitoring_run_id = FINDING.monitoring_run_id
@@ -299,13 +305,16 @@ class TestInvariantFindingToDiffEvidence:
         non_evidence_diff = Diff(
             diff_id="diff-3",  # diff_id not in FINDING.evidence_diff_ids to trigger violation
             monitoring_run_id="monitoring-run-2",
+            source_run_id="train-run-2",
             reference=DiffReference(
                 kind=DiffReferenceKind.BASELINE,
                 monitoring_run_id=None,
                 source_run_id="train-run-1",
             ),
-            metric_deltas={"kl": -0.05},
-            metadata={"feature": "age"},
+            metric_name="kl",
+            current_value=0.25,
+            reference_value=0.5,
+            delta=-0.25,
         )
 
         diff_ids = [diff_id for diff_id in FINDING.evidence_diff_ids]

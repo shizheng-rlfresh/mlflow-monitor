@@ -7,10 +7,14 @@ workflow rules and invariant enforcement live in the higher-level runtime.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
+
+RELATIVE_DELTA_TOLERANCE = 1e-6
+ABSOLUTE_DELTA_TOLERANCE = 1e-6
 
 
 class LifecycleStatus(StrEnum):
@@ -43,7 +47,6 @@ class DiffReferenceKind(StrEnum):
     PREVIOUS = "previous"
     LKG = "lkg"
     CUSTOM = "custom"
-    STRUCTURAL = "structural"
 
 
 class FindingSeverity(StrEnum):
@@ -64,6 +67,14 @@ class ContractCheckReasonCode(StrEnum):
     DATA_SCOPE_MISMATCH = "data_scope_mismatch"
 
 
+class ReferenceComparisonStatus(StrEnum):
+    """Status outcomes for metrics comparison in diff."""
+
+    COMPLETED = "completed"
+    SKIPPED = "skipped"
+    UNAVAILABLE = "unavailable"
+
+
 CONTRACT_CHECK_REASON_CODE_BLOCKING = MappingProxyType(
     {
         ContractCheckReasonCode.ENV_MISMATCH: False,
@@ -80,6 +91,31 @@ _MONITORING_RUN_REFERENCE_KINDS = frozenset(
         DiffReferenceKind.LKG,
         DiffReferenceKind.CUSTOM,
     )
+)
+
+_METRIC_UNAVAILABILITY_REASONS = frozenset(
+    (
+        "current_metric_missing",
+        "reference_metric_missing",
+        "current_metric_not_finite",
+        "reference_metric_not_finite",
+        "delta_not_finite",
+    )
+)
+
+_SKIPPED_REFERENCE_COMPARISON_REASONS = frozenset(
+    {
+        "current_not_comparable",
+    }
+)
+
+_UNAVAILABILITY_REFERENCE_COMPARISON_REASONS = frozenset(
+    {
+        "previous_reference_missing",
+        "lkg_not_selected",
+        "lkg_selection_inconsistent",
+        "reference_source_run_missing",
+    }
 )
 
 
@@ -223,7 +259,7 @@ class DiffReference:
     Attributes:
         kind: The reference kind for this diff (e.g., baseline, previous, lkg).
         monitoring_run_id: Referenced monitoring run identifier, or None for the
-            source-only baseline and legacy structural references.
+            source-only baseline.
         source_run_id: Immutable source run identifier for the reference. This is
             temporarily optional only for the legacy structural kind removed by
             V0-003.
@@ -235,11 +271,6 @@ class DiffReference:
 
     def __post_init__(self) -> None:
         """Validate that reference identity presence matches the reference kind."""
-        if self.kind is DiffReferenceKind.STRUCTURAL:
-            if self.monitoring_run_id is not None or self.source_run_id is not None:
-                raise ValueError("DiffReference with kind='structural' must not set run identity.")
-            return
-
         _validate_reference_identity(
             entity="DiffReference",
             kind=self.kind,
@@ -275,16 +306,65 @@ class Diff:
     Attributes:
         diff_id: Unique identifier for the diff record.
         monitoring_run_id: The ID of the monitoring run this diff is associated with.
+        source_run_id: The immutable source training run ID of the monitoring run.
         reference: Reference descriptor containing both reference kind and reference id.
-        metric_deltas: A mapping of metric names to their delta values compared to the reference.
-        metadata: A mapping of additional metadata keys to values providing context for the diff.
+        metric_name: The name of the metric being compared.
+        current_value: The value of the metric for the current run.
+        reference_value: The value of the metric for the reference run.
+        delta: current_value - reference_value.
     """
 
     diff_id: str
     monitoring_run_id: str
+    source_run_id: str
     reference: DiffReference
-    metric_deltas: dict[str, float]
-    metadata: dict[str, str]
+    metric_name: str
+    current_value: float
+    reference_value: float
+    delta: float
+
+    def __post_init__(self) -> None:
+        """Validate Diff for atomic shape."""
+        for field_name in (
+            "diff_id",
+            "monitoring_run_id",
+            "source_run_id",
+            "metric_name",
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Diff requires a non-empty string for field {field_name!r}.")
+
+        if not isinstance(self.reference, DiffReference):
+            raise ValueError("Diff requires a valid DiffReference for the 'reference' field.")
+
+        for field_name in ("current_value", "reference_value", "delta"):
+            value = getattr(self, field_name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"Diff requires a finite float for field {field_name!r}.")
+
+            if isinstance(value, int):
+                object.__setattr__(self, field_name, float(value))
+
+        expected_delta = self.current_value - self.reference_value
+
+        if not math.isfinite(expected_delta):
+            raise ValueError("Diff computed delta must be a finite float.")
+
+        if not math.isclose(
+            self.delta,
+            expected_delta,
+            rel_tol=RELATIVE_DELTA_TOLERANCE,
+            abs_tol=ABSOLUTE_DELTA_TOLERANCE,
+        ):
+            raise ValueError(
+                "Diff delta must equal current_value - reference_value within "
+                f"rel_tol={RELATIVE_DELTA_TOLERANCE}, abs_tol={ABSOLUTE_DELTA_TOLERANCE}."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,3 +457,155 @@ class Timeline:
     monitoring_run_ids: list[str]
     active_lkg_monitoring_run_id: str | None
     active_contract: Contract
+
+
+@dataclass(frozen=True, slots=True)
+class MetricComparisonUnavailable:
+    """Information about a metric that could not be compared in a diff.
+
+    Attributes:
+        metric_name: The name of the metric that is unavailable for comparison.
+        reason: The reason why the metric comparison is unavailable.
+    """
+
+    metric_name: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        """Validate MetricComparisonUnavailable for atomic shape."""
+        for field_name in ("metric_name", "reason"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"MetricComparisonUnavailable requires a non-empty string for "
+                    f"field {field_name!r}."
+                )
+        metric_level_reason = self.reason
+        if metric_level_reason not in _METRIC_UNAVAILABILITY_REASONS:
+            raise ValueError(
+                f"MetricComparisonUnavailable 'reason' must be one of "
+                f"{_METRIC_UNAVAILABILITY_REASONS}, got {metric_level_reason!r}."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceComparisonCoverage:
+    """Coverage information for a specific reference kind in a diff comparison.
+
+    Attributes:
+        reference_kind: The kind of reference (e.g., baseline, previous, lkg, custom).
+        reference: The specific reference instance being compared, if applicable.
+        status: The status of the reference comparison (e.g., completed, skipped, unavailable).
+        diff_ids: A tuple of diff IDs associated with this reference comparison.
+        metric_unavailability: A tuple of MetricComparisonUnavailable instances indicating metrics that could not be compared.
+        reason: An optional reason code constrained by the reference comparison status.
+    """  # noqa: E501
+
+    reference_kind: DiffReferenceKind
+    reference: DiffReference | None
+    status: ReferenceComparisonStatus
+    diff_ids: tuple[str, ...]
+    metric_unavailability: tuple[MetricComparisonUnavailable, ...]
+    reason: str | None
+
+    def __post_init__(self) -> None:
+        """Validate ReferenceComparisonCoverage for atomic shape."""
+        # defensive conversion to tuples for immutability
+        diff_ids_tuple = tuple(self.diff_ids)
+        metric_unavailability_tuple = tuple(self.metric_unavailability)
+
+        object.__setattr__(self, "diff_ids", diff_ids_tuple)
+        object.__setattr__(self, "metric_unavailability", metric_unavailability_tuple)
+
+        if self.reference_kind not in DiffReferenceKind:
+            raise ValueError(
+                "ReferenceComparisonCoverage has an unrecognized "
+                f"reference_kind: {self.reference_kind!r}."
+            )
+
+        if self.reference is not None:
+            if not isinstance(self.reference, DiffReference):
+                raise ValueError("Coverage reference must be a DiffReference.")
+            if self.reference_kind != self.reference.kind:
+                raise ValueError(
+                    "ReferenceComparisonCoverage 'reference_kind' must match the kind of "
+                    "the provided 'reference'."
+                )
+
+        if self.status == ReferenceComparisonStatus.COMPLETED:
+            self._validate_completed_coverage()
+
+        elif self.status == ReferenceComparisonStatus.SKIPPED:
+            self._validate_skipped_coverage()
+
+        elif self.status == ReferenceComparisonStatus.UNAVAILABLE:
+            self._validate_unavailable_coverage()
+        else:
+            raise ValueError(
+                f"ReferenceComparisonCoverage has an unrecognized status: {self.status!r}."
+            )
+
+    def _validate_completed_coverage(self) -> None:
+        if self.reference is None:
+            raise ValueError(
+                "ReferenceComparisonCoverage with status COMPLETED must have a valid reference."
+            )
+        if self.reason is not None:
+            raise ValueError(
+                "ReferenceComparisonCoverage with status COMPLETED must not have a reason code."
+            )
+
+    def _validate_skipped_coverage(self) -> None:
+        if self.reference is None:
+            raise ValueError(
+                "ReferenceComparisonCoverage with status SKIPPED must have a valid reference."
+            )
+        if self.diff_ids:
+            raise ValueError(
+                "ReferenceComparisonCoverage with status SKIPPED must not have any diff IDs."
+            )
+
+        if self.metric_unavailability:
+            raise ValueError(
+                "ReferenceComparisonCoverage with status SKIPPED must not have any "
+                "metric unavailability entries."
+            )
+
+        if self.reason is None or self.reason not in _SKIPPED_REFERENCE_COMPARISON_REASONS:
+            raise ValueError(
+                "ReferenceComparisonCoverage with status SKIPPED must have a reason code "
+                f"from {_SKIPPED_REFERENCE_COMPARISON_REASONS}."
+            )
+
+    def _validate_unavailable_coverage(self) -> None:
+        """Validate an unavailable reference-comparison group."""
+        if self.diff_ids or self.metric_unavailability:
+            raise ValueError("Unavailable coverage cannot contain metric results.")
+
+        if self.reason is None or self.reason not in _UNAVAILABILITY_REFERENCE_COMPARISON_REASONS:
+            raise ValueError(
+                "ReferenceComparisonCoverage with status UNAVAILABLE must have a reason code "
+                f"from {_UNAVAILABILITY_REFERENCE_COMPARISON_REASONS}."
+            )
+
+        elif self.reason == "previous_reference_missing":
+            if self.reference_kind != DiffReferenceKind.PREVIOUS:
+                raise ValueError("previous_reference_missing requires reference_kind='previous'.")
+            if self.reference is not None:
+                raise ValueError("previous_reference_missing requires reference=None.")
+
+        elif self.reason == "lkg_not_selected":
+            if self.reference_kind != DiffReferenceKind.LKG:
+                raise ValueError("lkg_not_selected requires reference_kind='lkg'.")
+            if self.reference is not None:
+                raise ValueError("lkg_not_selected requires reference=None.")
+
+        elif self.reason == "lkg_selection_inconsistent":
+            if self.reference_kind != DiffReferenceKind.LKG:
+                raise ValueError("lkg_selection_inconsistent requires reference_kind='lkg'.")
+            if self.reference is not None:
+                raise ValueError("lkg_selection_inconsistent requires reference=None.")
+
+        else:
+            if self.reference is None:
+                raise ValueError("reference_source_run_missing requires a retained reference.")
