@@ -1,4 +1,4 @@
-"""Deterministic identity helpers for objective monitoring evidence."""
+"""Deterministic identity helpers for monitoring records."""
 
 from __future__ import annotations
 
@@ -73,6 +73,42 @@ class _CompatibilityEvidenceIdentity:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class _FindingIdentity:
+    """Deterministic identity for one policy Finding.
+
+    Attributes:
+        monitoring_run_id: Monitoring Run that owns the Finding.
+        source_run_id: Source Training Run evaluated by the Monitoring Run.
+        finding_policy_id: Identifier of the Finding policy.
+        finding_policy_version: Version of the Finding policy.
+        finding_rule_id: Stable rule identity within the Finding policy.
+        evidence_diff_ids: Diff identities supporting the Finding.
+        evidence_compatibility_ids: Compatibility Evidence identities supporting
+            the Finding.
+    """
+
+    monitoring_run_id: str
+    source_run_id: str
+    finding_policy_id: str
+    finding_policy_version: str
+    finding_rule_id: str
+    evidence_diff_ids: tuple[str, ...]
+    evidence_compatibility_ids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert the identity to a canonical dictionary representation."""
+        return {
+            "monitoring_run_id": self.monitoring_run_id,
+            "source_run_id": self.source_run_id,
+            "finding_policy_id": self.finding_policy_id,
+            "finding_policy_version": self.finding_policy_version,
+            "finding_rule_id": self.finding_rule_id,
+            "evidence_diff_ids": sorted(set(self.evidence_diff_ids)),
+            "evidence_compatibility_ids": sorted(set(self.evidence_compatibility_ids)),
+        }
+
+
 def make_diff_id(
     *,
     monitoring_run_id: str,
@@ -139,11 +175,51 @@ def make_compatibility_evidence_id(
     )
 
 
+def make_finding_id(
+    *,
+    monitoring_run_id: str,
+    source_run_id: str,
+    finding_policy_id: str,
+    finding_policy_version: str,
+    finding_rule_id: str,
+    evidence_diff_ids: tuple[str, ...],
+    evidence_compatibility_ids: tuple[str, ...],
+) -> str:
+    """Build the stable identity for one policy Finding.
+
+    Args:
+        monitoring_run_id: Monitoring Run that owns the Finding.
+        source_run_id: Source Training Run evaluated by the Monitoring Run.
+        finding_policy_id: Identifier of the Finding policy.
+        finding_policy_version: Version of the Finding policy.
+        finding_rule_id: Stable rule identity within the Finding policy.
+        evidence_diff_ids: Diff identities supporting the Finding.
+        evidence_compatibility_ids: Compatibility Evidence identities supporting
+            the Finding.
+
+    Returns:
+        A versioned SHA-256 Finding identifier.
+    """
+    return _make_identity(
+        entity_type="finding",
+        prefix="finding",
+        payload=_FindingIdentity(
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+            finding_policy_id=finding_policy_id,
+            finding_policy_version=finding_policy_version,
+            finding_rule_id=finding_rule_id,
+            evidence_diff_ids=evidence_diff_ids,
+            evidence_compatibility_ids=evidence_compatibility_ids,
+        ),
+    )
+
+
 def _make_identity(
     *,
     entity_type: str,
     prefix: str,
-    payload: _DiffIdentity | _CompatibilityEvidenceIdentity,
+    payload: _DiffIdentity | _CompatibilityEvidenceIdentity | _FindingIdentity,
 ) -> str:
     """Hash one canonical versioned identity payload."""
     canonical_payload = {

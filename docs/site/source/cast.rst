@@ -28,3 +28,10 @@ Identity
 .. automodule:: mlflow_monitor.identity
    :members:
    :show-inheritance:
+
+Finding Policy
+--------------
+
+.. automodule:: mlflow_monitor.finding_policy
+   :members:
+   :show-inheritance:

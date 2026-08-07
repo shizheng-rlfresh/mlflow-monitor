@@ -1,6 +1,6 @@
 """Invariant checks for the MLflow-Monitor runtime."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from mlflow_monitor.contract_checker import CONTRACT_CHECK_REASON_MESSAGE
 from mlflow_monitor.domain import (
@@ -18,7 +18,11 @@ from mlflow_monitor.domain import (
     Timeline,
 )
 from mlflow_monitor.errors import InvariantViolation
-from mlflow_monitor.identity import make_compatibility_evidence_id, make_diff_id
+from mlflow_monitor.identity import (
+    make_compatibility_evidence_id,
+    make_diff_id,
+    make_finding_id,
+)
 
 
 def validate_timeline_ownership(
@@ -135,41 +139,176 @@ def validate_lkg_membership(timeline: Timeline, lkg: LKG) -> None:
     return None
 
 
-def validate_finding_to_diff_evidence(finding: Finding, diff: Diff) -> None:
-    """Validate that the provided diff record corresponds to one of the finding's evidence diff IDs.
+def validate_finding_evidence(
+    finding: Finding,
+    *,
+    diffs: Sequence[Diff],
+    compatibility_evidence: Sequence[CompatibilityEvidence],
+) -> None:
+    """Validate every evidence identity referenced by one Finding.
 
     Args:
-        finding: The finding record to validate.
-        diff: The diff record to check for evidence membership.
+        finding: Finding whose evidence references should be validated.
+        diffs: Complete Diff records available to the Finding.
+        compatibility_evidence: Complete Compatibility Evidence records available
+            to the Finding.
 
     Raises:
-        InvariantViolation: If any evidence diff ID does not correspond to a provided diff.
+        InvariantViolation: If supplied evidence is inconsistent, a referenced ID
+            is missing, or referenced evidence belongs to another current pair.
 
     Returns:
-        None if all evidence diff IDs are valid.
+        None if every evidence reference is valid.
     """
-    evidence_diff_ids = [evidence_diff_id for evidence_diff_id in finding.evidence_diff_ids]
+    validate_diff_identity_consistency(diffs)
+    validate_compatibility_evidence_identity_consistency(compatibility_evidence)
 
-    if diff.diff_id not in evidence_diff_ids:
-        raise InvariantViolation(
-            code="finding_diff_evidence_violation",
-            message=f"Diff diff_id {diff.diff_id} is not in Finding evidence {evidence_diff_ids}",
+    diffs_by_id = {diff.diff_id: diff for diff in diffs}
+    compatibility_evidence_by_id = {
+        evidence.compatibility_evidence_id: evidence for evidence in compatibility_evidence
+    }
+
+    validate_finding_evidence_references(
+        finding,
+        diffs_by_id=diffs_by_id,
+        compatibility_evidence_by_id=compatibility_evidence_by_id,
+    )
+
+
+def validate_finding_evidence_references(
+    finding: Finding,
+    *,
+    diffs_by_id: Mapping[str, Diff],
+    compatibility_evidence_by_id: Mapping[str, CompatibilityEvidence],
+) -> None:
+    """Validate Finding references against prevalidated evidence indexes.
+
+    Args:
+        finding: Finding whose evidence references should be validated.
+        diffs_by_id: Identity-consistent Diff records indexed by identity.
+        compatibility_evidence_by_id: Identity-consistent Compatibility Evidence
+            records indexed by identity.
+
+    Raises:
+        InvariantViolation: If a referenced identity is missing or its evidence
+            belongs to another current pair.
+
+    Returns:
+        None if every evidence reference is valid.
+    """
+    for diff_id in finding.evidence_diff_ids:
+        diff = diffs_by_id.get(diff_id)
+        if diff is None:
+            raise InvariantViolation(
+                code="finding_diff_evidence_violation",
+                message=f"Finding references unknown Diff identity {diff_id!r}.",
+                entity="Finding",
+                field="evidence_diff_ids",
+            )
+        _validate_finding_evidence_pair(
+            finding=finding,
+            evidence=diff,
             entity="Diff",
-            field="diff_id",
+            code="finding_diff_evidence_violation",
         )
 
-    if diff.monitoring_run_id != finding.monitoring_run_id:
-        raise InvariantViolation(
-            code="finding_diff_evidence_violation",
-            message=(
-                f"Diff monitoring_run_id {diff.monitoring_run_id} does not "
-                f"match Finding monitoring_run_id {finding.monitoring_run_id}"
-            ),
-            entity="Diff",
-            field="monitoring_run_id",
+    for compatibility_evidence_id in finding.evidence_compatibility_ids:
+        evidence = compatibility_evidence_by_id.get(compatibility_evidence_id)
+        if evidence is None:
+            raise InvariantViolation(
+                code="finding_compatibility_evidence_violation",
+                message=(
+                    "Finding references unknown Compatibility Evidence identity "
+                    f"{compatibility_evidence_id!r}."
+                ),
+                entity="Finding",
+                field="evidence_compatibility_ids",
+            )
+        _validate_finding_evidence_pair(
+            finding=finding,
+            evidence=evidence,
+            entity="CompatibilityEvidence",
+            code="finding_compatibility_evidence_violation",
         )
 
-    return None
+
+def _validate_finding_evidence_pair(
+    *,
+    finding: Finding,
+    evidence: Diff | CompatibilityEvidence,
+    entity: str,
+    code: str,
+) -> None:
+    """Validate one evidence record against its Finding's current pair."""
+    for field_name in ("monitoring_run_id", "source_run_id"):
+        finding_value = getattr(finding, field_name)
+        evidence_value = getattr(evidence, field_name)
+        if evidence_value != finding_value:
+            raise InvariantViolation(
+                code=code,
+                message=(
+                    f"{entity} {field_name} {evidence_value!r} does not match "
+                    f"Finding {field_name} {finding_value!r}."
+                ),
+                entity=entity,
+                field=field_name,
+            )
+
+
+def validate_finding_identity(finding: Finding) -> None:
+    """Validate that a Finding carries its derived deterministic identity.
+
+    Args:
+        finding: Finding whose identity should be validated.
+
+    Raises:
+        InvariantViolation: If the supplied Finding identity is not canonical.
+
+    Returns:
+        None if the Finding identity is canonical.
+    """
+    expected_finding_id = make_finding_id(
+        monitoring_run_id=finding.monitoring_run_id,
+        source_run_id=finding.source_run_id,
+        finding_policy_id=finding.finding_policy_id,
+        finding_policy_version=finding.finding_policy_version,
+        finding_rule_id=finding.finding_rule_id,
+        evidence_diff_ids=finding.evidence_diff_ids,
+        evidence_compatibility_ids=finding.evidence_compatibility_ids,
+    )
+    if finding.finding_id != expected_finding_id:
+        raise InvariantViolation(
+            code="finding_identity_mismatch",
+            message=f"Finding identity {finding.finding_id!r} does not match its derived identity.",
+            entity="Finding",
+            field="finding_id",
+        )
+
+
+def validate_finding_identity_consistency(findings: Sequence[Finding]) -> None:
+    """Reject conflicting Finding content under one deterministic identity.
+
+    Args:
+        findings: Finding records to validate together.
+
+    Raises:
+        InvariantViolation: If an identity is invalid or maps to different content.
+
+    Returns:
+        None if all Finding identities and content are consistent.
+    """
+    findings_by_id: dict[str, Finding] = {}
+    for finding in findings:
+        validate_finding_identity(finding)
+        existing = findings_by_id.get(finding.finding_id)
+        if existing is not None and existing != finding:
+            raise InvariantViolation(
+                code="finding_identity_content_conflict",
+                message=f"Finding identity {finding.finding_id!r} maps to conflicting content.",
+                entity="Finding",
+                field="finding_id",
+            )
+        findings_by_id[finding.finding_id] = finding
 
 
 def validate_diff_identity(diff: Diff) -> None:
