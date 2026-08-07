@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
-
-from attr import dataclass
+from dataclasses import dataclass
 
 from mlflow_monitor.domain import DiffReference
 
@@ -29,6 +27,19 @@ class DiffIdentity:
     reference: DiffReference
     metric_name: str
 
+    def to_dict(self) -> dict[str, object]:
+        """Convert the identity to a dictionary representation."""
+        return {
+            "monitoring_run_id": self.monitoring_run_id,
+            "source_run_id": self.source_run_id,
+            "reference": {
+                "kind": self.reference.kind.value,
+                "monitoring_run_id": self.reference.monitoring_run_id,
+                "source_run_id": self.reference.source_run_id,
+            },
+            "metric_name": self.metric_name,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class CompatibilityEvidenceIdentity:
@@ -49,6 +60,17 @@ class CompatibilityEvidenceIdentity:
     contract_id: str
     contract_version: str
     reason_code: str
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert the identity to a dictionary representation."""
+        return {
+            "monitoring_run_id": self.monitoring_run_id,
+            "source_run_id": self.source_run_id,
+            "baseline_source_run_id": self.baseline_source_run_id,
+            "contract_id": self.contract_id,
+            "contract_version": self.contract_version,
+            "reason_code": self.reason_code,
+        }
 
 
 def make_diff_id(
@@ -72,16 +94,12 @@ def make_diff_id(
     return _make_identity(
         entity_type="diff",
         prefix="diff",
-        payload={
-            "metric_name": metric_name,
-            "monitoring_run_id": monitoring_run_id,
-            "reference": {
-                "kind": reference.kind.value,
-                "monitoring_run_id": reference.monitoring_run_id,
-                "source_run_id": reference.source_run_id,
-            },
-            "source_run_id": source_run_id,
-        },
+        payload=DiffIdentity(
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+            reference=reference,
+            metric_name=metric_name,
+        ),
     )
 
 
@@ -110,14 +128,14 @@ def make_compatibility_evidence_id(
     return _make_identity(
         entity_type="compatibility_evidence",
         prefix="compatibility-evidence",
-        payload={
-            "baseline_source_run_id": baseline_source_run_id,
-            "contract_id": contract_id,
-            "contract_version": contract_version,
-            "monitoring_run_id": monitoring_run_id,
-            "reason_code": reason_code,
-            "source_run_id": source_run_id,
-        },
+        payload=CompatibilityEvidenceIdentity(
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+            baseline_source_run_id=baseline_source_run_id,
+            contract_id=contract_id,
+            contract_version=contract_version,
+            reason_code=reason_code,
+        ),
     )
 
 
@@ -125,13 +143,13 @@ def _make_identity(
     *,
     entity_type: str,
     prefix: str,
-    payload: Mapping[str, object],
+    payload: DiffIdentity | CompatibilityEvidenceIdentity,
 ) -> str:
     """Hash one canonical versioned identity payload."""
     canonical_payload = {
         "entity_type": entity_type,
         "identity_scheme_version": IDENTITY_SCHEME_VERSION,
-        **payload,
+        "payload": payload.to_dict(),
     }
     encoded = json.dumps(
         canonical_payload,

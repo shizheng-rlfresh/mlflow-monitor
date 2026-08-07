@@ -17,7 +17,12 @@ from mlflow_monitor.domain import (
     DiffReferenceKind,
 )
 from mlflow_monitor.errors import InvariantViolation
-from mlflow_monitor.identity import make_compatibility_evidence_id, make_diff_id
+from mlflow_monitor.identity import (
+    CompatibilityEvidenceIdentity,
+    DiffIdentity,
+    make_compatibility_evidence_id,
+    make_diff_id,
+)
 from mlflow_monitor.invariant import (
     validate_compatibility_evidence_identity,
     validate_compatibility_evidence_identity_consistency,
@@ -25,9 +30,9 @@ from mlflow_monitor.invariant import (
     validate_diff_identity_consistency,
 )
 
-DIFF_ID_FIXTURE = "diff-v1-ea16f63f7055927b29f5a1b14fc5fefb3b80326d682e327df49a0164d4f19db6"
+DIFF_ID_FIXTURE = "diff-v1-6b7105add110bd5993e8eb644e7231d49b10ac8e638a454dd9020befcec736b7"
 COMPATIBILITY_EVIDENCE_ID_FIXTURE = (
-    "compatibility-evidence-v1-6468a0e4e6cbde077484687bfd2e45b64e1d0ce196f41a69ae845f7ac836d1b5"
+    "compatibility-evidence-v1-2d64d9f5989b9a16423f28e762454971f0a19b432735457c44efa144c8fc0525"
 )
 
 
@@ -80,6 +85,46 @@ def _compatibility_evidence(
             blocking=False,
         ),
     )
+
+
+def test_diff_identity_container_serializes_semantic_components() -> None:
+    identity = DiffIdentity(
+        monitoring_run_id="monitoring-run-current",
+        source_run_id="train-run-current",
+        reference=_baseline_reference(),
+        metric_name="accuracy",
+    )
+
+    assert identity.to_dict() == {
+        "monitoring_run_id": "monitoring-run-current",
+        "source_run_id": "train-run-current",
+        "reference": {
+            "kind": "baseline",
+            "monitoring_run_id": None,
+            "source_run_id": "train-run-baseline",
+        },
+        "metric_name": "accuracy",
+    }
+
+
+def test_compatibility_evidence_identity_container_serializes_semantic_components() -> None:
+    identity = CompatibilityEvidenceIdentity(
+        monitoring_run_id="monitoring-run-current",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        contract_id="default_permissive",
+        contract_version="v0",
+        reason_code="environment_mismatch",
+    )
+
+    assert identity.to_dict() == {
+        "monitoring_run_id": "monitoring-run-current",
+        "source_run_id": "train-run-current",
+        "baseline_source_run_id": "train-run-baseline",
+        "contract_id": "default_permissive",
+        "contract_version": "v0",
+        "reason_code": "environment_mismatch",
+    }
 
 
 def test_diff_id_matches_fixed_fixture() -> None:
