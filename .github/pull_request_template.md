@@ -12,15 +12,15 @@
 
 ## Validation
 
-<!-- Check only commands that were run successfully. Explain any omissions below. -->
+<!-- Check only commands that were run successfully (do not change the commands). Explain any omissions below. -->
 
 - [ ] `uv sync --extra dev --group doc`
 - [ ] `uv run pytest`
 - [ ] `uv run ruff check .`
 - [ ] `uv run ruff format --check .`
 - [ ] `uv run pyright`
+- [ ] `uv run --group doc sphinx-build -W -b html docs/site/source docs/site/build/html`
 - [ ] `uv build`
 - [ ] Update `docs/v0/`
-- [ ] Update `docs/site/`
 
 <!-- Validation omissions, if any: -->

@@ -13,10 +13,10 @@ read-only.
 
 ## Choose a Track
 
-| Track | Use it for | Starting point |
-| --- | --- | --- |
-| **MVP Release (`v0.1.0`)** | A stable portfolio artifact, the shipped `create -> prepare -> check` workflow, and the executable fraud-monitoring demo | [Release](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/tag/v0.1.0) · [README](https://github.com/shizheng-rlfresh/mlflow-monitor/blob/v0.1.0/README.md) · [Demo](https://github.com/shizheng-rlfresh/mlflow-monitor/blob/v0.1.0/demo/README.md) |
-| **Active development (`main`)** | Following or contributing to the evolving v0 implementation | This README and the source at the current revision |
+| Track                                   | Use it for                                                                                                                | Starting point                                                                                                                                                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MVP Release (`v0.1.0`)**      | A stable portfolio artifact, the shipped`create -> prepare -> check` workflow, and the executable fraud-monitoring demo | [Release](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/tag/v0.1.0) · [README](https://github.com/shizheng-rlfresh/mlflow-monitor/blob/v0.1.0/README.md) · [Demo](https://github.com/shizheng-rlfresh/mlflow-monitor/blob/v0.1.0/demo/README.md) |
+| **Active development (`main`)** | Following or contributing to the evolving v0 implementation                                                               | This README and the source at the current revision                                                                                                                                                                                                            |
 
 The active development line remains green as capabilities are added, but it does
 not carry the MVP Release's stability promise. Public documentation on `main`
@@ -89,11 +89,12 @@ documents.
 Use Python 3.12 or newer and `uv`:
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --group doc
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
+uv run --group doc sphinx-build -W -b html docs/site/source docs/site/build/html
 uv build
 ```
 

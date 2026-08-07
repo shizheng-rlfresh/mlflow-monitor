@@ -45,6 +45,13 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 
 - Use Google-style docstrings for public runtime modules, classes, and functions under `src/mlflow_monitor/`.
 - Keep docstrings concise and focused on purpose, inputs, returns, and important failure behavior.
+- Developer documentation is published on Read the Docs from `docs/site/`; treat
+  it as a maintained product surface.
+- Every implementation ticket must assess its `docs/site/` impact. When an
+  implementation adds, removes, or changes behavior that requires corresponding
+  developer documentation, add, remove, or edit the matching `.rst` content in
+  the same branch and pull request. The implementation is incomplete until the
+  developer documentation matches the delivered behavior.
 
 ## Validation
 
@@ -55,11 +62,12 @@ each green ticket commit, run focused tests plus the applicable Ruff and Pyright
 checks. Before closing a ticket, run the complete gate:
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --group doc
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
+uv run --group doc sphinx-build -W -b html docs/site/source docs/site/build/html
 uv build
 ```
 
