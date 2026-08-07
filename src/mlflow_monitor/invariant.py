@@ -309,7 +309,6 @@ def validate_contract_check_result(result: ContractCheckResult) -> None:
     """
     reason_codes: set[str] = set()
     for reason in result.reasons:
-        validate_contract_check_reason(reason)
         if reason.code in reason_codes:
             raise InvariantViolation(
                 code="contract_check_reason_code_duplicate",
@@ -318,6 +317,7 @@ def validate_contract_check_result(result: ContractCheckResult) -> None:
                 field="reasons",
             )
         reason_codes.add(reason.code)
+        validate_contract_check_reason(reason)
 
     _validate_contract_check_status(result)
 
