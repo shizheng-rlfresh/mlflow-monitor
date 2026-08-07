@@ -148,6 +148,48 @@ class ContractCheckResult:
 
 
 @dataclass(frozen=True, slots=True)
+class CompatibilityEvidence:
+    """Run-scoped compatibility observation materialized from a Check reason.
+
+    Attributes:
+        compatibility_evidence_id: Deterministic identifier for this evidence.
+        monitoring_run_id: Monitoring Run that owns this evidence.
+        source_run_id: Source Training Run evaluated by the Monitoring Run.
+        baseline_source_run_id: Baseline Source Run used by the Contract check.
+        contract_id: Identifier of the resolved Contract.
+        contract_version: Version of the resolved Contract.
+        reason: Complete Contract Check reason represented by this evidence.
+    """
+
+    compatibility_evidence_id: str
+    monitoring_run_id: str
+    source_run_id: str
+    baseline_source_run_id: str
+    contract_id: str
+    contract_version: str
+    reason: ContractCheckReason
+
+    def __post_init__(self) -> None:
+        """Validate the immutable Compatibility Evidence shape."""
+        for field_name in (
+            "compatibility_evidence_id",
+            "monitoring_run_id",
+            "source_run_id",
+            "baseline_source_run_id",
+            "contract_id",
+            "contract_version",
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"CompatibilityEvidence requires a non-empty string for field {field_name!r}."
+                )
+
+        if not isinstance(self.reason, ContractCheckReason):
+            raise ValueError("CompatibilityEvidence requires a ContractCheckReason for 'reason'.")
+
+
+@dataclass(frozen=True, slots=True)
 class Contract:
     """Resolved versioned comparability contract bound to a timeline.
 

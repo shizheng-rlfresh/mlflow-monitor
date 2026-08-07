@@ -182,8 +182,17 @@ def validate_contract_check_result(result: ContractCheckResult) -> None:
     Returns:
         None if the contract-check result is valid.
     """
+    reason_codes: set[str] = set()
     for reason in result.reasons:
         validate_contract_check_reason(reason)
+        if reason.code in reason_codes:
+            raise InvariantViolation(
+                code="contract_check_reason_code_duplicate",
+                message=f"Contract check reason code {reason.code!r} must be unique.",
+                entity="ContractCheckResult",
+                field="reasons",
+            )
+        reason_codes.add(reason.code)
 
     _validate_contract_check_status(result)
 

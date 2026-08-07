@@ -252,6 +252,23 @@ class InvalidResultContractChecker:
         )
 
 
+class DuplicateReasonContractChecker:
+    """Test double returning duplicate Contract Check reason codes."""
+
+    def check(self, contract: Contract, context: object) -> ContractCheckResult:
+        """Return a result whose reason codes violate uniqueness."""
+        del contract, context
+        reason = ContractCheckReason(
+            code="environment_mismatch",
+            message="Execution environment does not match the baseline.",
+            blocking=False,
+        )
+        return ContractCheckResult(
+            status=ComparabilityStatus.WARN,
+            reasons=(reason, reason),
+        )
+
+
 def make_prepared_context(
     *,
     contract: Contract,
@@ -555,6 +572,32 @@ def test_execute_contract_check_rejects_invalid_checker_result() -> None:
             prepared_context=make_prepared_context(contract=CONTRACT),
             gateway=gateway,
             contract_checker=InvalidResultContractChecker(),
+        )
+
+    assert exc_info.value.code == "check_result_invalid"
+
+
+def test_execute_contract_check_rejects_duplicate_reason_codes() -> None:
+    """Check should reject checker results with duplicate reason codes."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    for source_run_id in ("train-run-baseline", "train-run-123"):
+        gateway.add_source_run(
+            subject_id="churn_model",
+            source_run_id=source_run_id,
+            source_experiment="training/churn",
+            metrics={"f1": 0.91, "auc": 0.95},
+            artifacts=("metrics.json",),
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-01",
+        )
+
+    with pytest.raises(CheckStageError) as exc_info:
+        execute_contract_check(
+            prepared_context=make_prepared_context(contract=CONTRACT),
+            gateway=gateway,
+            contract_checker=DuplicateReasonContractChecker(),
         )
 
     assert exc_info.value.code == "check_result_invalid"

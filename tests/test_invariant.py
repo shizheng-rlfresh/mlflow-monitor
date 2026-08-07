@@ -369,6 +369,25 @@ class TestInvariantContractCheckResult:
 
         validate_contract_check_result(result)
 
+    def test_contract_check_result_rejects_duplicate_reason_codes(self) -> None:
+        reason = ContractCheckReason(
+            code="environment_mismatch",
+            message="Execution environment does not match the baseline.",
+            blocking=False,
+        )
+        result = ContractCheckResult(
+            status=ComparabilityStatus.WARN,
+            reasons=(reason, reason),
+        )
+
+        with pytest.raises(InvariantViolation) as exc_info:
+            validate_contract_check_result(result)
+
+        error = exc_info.value
+        assert error.code == "contract_check_reason_code_duplicate"
+        assert error.entity == "ContractCheckResult"
+        assert error.field == "reasons"
+
     def test_contract_check_result_rejects_unknown_status(self) -> None:
         result = ContractCheckResult(
             status="unknown_status",  # type: ignore
