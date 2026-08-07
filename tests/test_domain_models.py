@@ -326,3 +326,15 @@ def test_baseline_snapshot_mappings_are_immutable() -> None:
     else:
         msg = "expected baseline metric snapshot to reject mutation"
         raise AssertionError(msg)
+
+
+def test_lkg_selection_supersession_should_not_contain_lkg_selection_id() -> None:
+    """Test that an LKG selection cannot supersede itself."""
+    with pytest.raises(ValueError, match="cannot supersede itself"):
+        LKGSelection(
+            lkg_selection_id="lkg-selection-1",
+            timeline_id="timeline-1",
+            monitoring_run_id="monitoring-run-1",
+            source_run_id="train-run-2",
+            supersedes_lkg_selection_ids=("lkg-selection-1",),
+        )

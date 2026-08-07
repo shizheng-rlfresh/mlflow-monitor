@@ -751,6 +751,10 @@ class LKGSelection:
             raise ValueError(
                 "LKGSelection supersedes_lkg_selection_ids must contain non-empty strings."
             )
+
+        if self.lkg_selection_id in supersedes_ids:
+            raise ValueError("LKGSelection cannot supersede itself.")
+
         object.__setattr__(
             self,
             "supersedes_lkg_selection_ids",
