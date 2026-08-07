@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Protocol
 
-from mlflow_monitor.domain import CompatibilityEvidence, Diff, Finding, FindingDraft
+from mlflow_monitor.domain import (
+    CompatibilityEvidence,
+    Diff,
+    Finding,
+    FindingDraft,
+    ReferenceComparisonCoverage,
+)
 from mlflow_monitor.errors import InvariantViolation
 from mlflow_monitor.identity import make_finding_id
 from mlflow_monitor.invariant import (
@@ -13,6 +20,56 @@ from mlflow_monitor.invariant import (
     validate_finding_evidence,
     validate_finding_identity,
 )
+
+type JSONScalar = str | int | float | bool | None
+type JSONValue = JSONScalar | list[JSONValue] | Mapping[str, JSONValue]
+type FrozenJSONValue = JSONScalar | tuple[FrozenJSONValue, ...] | Mapping[str, FrozenJSONValue]
+type FrozenFindingPolicyParameters = Mapping[str, FrozenJSONValue]
+
+
+class FindingPolicy(Protocol):
+    """Registered extension point for versioned Finding interpretation."""
+
+    finding_policy_id: str
+    finding_policy_version: str
+
+    def validate_parameters(
+        self,
+        parameters: Mapping[str, JSONValue],
+    ) -> FrozenFindingPolicyParameters:
+        """Validate and freeze one Recipe policy-parameter mapping.
+
+        Args:
+            parameters: JSON-compatible parameters from one Recipe binding.
+
+        Returns:
+            Validated parameters frozen for later policy evaluation.
+        """
+        ...
+
+    def evaluate(
+        self,
+        *,
+        parameters: FrozenFindingPolicyParameters,
+        diffs: tuple[Diff, ...],
+        compatibility_evidence: tuple[CompatibilityEvidence, ...],
+        reference_comparison_coverage: tuple[ReferenceComparisonCoverage, ...],
+    ) -> tuple[FindingDraft, ...]:
+        """Propose transient Finding Drafts from immutable Analyze inputs.
+
+        Args:
+            parameters: Validated frozen parameters for this policy binding.
+            diffs: Immutable atomic metric Diffs from the current Analyze output.
+            compatibility_evidence: Immutable Compatibility Evidence from the
+                current Analyze output.
+            reference_comparison_coverage: Immutable coverage groups from the
+                current Analyze output.
+
+        Returns:
+            Transient Finding Drafts for package-owned validation and
+            materialization.
+        """
+        ...
 
 
 def materialize_finding_drafts(
