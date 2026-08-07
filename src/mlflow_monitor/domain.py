@@ -501,15 +501,17 @@ class ReferenceComparisonCoverage:
         """Validate ReferenceComparisonCoverage for atomic shape."""
         if self.reference_kind not in DiffReferenceKind:
             raise ValueError(
-                f"ReferenceComparisonCoverage has an unrecognized reference_kind: {self.reference_kind!r}."
+                "ReferenceComparisonCoverage has an unrecognized "
+                f"reference_kind: {self.reference_kind!r}."
             )
 
-        if self.reference:
+        if self.reference is not None:
             if not isinstance(self.reference, DiffReference):
                 raise ValueError("Coverage reference must be a DiffReference.")
             if self.reference_kind != self.reference.kind:
                 raise ValueError(
-                    "ReferenceComparisonCoverage 'reference_kind' must match the kind of the provided 'reference'."
+                    "ReferenceComparisonCoverage 'reference_kind' must match the kind of "
+                    "the provided 'reference'."
                 )
 
         if self.status == ReferenceComparisonStatus.COMPLETED:
