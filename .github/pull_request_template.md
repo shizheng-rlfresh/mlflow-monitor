@@ -14,6 +14,13 @@
 
 ## Validation
 
-<!-- List the exact commands or checks run and their results. Explain any omissions. -->
+<!-- Check only commands that were run successfully. Explain any omissions below. -->
 
-- `command` — result
+- [ ] `uv sync --extra dev`
+- [ ] `uv run pytest`
+- [ ] `uv run ruff check .`
+- [ ] `uv run ruff format --check .`
+- [ ] `uv run pyright`
+- [ ] `uv build`
+
+<!-- Validation omissions, if any: -->
