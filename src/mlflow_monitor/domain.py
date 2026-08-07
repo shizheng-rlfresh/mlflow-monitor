@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 
+RELATIVE_DELTA_TOLERANCE = 1e-6
+ABSOLUTE_DELTA_TOLERANCE = 1e-6
+
 
 class LifecycleStatus(StrEnum):
     """Lifecycle states for a monitoring run.
@@ -256,7 +259,7 @@ class DiffReference:
     Attributes:
         kind: The reference kind for this diff (e.g., baseline, previous, lkg).
         monitoring_run_id: Referenced monitoring run identifier, or None for the
-            source-only baseline and legacy structural references.
+            source-only baseline.
         source_run_id: Immutable source run identifier for the reference. This is
             temporarily optional only for the legacy structural kind removed by
             V0-003.
@@ -352,8 +355,16 @@ class Diff:
         if not math.isfinite(expected_delta):
             raise ValueError("Diff computed delta must be a finite float.")
 
-        if self.delta != expected_delta:
-            raise ValueError("Diff delta must equal current_value - reference_value.")
+        if not math.isclose(
+            self.delta,
+            expected_delta,
+            rel_tol=RELATIVE_DELTA_TOLERANCE,
+            abs_tol=ABSOLUTE_DELTA_TOLERANCE,
+        ):
+            raise ValueError(
+                "Diff delta must equal current_value - reference_value within "
+                f"rel_tol={RELATIVE_DELTA_TOLERANCE}, abs_tol={ABSOLUTE_DELTA_TOLERANCE}."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,7 +498,7 @@ class ReferenceComparisonCoverage:
         status: The status of the reference comparison (e.g., completed, skipped, unavailable).
         diff_ids: A tuple of diff IDs associated with this reference comparison.
         metric_unavailability: A tuple of MetricComparisonUnavailable instances indicating metrics that could not be compared.
-        reason: An optional human-readable reason explaining the status of the reference comparison.
+        reason: An optional reason code constrained by the reference comparison status.
     """  # noqa: E501
 
     reference_kind: DiffReferenceKind
@@ -499,6 +510,13 @@ class ReferenceComparisonCoverage:
 
     def __post_init__(self) -> None:
         """Validate ReferenceComparisonCoverage for atomic shape."""
+        # defensive conversion to tuples for immutability
+        diff_ids_tuple = tuple(self.diff_ids)
+        metric_unavailability_tuple = tuple(self.metric_unavailability)
+
+        object.__setattr__(self, "diff_ids", diff_ids_tuple)
+        object.__setattr__(self, "metric_unavailability", metric_unavailability_tuple)
+
         if self.reference_kind not in DiffReferenceKind:
             raise ValueError(
                 "ReferenceComparisonCoverage has an unrecognized "
