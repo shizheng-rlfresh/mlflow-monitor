@@ -2,8 +2,6 @@
 
 <!-- Summarize the concrete changes in this pull request. -->
 
--
-
 ## Why
 
 <!-- Explain the problem, requirement, or ticket outcome this change addresses. -->
