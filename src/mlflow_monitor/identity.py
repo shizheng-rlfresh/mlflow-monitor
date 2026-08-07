@@ -6,9 +6,49 @@ import hashlib
 import json
 from collections.abc import Mapping
 
+from attr import dataclass
+
 from mlflow_monitor.domain import DiffReference
 
 IDENTITY_SCHEME_VERSION = "v1"
+
+
+@dataclass(frozen=True, slots=True)
+class DiffIdentity:
+    """Deterministic identity for one atomic metric Diff.
+
+    Attributes:
+        monitoring_run_id: Monitoring Run that owns the Diff.
+        source_run_id: Source Training Run evaluated by the Monitoring Run.
+        reference: Complete comparison reference.
+        metric_name: Metric compared by the Diff.
+    """
+
+    monitoring_run_id: str
+    source_run_id: str
+    reference: DiffReference
+    metric_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class CompatibilityEvidenceIdentity:
+    """Deterministic identity for one Compatibility Evidence record.
+
+    Attributes:
+        monitoring_run_id: Monitoring Run that owns the evidence.
+        source_run_id: Source Training Run evaluated by the Monitoring Run.
+        baseline_source_run_id: Baseline Source Run used by the Contract check.
+        contract_id: Identifier of the resolved Contract.
+        contract_version: Version of the resolved Contract.
+        reason_code: Machine-readable Contract Check reason code.
+    """
+
+    monitoring_run_id: str
+    source_run_id: str
+    baseline_source_run_id: str
+    contract_id: str
+    contract_version: str
+    reason_code: str
 
 
 def make_diff_id(
