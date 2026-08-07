@@ -25,6 +25,7 @@ from mlflow_monitor.finding_policy import (
 from mlflow_monitor.recipe import (
     FrozenRecipeJSONValue,
     Recipe,
+    RecipeAnalysis,
     RecipeContractBinding,
     RecipeFindingPolicyBinding,
     RecipeIdentity,
@@ -214,6 +215,87 @@ class ComponentRegistry:
 SYSTEM_COMPONENT_REGISTRY = ComponentRegistry()
 
 
+def _recipe_json_to_authoring(value: object) -> object:
+    """Thaw typed Recipe JSON containers without accepting invalid values."""
+    if isinstance(value, Mapping):
+        return {key: _recipe_json_to_authoring(item) for key, item in value.items()}
+    if isinstance(value, tuple | list):
+        return [_recipe_json_to_authoring(item) for item in value]
+    return value
+
+
+def _recipe_identity_to_authoring(value: object) -> object:
+    """Convert a typed Recipe identity while preserving malformed values."""
+    if not isinstance(value, RecipeIdentity):
+        return value
+    return {
+        "recipe_id": value.recipe_id,
+        "recipe_version": value.recipe_version,
+    }
+
+
+def _recipe_source_requirements_to_authoring(value: object) -> object:
+    """Convert typed source requirements while preserving malformed values."""
+    if not isinstance(value, RecipeSourceRequirements):
+        return value
+    source_requirements: dict[str, object] = {
+        "required_metric_names": _recipe_json_to_authoring(value.required_metric_names),
+        "required_artifact_paths": _recipe_json_to_authoring(value.required_artifact_paths),
+    }
+    if value.source_experiment is not None:
+        source_requirements["source_experiment"] = value.source_experiment
+    return source_requirements
+
+
+def _recipe_contract_to_authoring(value: object) -> object:
+    """Convert a typed Contract binding while preserving malformed values."""
+    if not isinstance(value, RecipeContractBinding):
+        return value
+    return {
+        "contract_id": value.contract_id,
+        "contract_version": value.contract_version,
+    }
+
+
+def _recipe_policy_binding_to_authoring(value: object) -> object:
+    """Convert a typed policy binding while preserving malformed values."""
+    if not isinstance(value, RecipeFindingPolicyBinding):
+        return value
+    return {
+        "finding_policy_id": value.finding_policy_id,
+        "finding_policy_version": value.finding_policy_version,
+        "parameters": _recipe_json_to_authoring(value.parameters),
+    }
+
+
+def _recipe_analysis_to_authoring(value: object) -> object:
+    """Convert typed analysis authoring while preserving three-state selections."""
+    if not isinstance(value, RecipeAnalysis):
+        return value
+    analysis: dict[str, object] = {}
+    if value.metric_names is not None:
+        analysis["metric_names"] = _recipe_json_to_authoring(value.metric_names)
+    if value.finding_policy_bindings is not None:
+        bindings = value.finding_policy_bindings
+        analysis["finding_policy_bindings"] = (
+            [_recipe_policy_binding_to_authoring(binding) for binding in bindings]
+            if isinstance(bindings, tuple | list)
+            else bindings
+        )
+    return analysis
+
+
+def _recipe_to_authoring_mapping(recipe: Recipe) -> dict[str, object]:
+    """Convert a typed Recipe back to its strict authoring shape."""
+    return {
+        "recipe_schema_version": recipe.recipe_schema_version,
+        "identity": _recipe_identity_to_authoring(recipe.identity),
+        "source_requirements": _recipe_source_requirements_to_authoring(recipe.source_requirements),
+        "contract": _recipe_contract_to_authoring(recipe.contract),
+        "analysis": _recipe_analysis_to_authoring(recipe.analysis),
+    }
+
+
 def compile_recipe(
     recipe: Recipe | Mapping[str, object] | None = None,
     *,
@@ -237,7 +319,7 @@ def compile_recipe(
     if recipe is None:
         parsed = parse_recipe(build_system_default_recipe())
     elif isinstance(recipe, Recipe):
-        parsed = recipe
+        parsed = parse_recipe(_recipe_to_authoring_mapping(recipe))
     else:
         parsed = parse_recipe(recipe)
     registry = SYSTEM_COMPONENT_REGISTRY if component_registry is None else component_registry
