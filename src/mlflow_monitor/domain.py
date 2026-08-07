@@ -680,6 +680,14 @@ class Timeline:
             raise ValueError("Timeline entries must contain only TimelineEntry values.")
 
         entries = tuple(sorted(supplied_entries, key=lambda entry: entry.sequence_index))
+
+        if self.baseline_source_run_id is None and any(
+            entry.lifecycle_status == LifecycleStatus.CLOSED for entry in entries
+        ):
+            raise ValueError(
+                "Timeline cannot accept closed entries without a baseline_source_run_id."
+            )
+
         sequence_indexes = tuple(entry.sequence_index for entry in entries)
         if len(sequence_indexes) != len(set(sequence_indexes)):
             raise ValueError("Timeline entries must have unique sequence_index values.")

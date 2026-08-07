@@ -338,3 +338,33 @@ def test_lkg_selection_supersession_should_not_contain_lkg_selection_id() -> Non
             source_run_id="train-run-2",
             supersedes_lkg_selection_ids=("lkg-selection-1",),
         )
+
+
+def test_timeline_with_null_baseline_cannot_accept_closed_entries() -> None:
+    """Test that a Timeline with a null baseline cannot accept closed entries."""
+
+    closed_timeline_entry = TimelineEntry(
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
+        sequence_index=0,
+        lifecycle_status=LifecycleStatus.CLOSED,
+        comparability_status=ComparabilityStatus.FAIL,
+    )
+
+    failed_timeline_entry = TimelineEntry(
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-1",
+        sequence_index=1,
+        lifecycle_status=LifecycleStatus.FAILED,
+        comparability_status=ComparabilityStatus.FAIL,
+    )
+
+    with pytest.raises(
+        ValueError, match="cannot accept closed entries without a baseline_source_run_id"
+    ):
+        Timeline(
+            timeline_id="timeline-1",
+            subject_id="churn_model",
+            baseline_source_run_id=None,
+            entries=(closed_timeline_entry, failed_timeline_entry),
+        )
