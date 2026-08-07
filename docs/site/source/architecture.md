@@ -1,5 +1,10 @@
 # Architecture
 
+> **MVP-era architecture:** This document presents the architecture shipped with
+> the [`v0.1.0` MVP Release](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/tag/v0.1.0).
+> It is retained for historical context during active v0 development and is not a
+> specification of every behavior on `main`.
+
 MLflow-Monitor keeps training history and monitoring history separate.
 
 Training runs remain the source of truth for model artifacts and training metadata. Monitoring runs read that evidence, evaluate comparability, and persist their own state in a monitoring-owned experiment.
