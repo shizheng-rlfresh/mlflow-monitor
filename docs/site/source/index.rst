@@ -3,19 +3,12 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Internal Developer Docs
-=======================
+MLflow-Monitor Developer Documentation
+======================================
 
-Local documentation site for development of MLflow-Monitor.
-
-Diagram
--------
-
-.. image:: _static/system_diagram_v3.jpg
-   :alt: MLflow-Monitor system diagram
-   :width: 400px
-   :align: center
-
+Documentation for the active v0 development line. The current package identifies
+as ``0.2.0.dev0``; the stable ``v0.1.0`` MVP remains available as a separate,
+reproducible release.
 
 Concepts
 --------
@@ -26,6 +19,7 @@ Concepts
 
    worldview
    architecture
+   mvp
 
 Code Structure
 --------------

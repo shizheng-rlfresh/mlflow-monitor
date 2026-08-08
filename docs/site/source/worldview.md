@@ -1,115 +1,97 @@
-# Worldview
+# V0 Worldview
 
-> **MVP-era worldview:** This document presents the product worldview shipped with
-> the [`v0.1.0` MVP Release](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/tag/v0.1.0).
-> It is retained for historical context during active v0 development and is not a
-> specification of every behavior on `main`.
+> **Active development:** This page describes the v0 product direction on
+> `main`, currently identified as `0.2.0.dev0`. It distinguishes behavior already
+> implemented from behavior still under development. For the stable MVP, see the
+> {doc}`mvp` page.
 
-<p align="center">
-<img src="_static/worldview.png" alt="MLflow-Monitor overview" width="500" align="center"></p>
+## Why monitoring has its own history
 
-<br>
+MLflow records how a model was trained. Monitoring answers a different question:
+how should one Source Training Run be evaluated relative to stable and historical
+references?
 
-## Overview
+MLflow-Monitor treats that evaluation as a first-class workflow. Source Training
+Runs remain read-only. Every evaluation is represented by a separate Monitoring
+Run in a monitoring-owned experiment, preserving both training history and the
+evidence used to reach monitoring conclusions.
 
-MLflow-Monitor starts from a simple observation:
+## Core principles
 
-Tracking experiments and models is not the same thing as monitoring how they evolve. Monitoring needs its own paper trail: a systematic foundation for trust decisions, auditability, and operational confidence over time.
+- **Evidence precedes interpretation.** Contract-check observations and metric
+  Diffs are objective inputs. Findings are policy-versioned conclusions derived
+  from those inputs.
+- **Comparability precedes metric analysis.** A Contract determines whether the
+  current Source Training Run can be meaningfully compared with the immutable
+  Baseline Source Run.
+- **Baseline and trust are explicit.** The Baseline Source Run is pinned once.
+  LKG is a separate user-owned selection of a closed Monitoring Run; it is not
+  inferred from deployment or metric values.
+- **Execution identity stays out of Recipes.** A Recipe describes reusable
+  behavior. The caller supplies `subject_id`, `source_run_id`, and optional
+  invocation-specific reference identity.
+- **Recovery must not reinterpret history.** Exact Recipe, Contract, source,
+  baseline, and reference decisions are frozen before later stages consume them.
 
-MLflow is already good at remembering what happened during training. It records runs, parameters, metrics, artifacts, and experiment history. That is essential infrastructure. But once a team starts relying on a model over time, a different set of questions emerges, and those questions need their own structure.
-
-That is what "monitoring as a first-class workflow" means. Monitoring is not a report hanging off a training run. It is its own discipline, with its own lifecycle, its own state, its own memory, and its own namespace. It deserves the same kind of deliberate engineering that we give to training infrastructure.
-
-The principles that follow from this:
-
-- Evidence comes before interpretation. We gather what the system observed before we decide what it means.
-- Baselines are explicit anchors, not implicit assumptions.
-- Comparability is a gate. If the conditions for valid comparison are not met, metric deltas are meaningless.
-- Monitoring state is separate from training state. Training history records how a model was produced. Monitoring history records how it was evaluated. Collapsing them weakens both.
-- Everything is traceable and auditable. If we cannot show what we saw, we cannot defend what we concluded.
-
-These principles shape a natural order of operations:
-
-1. Establish a durable reference point
-2. Determine whether comparison is valid
-3. Produce evidence about what changed
-4. Interpret that evidence into action or restraint
-5. Preserve the result as part of the model's history
-
-That ordering is the core design intuition behind MLflow-Monitor.
-
-## The World Model
-
-The system is easiest to understand as a set of first-class citizens that work together. The diagram below captures the canonical conceptual map between them.
+## The v0 world model
 
 ```mermaid
 flowchart TD
-    Subject["Subject<br/>the thing being monitored"]
-    Timeline["Timeline<br/>ordered monitoring memory"]
-    Baseline["Baseline<br/>frozen anchor"]
-    Run["Monitoring Run<br/>one evaluation event"]
-    LKG["LKG<br/>last known good"]
-    Contract["Contract<br/>comparability law"]
-    Recipe["Recipe<br/>monitoring intent"]
-    Training["Training Runs in MLflow<br/>source evidence"]
-    Diff["Diff<br/>what changed"]
-    Finding["Finding<br/>so what"]
-    Promotion["Promotion / Rollback Judgment<br/>trust decision"]
-    Monitoring["Monitoring State in MLflow<br/>durable history"]
+    Subject["Subject"] --> Timeline["Timeline"]
+    Timeline --> Baseline["Baseline Source Run"]
+    Timeline --> MonitoringRun["Monitoring Run"]
+    Timeline --> LKG["User-selected LKG"]
 
-    Subject --> Timeline
-    Timeline --> Baseline
-    Timeline --> Run
-    Timeline --> LKG
-    Training --> Run
-    Recipe --> Run
-    Contract --> Run
-    Baseline --> Diff
-    Run --> Diff
-    LKG --> Diff
-    Diff --> Finding
-    Finding --> Promotion
-    Run --> Monitoring
-    Timeline --> Monitoring
-    LKG --> Promotion
+    Source["Source Training Run"] --> MonitoringRun
+    Recipe["Compiled Recipe"] --> MonitoringRun
+    Contract["System Contract"] --> Check["Check"]
+    MonitoringRun --> Check
+
+    Check --> Compatibility["Compatibility Evidence"]
+    MonitoringRun --> Diffs["Metric Diffs"]
+    Compatibility --> Policy["Finding policies"]
+    Diffs --> Policy
+    Policy --> Findings["Findings"]
 ```
 
-This is not just a data-flow diagram. It is the system's conceptual universe. Some of these ideas are already active in the current runtime. Others belong to the broader design direction. They are all part of one coherent system.
+The concepts have deliberately different responsibilities:
 
-## Core Concepts
+- A **Recipe** selects reusable monitoring behavior and registered components.
+- A **Contract** defines structural comparability for Check.
+- A **Diff** records one objective metric change against one reference.
+- A **Finding policy** interprets immutable Diffs, Compatibility Evidence, and
+  Reference Comparison Coverage.
+- A **Finding** is one validated conclusion for one Monitoring Run.
 
-**Subject** is the stable identity being monitored, analogous to an experiment. Not a single run, not a model version. The subject persists across retraining cycles.
+Finding policies do not create Diffs, and a comparability `fail` is not a workflow
+failure. A non-comparable Monitoring Run still proceeds through Analyze without
+metric Diffs so that its Compatibility Evidence and Findings can be preserved.
 
-**Timeline** is the ordered memory of a subject over time. The timeline turns a pile of runs into a trajectory for that subject: relative to the baseline, the previous state, and the last trusted state.
+## Development status
 
-**Baseline** is the frozen anchor that makes comparison meaningful. It is a conscious choice: the pinned reference that keeps comparisons from drifting and preserves what "good" meant at the moment of decision.
+### Implemented on `main`
 
-**Contract** is the law of comparability. Under what conditions is comparison valid? Schema changes, feature identity, data scope, environment context: the contract checks these before metrics are ever examined, and produces a machine-readable outcome (`pass`, `warn`, `fail`).
+- the real-MLflow Create, Prepare, and Check path from the MVP;
+- paired `monitoring_run_id` and immutable `source_run_id` domain identity;
+- typed Diff, coverage, Compatibility Evidence, Finding, Timeline, and LKG models;
+- deterministic evidence and Finding identity helpers;
+- strict JSON-compatible Recipe parsing and side-effect-free compilation; and
+- system and custom Finding-policy registration during Recipe compilation.
 
-**Recipe** is where monitoring intent lives. It defines how the system binds inputs, contracts, metrics, references, and output preferences into one versioned execution shape. Recipe keeps customization separate from core monitoring semantics.
+### In active development
 
-**Evidence** is what the system actually observed. Metrics, environment state, schema shape, feature identity, data scope. Evidence is collected before any interpretation happens, and stays inspectable. If we cannot show what we saw, we cannot defend what we concluded.
+- public `CompiledRecipe` integration at the monitoring boundary;
+- durable Prepare and Check artifacts with deterministic hydration;
+- fixed reference resolution and scalar metric Diff execution;
+- Finding-policy execution, Analyze, Close, and complete recovery; and
+- query and explicit LKG selection workflows.
 
-**Diff** answers "what changed?" It compares evidence across reference points and produces structured, machine-readable deltas. Diff is not interpretation. It is the factual record of movement.
+### Outside v0 scope
 
-**Finding** answers "so what?" Findings interpret diffs through the lens of policy, thresholds, and domain context. The separation between diff and finding preserves auditability: evidence and interpretation do not get fused.
+- model deployment, Promotion, and rollback execution;
+- notification and scheduling systems;
+- automatic LKG selection;
+- custom Contracts and Contract checkers;
+- slices, custom metric providers, and plugin discovery; and
+- distributed locking or a new persistence database.
 
-**LKG** (last known good) is the most recent state the monitoring layer still trusts. A model may be in production without being the LKG. A model may be the LKG without being deployed. Those are different decisions.
-
-## Invariants
-
-Correctness and traceability require hard rules. These are the constraints the system enforces unconditionally:
-
-- Baseline is immutable once pinned to a timeline.
-- Every run is evaluated against a contract before metrics are examined.
-- If comparability status is `fail`, no metric diffs are produced.
-- Non-comparable runs are visible in timeline history, never silently dropped.
-- Every finding references one or more supporting diffs.
-- Monitoring state never modifies training state.
-- Recipe cannot bypass the contract check stage.
-
-## Traceability and Auditability
-
-For any monitoring run, the system should let us show: which subject was monitored, which baseline was pinned, which training run was evaluated, which contract governed comparability, which recipe shaped execution intent, what result was produced, and what state the system trusted before and after.
-
-That chain matters for engineering review, incident investigation, organizational trust, and compliance. Explicit references, versioned intent, durable outputs, and inspectable monitoring history put a team in a better position than informal records or fragmented tooling.

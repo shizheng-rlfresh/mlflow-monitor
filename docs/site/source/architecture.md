@@ -1,73 +1,125 @@
-# Architecture
+# V0 Architecture
 
-> **MVP-era architecture:** This document presents the architecture shipped with
-> the [`v0.1.0` MVP Release](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/tag/v0.1.0).
-> It is retained for historical context during active v0 development and is not a
-> specification of every behavior on `main`.
+> **Active development:** This page describes the architecture being delivered on
+> `main`, currently identified as `0.2.0.dev0`. Status labels distinguish the
+> implemented path from later v0 stages. For the stable MVP architecture, see
+> {doc}`mvp`.
 
-MLflow-Monitor keeps training history and monitoring history separate.
-
-Training runs remain the source of truth for model artifacts and training metadata. Monitoring runs read that evidence, evaluate comparability, and persist their own state in a monitoring-owned experiment.
+## System flow
 
 ```mermaid
 flowchart LR
-    PythonAPI["monitor.run(...)"]
-    PythonAPI --> Create
+    Caller["Python caller"] --> Compile["Recipe Compilation\nimplemented"]
+    Compile --> Create
 
-    subgraph Training["Training Side"]
-        TrainExp[("MLflow: {Training Experiment}")]
-        TrainRuns["Training runs\nmetrics, params, tags, artifacts"]
+    subgraph Lifecycle["Monitoring lifecycle"]
+        Create["Create\nimplemented"] --> Prepare["Prepare\nMVP path implemented"]
+        Prepare --> Check["Check\nMVP path implemented"]
+        Check --> Analyze["Analyze\nin development"]
+        Analyze --> Close["Close\nin development"]
     end
 
-    subgraph Workflow["Monitoring Lifecycle"]
-        Create["Create (shipped)"] --> Prepare["Prepare (shipped)"] --> Check["Check (shipped)"] --> Analyze["Analyze (planned)"] --> Close["Close (planned)"]
-    end
-
-    subgraph Monitoring["Monitoring Side"]
-        MonExp[("MLflow: mlflow_monitor/{subject_id}")]
-        Timeline["Timeline state and index\nbaseline, latest run, sequence index"]
-        MonRuns["Monitoring runs\nlifecycle, comparability, result artifact"]
-    end
-
-    Workflow -->|read-only evidence| TrainRuns
-    Workflow -->|persistent state| MonRuns
-    TrainExp --> TrainRuns
-    MonExp --> Timeline
-    MonExp --> MonRuns
-    Timeline --> MonRuns
+    Lifecycle --> Gateway["Monitoring Gateway"]
+    Gateway --> Training["Source Training Runs\nread-only"]
+    Gateway --> Monitoring["Monitoring experiments and runs\nmonitoring-owned state"]
 ```
 
-Stages with dashed borders are designed but not yet in the runtime.
+Recipe Compilation is side-effect-free preflight work. It parses strict data,
+expands defaults, resolves the exact system Contract and registered Finding
+policies, validates policy parameters, and returns an immutable `CompiledRecipe`.
+It performs no MLflow reads and allocates no Monitoring Run.
 
-## Runtime Model
+The current runtime still uses the compiled system default internally. Accepting a
+caller-supplied `CompiledRecipe` at the public monitoring boundary remains under
+development.
 
-The full monitoring lifecycle is create → prepare → check → analyze → close.
+## Architectural boundaries
 
-The current runtime ships the first three stages:
+### Caller
 
-- Create or reuse a monitoring run for one source training run
-- Prepare baseline and comparison context
-- Execute the contract check
-- Persist a terminal monitoring result
+The caller owns invocation-specific identity: the subject, current Source Training
+Run, initial Baseline Source Run when required, and any custom reference. These
+values do not belong in a reusable Recipe.
 
-Analyze (diff computation and finding generation) and close (finalization and optional LKG promotion) are the next stages on the roadmap.
+### Recipe compiler
 
-## Training Side
+The compiler owns structural validation, exact component resolution, default
+expansion, canonical ordering, and policy-parameter validation. Its normalized
+effective plan contains serializable data; executable policy objects remain
+process-local.
 
-MLflow training experiments hold the original model-development history: metrics, params, tags, model artifacts, and optional dataset-related artifacts.
+### Workflow
 
-MLflow-Monitor reads from those runs but does not mutate them.
+The workflow owns stage ordering and domain decisions:
 
-## Monitoring Side
+```text
+Create -> Prepare -> Check -> Analyze -> Close
+```
 
-MLflow-Monitor creates one monitoring experiment per subject. For example, `training/fraud_model` contains source training runs, and `mlflow_monitor/fraud_model` contains monitoring runs for that subject.
+Lifecycle status and comparability status are independent. A Contract-check
+`fail` is a successful monitoring conclusion and ultimately closes normally. A
+lifecycle `failed` status represents an execution or persistence failure.
 
-The monitoring experiment holds timeline-level state: the pinned baseline, the latest monitoring run id, the next sequence index, and indexed run references for timeline traversal. The allocation index is a repairable projection: before creating or reusing a run, the gateway validates it against the durable allocation identity stored on monitoring runs and repairs uniquely recoverable partial writes.
+### Gateway
 
-Each monitoring run holds its allocation identity (source run, recipe identity, and sequence index) and its evaluation state: lifecycle status, comparability status, baseline and other references, and the final `outputs/result.json` artifact. These exist at the run level because they are specific to one evaluation event.
+The Gateway is the persistence boundary. Workflow code depends on monitoring
+semantics rather than MLflow APIs. The in-memory implementation supports
+deterministic tests, while `MLflowMonitoringGateway` maps the same operations to
+monitoring-owned MLflow state.
 
-## Why This Split Matters
+### MLflow client adapter
 
-A monitoring run can complete successfully and still report `fail` comparability. That is a valid and useful outcome, not a crash. Comparability success is distinct from workflow execution success.
+`MonitorMLflowClient` is the only runtime layer that directly wraps
+`MlflowClient`. It normalizes narrow MLflow mechanics for the Gateway; it does not
+own workflow policy.
 
-This separation keeps training history immutable, gives monitoring its own durable memory, makes baseline selection explicit, and preserves a clean audit trail from evidence through verdict.
+## Data ownership
+
+```mermaid
+flowchart TB
+    subgraph TrainingSide["Training side"]
+        Source["Source Training Run\nmetrics, params, tags, artifacts"]
+    end
+
+    subgraph MonitoringSide["Monitoring side"]
+        Experiment["Monitoring experiment\nTimeline projections"]
+        Run["Monitoring Run\nlifecycle and canonical artifacts"]
+        Experiment --> Run
+    end
+
+    Source -->|read-only evidence| Run
+```
+
+Source Training Runs are never mutated. Monitoring lifecycle, comparability,
+evidence, Findings, results, and recovery state belong to the Monitoring Run or
+its subject's monitoring experiment.
+
+Whenever a materialized domain value carries `monitoring_run_id`, it also carries
+the immutable `source_run_id`. The Baseline Source Run is source-only: it has no
+`monitoring_run_id` and consumes no Timeline sequence index.
+
+## Stage behavior
+
+| Stage | Responsibility | Status on `main` |
+| --- | --- | --- |
+| Recipe Compilation | Parse, normalize, resolve components, and validate policy parameters | Implemented |
+| Create | Allocate or reuse Monitoring Run identity | Implemented |
+| Prepare | Resolve source, baseline, requirements, and references | MVP path implemented; durable hydration in development |
+| Check | Apply the resolved Contract and produce comparability reasons | MVP path implemented; canonical artifact commit in development |
+| Analyze | Produce Diffs, coverage, Compatibility Evidence, and Findings | In development |
+| Close | Persist the final result and close successfully | In development |
+
+The current MVP-compatible runtime finishes successful work at `checked`. The v0
+target writes each stage's canonical artifacts before advancing its lifecycle
+commit marker and finishes valid `pass`, `warn`, and `fail` outcomes at `closed`.
+
+## Concurrency and recovery boundary
+
+The MLflow Gateway detects contradictory allocation and evidence state and fails
+closed rather than silently overwriting it. It does not claim to serialize
+concurrent callers. Idempotent re-execution may reuse identical deterministic
+state; conflicting content at the same identity or artifact path is a consistency
+error.
+
+V0 does not introduce locks, leases, a transition log, or an external database.
+
