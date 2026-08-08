@@ -1,642 +1,769 @@
-"""Recipe schema and parser for the current built-in recipe format.
-
-This module defines the canonical in-memory recipe representation used by the
-current recipe pipeline. It accepts only mapping inputs and intentionally excludes
-file-format parsing (for example JSON/YAML text decoding), which is deferred.
-"""
+"""Strict JSON-compatible Recipe schema and parsing."""
 
 from __future__ import annotations
 
-import re
-from collections.abc import Mapping, Sequence
+import json
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass
+from os import PathLike
+from pathlib import Path
+from types import MappingProxyType
 
 from mlflow_monitor.builtins import (
+    SYSTEM_DEFAULT_CONTRACT_ID,
     SYSTEM_DEFAULT_RECIPE_ID,
-    SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN,
-    build_system_default_recipe_raw,
 )
 from mlflow_monitor.errors import RecipeValidationError, RecipeValidationIssue
 
-_REQUIRED_TOP_LEVEL_SECTIONS = {
+RECIPE_SCHEMA_VERSION = "v0"
+SYSTEM_DEFAULT_RECIPE_VERSION = "v0"
+SYSTEM_DEFAULT_CONTRACT_VERSION = "v0"
+
+_TOP_LEVEL_FIELDS = frozenset(
+    {
+        "recipe_schema_version",
+        "identity",
+        "source_requirements",
+        "contract",
+        "analysis",
+    }
+)
+_REQUIRED_TOP_LEVEL_FIELDS = (
+    "recipe_schema_version",
     "identity",
-    "input_binding",
-    "contract_binding",
-    "metrics_slices",
-    "finding_policy",
-    "output_binding",
-}
-
-
-_ALLOWED_SECTION_FIELDS: dict[str, frozenset[str]] = {
-    "identity": frozenset({"recipe_id", "version"}),
-    "input_binding": frozenset(
-        {
-            "run_selector",
-            "source_experiment",
-            "required_metrics",
-            "required_artifacts",
-            "custom_reference_monitoring_run_id",
-        }
+    "contract",
+)
+_SECTION_FIELDS = {
+    "identity": frozenset({"recipe_id", "recipe_version"}),
+    "source_requirements": frozenset(
+        {"source_experiment", "required_metric_names", "required_artifact_paths"}
     ),
-    "contract_binding": frozenset({"contract_id"}),
-    "metrics_slices": frozenset({"metrics", "slices"}),
-    "finding_policy": frozenset({"profile"}),
-    "output_binding": frozenset({"summary_mode"}),
+    "contract": frozenset({"contract_id", "contract_version"}),
+    "analysis": frozenset({"metric_names", "finding_policy_bindings"}),
 }
+_REQUIRED_SECTION_FIELDS = {
+    "identity": ("recipe_id", "recipe_version"),
+    "source_requirements": (),
+    "contract": ("contract_id", "contract_version"),
+    "analysis": (),
+}
+_POLICY_BINDING_FIELDS = frozenset({"finding_policy_id", "finding_policy_version", "parameters"})
+_REQUIRED_POLICY_BINDING_FIELDS = ("finding_policy_id", "finding_policy_version")
 
-
-@dataclass(frozen=True, slots=True)
-class RecipeReferenceCatalog:
-    """Allowlisted external references used during recipe validation.
-
-    Attributes:
-        contract_ids: Valid contract IDs for recipe binding.
-        finding_policy_profiles: Valid finding policy profile IDs.
-        summary_modes: Valid output summary mode IDs.
-    """
-
-    contract_ids: frozenset[str]
-    finding_policy_profiles: frozenset[str]
-    summary_modes: frozenset[str]
+type RecipeJSONScalar = str | int | float | bool | None
+type FrozenRecipeJSONValue = (
+    RecipeJSONScalar | tuple[FrozenRecipeJSONValue, ...] | Mapping[str, FrozenRecipeJSONValue]
+)
+type FrozenRecipeParameters = Mapping[str, FrozenRecipeJSONValue]
 
 
 @dataclass(frozen=True, slots=True)
 class RecipeIdentity:
-    """Identity and version metadata for a recipe.
+    """Stable user-authored Recipe identity.
 
     Attributes:
-        recipe_id: Stable recipe identifier.
-        version: Recipe version identifier.
+        recipe_id: Stable Recipe identifier.
+        recipe_version: Exact user-authored Recipe version.
     """
 
     recipe_id: str
-    version: str
+    recipe_version: str
 
 
 @dataclass(frozen=True, slots=True)
-class RecipeInputBinding:
-    """Input binding section for source run selection and required evidence.
+class RecipeSourceRequirements:
+    """Source Training Run requirements authored by a Recipe.
 
     Attributes:
-        run_selector: Selector used to resolve a source run.
-        source_experiment: Optional source training experiment name.
-        required_metrics: Optional metric names that must exist on the source run.
-        required_artifacts: Optional artifact names that must exist on the source run.
-        custom_reference_monitoring_run_id: Optional additional timeline reference monitoring run id
-            used for analysis diffs. This is not the baseline reference and does
-            not replace default baseline/previous/LKG comparisons.
+        source_experiment: Optional owning experiment constraint.
+        required_metric_names: Metrics that Prepare requires on the source.
+        required_artifact_paths: Artifact paths that Prepare requires on the source.
     """
 
-    run_selector: str
     source_experiment: str | None = None
-    required_metrics: tuple[str, ...] = ()
-    required_artifacts: tuple[str, ...] = ()
-    custom_reference_monitoring_run_id: str | None = None
+    required_metric_names: tuple[str, ...] = ()
+    required_artifact_paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class RecipeContractBinding:
-    """Contract binding section for resolved contract selection.
+    """Exact system Contract binding authored by a Recipe.
 
     Attributes:
-        contract_id: Resolved contract identifier.
+        contract_id: Registered system Contract identifier.
+        contract_version: Exact registered Contract version.
     """
 
     contract_id: str
+    contract_version: str
 
 
 @dataclass(frozen=True, slots=True)
-class RecipeMetricsSlices:
-    """Metrics and slices section for analysis selection.
+class RecipeFindingPolicyBinding:
+    """Exact Finding-policy binding and opaque JSON parameters.
 
     Attributes:
-        metrics: Optional metric names selected by the recipe.
-        slices: Optional slice names selected by the recipe.
+        finding_policy_id: Registered Finding-policy identifier.
+        finding_policy_version: Exact registered policy version.
+        parameters: Immutable structurally validated JSON parameters.
     """
 
-    metrics: tuple[str, ...] = ()
-    slices: tuple[str, ...] = ()
+    finding_policy_id: str
+    finding_policy_version: str
+    parameters: FrozenRecipeParameters
 
 
 @dataclass(frozen=True, slots=True)
-class RecipeFindingPolicy:
-    """Finding policy section for interpreted output behavior.
+class RecipeAnalysis:
+    """Three-state metric and Finding-policy analysis authoring.
 
     Attributes:
-        profile: Optional finding policy profile identifier.
+        metric_names: ``None`` for omitted, an empty tuple for none, or exact names.
+        finding_policy_bindings: ``None`` for defaults, an empty tuple for none,
+            or exact authored bindings.
     """
 
-    profile: str | None = None
+    metric_names: tuple[str, ...] | None = None
+    finding_policy_bindings: tuple[RecipeFindingPolicyBinding, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class RecipeOutputBinding:
-    """Output binding section for summary rendering options.
+class Recipe:
+    """Typed immutable representation of one structurally valid v0 Recipe.
 
     Attributes:
-        summary_mode: Optional summary mode identifier.
+        recipe_schema_version: Exact Recipe schema version.
+        identity: Stable Recipe identity.
+        source_requirements: Source Training Run preconditions.
+        contract: Exact system Contract binding.
+        analysis: Three-state analysis authoring.
     """
 
-    summary_mode: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RecipeV0Lite:
-    """Canonical runtime model for the built-in recipe format.
-
-    Attributes:
-        identity: Recipe identity and version metadata.
-        input_binding: Source run and evidence binding details.
-        contract_binding: Resolved contract binding.
-        metrics_slices: Metrics and slices selection.
-        finding_policy: Finding policy configuration.
-        output_binding: Output rendering and summary options.
-    """
-
+    recipe_schema_version: str
     identity: RecipeIdentity
-    input_binding: RecipeInputBinding
-    contract_binding: RecipeContractBinding
-    metrics_slices: RecipeMetricsSlices
-    finding_policy: RecipeFindingPolicy
-    output_binding: RecipeOutputBinding
+    source_requirements: RecipeSourceRequirements
+    contract: RecipeContractBinding
+    analysis: RecipeAnalysis
 
 
-def validate_recipe_v0_lite(
-    raw: Mapping[str, object],
-    references: RecipeReferenceCatalog,
-) -> RecipeV0Lite:
-    """Validate and parse one recipe payload.
-
-    Args:
-        raw: Raw recipe mapping containing the expected top-level sections.
-        references: Allowlisted reference IDs for recipe bindings.
+def build_system_default_recipe() -> dict[str, object]:
+    """Return a fresh authoring mapping for the zero-configuration Recipe.
 
     Returns:
-        Parsed recipe runtime model when validation succeeds.
+        Canonical minimal system-default Recipe authoring data.
+    """
+    return {
+        "recipe_schema_version": RECIPE_SCHEMA_VERSION,
+        "identity": {
+            "recipe_id": SYSTEM_DEFAULT_RECIPE_ID,
+            "recipe_version": SYSTEM_DEFAULT_RECIPE_VERSION,
+        },
+        "contract": {
+            "contract_id": SYSTEM_DEFAULT_CONTRACT_ID,
+            "contract_version": SYSTEM_DEFAULT_CONTRACT_VERSION,
+        },
+    }
+
+
+def parse_recipe(raw: Mapping[str, object]) -> Recipe:
+    """Parse a strict JSON-compatible Mapping into an immutable Recipe.
+
+    Args:
+        raw: Recipe authoring data using the canonical v0 Mapping shape.
+
+    Returns:
+        An immutable typed Recipe that preserves omitted, empty, and nonempty
+        analysis selections.
 
     Raises:
-        RecipeValidationError: If one or more validation checks fail.
+        RecipeValidationError: If the Mapping is structurally invalid.
     """
-    try:
-        parsed = parse_recipe_v0_lite(raw)
-    except ValueError as exc:
-        section, field = _extract_error_location(str(exc))
-        raise RecipeValidationError(
-            issues=(
-                RecipeValidationIssue(
-                    code="structural_error",
-                    section=section,
-                    field=field,
-                    message=str(exc),
-                ),
-            )
-        ) from exc
-
-    issues: list[RecipeValidationIssue] = []
-    issues.extend(_collect_unknown_nested_key_issues(raw))
-    issues.extend(_collect_reference_issues(parsed, references))
-    issues.extend(_collect_constraint_issues(parsed))
-
+    issues = _collect_recipe_issues(raw)
     if issues:
         raise RecipeValidationError(issues=tuple(issues))
-    return parsed
 
+    identity = _as_mapping(raw["identity"])
+    contract = _as_mapping(raw["contract"])
+    source_requirements = _optional_mapping(raw, "source_requirements")
+    analysis = _optional_mapping(raw, "analysis")
 
-def get_system_default_recipe_v0_lite() -> RecipeV0Lite:
-    """Return the built-in system default recipe."""
-    return parse_recipe_v0_lite(build_system_default_recipe_raw())
-
-
-def resolve_recipe_v0_lite(
-    raw: Mapping[str, object] | None,
-    references: RecipeReferenceCatalog,
-) -> RecipeV0Lite:
-    """Resolve one recipe payload or fallback to the system default recipe."""
-    if raw is None:
-        return validate_recipe_v0_lite(build_system_default_recipe_raw(), references)
-    return validate_recipe_v0_lite(raw, references)
-
-
-def parse_recipe_v0_lite(raw: Mapping[str, object]) -> RecipeV0Lite:
-    """Parse a mapping into the canonical recipe model.
-
-    Args:
-        raw: Raw recipe mapping containing the expected top-level sections.
-
-    Returns:
-        Parsed recipe model with strongly typed section objects.
-
-    Raises:
-        ValueError: If required sections are missing, unknown sections are
-            present, or any section value is malformed.
-    """
-    if not isinstance(raw, Mapping):
-        raise ValueError("Recipe payload must be a mapping.")
-
-    raw_keys = tuple(raw.keys())
-    if any(not isinstance(key, str) for key in raw_keys):
-        raise ValueError("Top-level recipe section names must be strings.")
-
-    missing_sections = sorted(_REQUIRED_TOP_LEVEL_SECTIONS - set(raw_keys))
-    if missing_sections:
-        missing = ", ".join(missing_sections)
-        raise ValueError(f"Missing required recipe section(s): {missing}")
-
-    unknown_sections = sorted(set(raw_keys) - _REQUIRED_TOP_LEVEL_SECTIONS)
-    if unknown_sections:
-        unknown = ", ".join(unknown_sections)
-        raise ValueError(f"Unknown/disallowed recipe section(s): {unknown}")
-
-    identity = _parse_identity(_require_section(raw, "identity"))
-    input_binding = _parse_input_binding(_require_section(raw, "input_binding"))
-    contract_binding = _parse_contract_binding(_require_section(raw, "contract_binding"))
-    metrics_slices = _parse_metrics_slices(_require_section(raw, "metrics_slices"))
-    finding_policy = _parse_finding_policy(_require_section(raw, "finding_policy"))
-    output_binding = _parse_output_binding(_require_section(raw, "output_binding"))
-
-    return RecipeV0Lite(
-        identity=identity,
-        input_binding=input_binding,
-        contract_binding=contract_binding,
-        metrics_slices=metrics_slices,
-        finding_policy=finding_policy,
-        output_binding=output_binding,
-    )
-
-
-def _require_section(raw: Mapping[str, object], section_name: str) -> Mapping[str, object]:
-    """Return a required section and ensure it is a mapping.
-
-    Args:
-        raw: Raw recipe mapping.
-        section_name: Required top-level section key.
-
-    Returns:
-        Section mapping for the given key.
-
-    Raises:
-        ValueError: If the section is not a mapping.
-    """
-    section = raw[section_name]
-    if not isinstance(section, Mapping):
-        raise ValueError(f"Section '{section_name}' must be a mapping.")
-    return section
-
-
-def _collect_unknown_nested_key_issues(raw: Mapping[str, object]) -> list[RecipeValidationIssue]:
-    """Collect issues for unknown keys nested inside known top-level sections."""
-    issues: list[RecipeValidationIssue] = []
-
-    for section_name in sorted(_REQUIRED_TOP_LEVEL_SECTIONS):
-        section_raw = raw[section_name]
-        if not isinstance(section_raw, Mapping):
-            continue
-
-        allowed_fields = _ALLOWED_SECTION_FIELDS[section_name]
-        for field in sorted(section_raw.keys()):
-            if not isinstance(field, str):
-                continue
-            if field in allowed_fields:
-                continue
-            issues.append(
-                RecipeValidationIssue(
-                    code="unknown_field",
-                    section=section_name,
-                    field=field,
-                    message=f"Unknown/disallowed field '{section_name}.{field}'.",
-                )
-            )
-    return issues
-
-
-def _collect_reference_issues(
-    recipe: RecipeV0Lite,
-    references: RecipeReferenceCatalog,
-) -> list[RecipeValidationIssue]:
-    """Collect issues for unknown external references in a parsed recipe."""
-    issues: list[RecipeValidationIssue] = []
-
-    if recipe.contract_binding.contract_id not in references.contract_ids:
-        issues.append(
-            RecipeValidationIssue(
-                code="unknown_reference",
-                section="contract_binding",
-                field="contract_id",
-                message=(
-                    "Unknown reference 'contract_binding.contract_id': "
-                    f"{recipe.contract_binding.contract_id}."
-                ),
-            )
-        )
-
-    profile = recipe.finding_policy.profile
-    if profile is not None and profile not in references.finding_policy_profiles:
-        issues.append(
-            RecipeValidationIssue(
-                code="unknown_reference",
-                section="finding_policy",
-                field="profile",
-                message=f"Unknown reference 'finding_policy.profile': {profile}.",
-            )
-        )
-
-    summary_mode = recipe.output_binding.summary_mode
-    if summary_mode is not None and summary_mode not in references.summary_modes:
-        issues.append(
-            RecipeValidationIssue(
-                code="unknown_reference",
-                section="output_binding",
-                field="summary_mode",
-                message=f"Unknown reference 'output_binding.summary_mode': {summary_mode}.",
-            )
-        )
-
-    return issues
-
-
-def _collect_constraint_issues(recipe: RecipeV0Lite) -> list[RecipeValidationIssue]:
-    """Collect issues for recipe constraints independent of external systems."""
-    issues: list[RecipeValidationIssue] = []
-
-    run_selector = recipe.input_binding.run_selector
-    is_system_default_recipe = recipe.identity.recipe_id == SYSTEM_DEFAULT_RECIPE_ID
-
-    if not run_selector.strip():
-        issues.append(
-            RecipeValidationIssue(
-                code="invalid_constraint",
-                section="input_binding",
-                field="run_selector",
-                message=("Field 'input_binding.run_selector' must contain a raw non-empty run ID."),
-            )
-        )
-    if run_selector == SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN and not is_system_default_recipe:
-        issues.append(
-            RecipeValidationIssue(
-                code="invalid_constraint",
-                section="input_binding",
-                field="run_selector",
-                message=(
-                    "Field 'input_binding.run_selector' may use the reserved token "
-                    "only for recipe identity 'system_default'."
-                ),
-            )
-        )
-    if run_selector != SYSTEM_DEFAULT_RUN_SELECTOR_TOKEN and (
-        run_selector == "latest" or ":" in run_selector
-    ):
-        issues.append(
-            RecipeValidationIssue(
-                code="invalid_constraint",
-                section="input_binding",
-                field="run_selector",
-                message=(
-                    "Field 'input_binding.run_selector' must be a raw run ID; "
-                    "selector modes like 'latest' and prefixed values are not allowed."
-                ),
-            )
-        )
-
-    _add_duplicate_issues(
-        issues=issues,
-        section="input_binding",
-        field="required_metrics",
-        values=recipe.input_binding.required_metrics,
-    )
-    _add_duplicate_issues(
-        issues=issues,
-        section="input_binding",
-        field="required_artifacts",
-        values=recipe.input_binding.required_artifacts,
-    )
-    _add_duplicate_issues(
-        issues=issues,
-        section="metrics_slices",
-        field="metrics",
-        values=recipe.metrics_slices.metrics,
-    )
-    _add_duplicate_issues(
-        issues=issues,
-        section="metrics_slices",
-        field="slices",
-        values=recipe.metrics_slices.slices,
-    )
-
-    return issues
-
-
-def _add_duplicate_issues(
-    issues: list[RecipeValidationIssue],
-    section: str,
-    field: str,
-    values: tuple[str, ...],
-) -> None:
-    """Append one issue if a tuple of strings contains duplicates."""
-    if len(values) == len(set(values)):
-        return
-    issues.append(
-        RecipeValidationIssue(
-            code="invalid_constraint",
-            section=section,
-            field=field,
-            message=f"Field '{section}.{field}' must not contain duplicate entries.",
-        )
-    )
-
-
-def _extract_error_location(message: str) -> tuple[str, str | None]:
-    """Extract section/field location from parser error text when possible."""
-    field_match = re.search(r"Field '([a-z_]+)\.([a-z_]+)'", message)
-    if field_match:
-        return field_match.group(1), field_match.group(2)
-
-    missing_field_match = re.search(
-        r"Section '([a-z_]+)' missing required field '([a-z_]+)'",
-        message,
-    )
-    if missing_field_match:
-        return missing_field_match.group(1), missing_field_match.group(2)
-
-    section_match = re.search(r"Section '([a-z_]+)'", message)
-    if section_match:
-        return section_match.group(1), None
-
-    return "recipe", None
-
-
-def _parse_identity(section: Mapping[str, object]) -> RecipeIdentity:
-    """Parse identity section values.
-
-    Args:
-        section: Identity section mapping.
-
-    Returns:
-        Parsed RecipeIdentity value.
-    """
-    return RecipeIdentity(
-        recipe_id=_require_string(section, "recipe_id", "identity"),
-        version=_require_string(section, "version", "identity"),
-    )
-
-
-def _parse_input_binding(section: Mapping[str, object]) -> RecipeInputBinding:
-    """Parse input binding section values.
-
-    Args:
-        section: Input binding section mapping.
-
-    Returns:
-        Parsed RecipeInputBinding value.
-    """
-    return RecipeInputBinding(
-        run_selector=_require_string(section, "run_selector", "input_binding"),
-        source_experiment=_optional_string(section, "source_experiment", "input_binding"),
-        required_metrics=_optional_string_tuple(section, "required_metrics", "input_binding"),
-        required_artifacts=_optional_string_tuple(section, "required_artifacts", "input_binding"),
-        custom_reference_monitoring_run_id=_optional_string(
-            section,
-            "custom_reference_monitoring_run_id",
-            "input_binding",
+    return Recipe(
+        recipe_schema_version=_as_string(raw["recipe_schema_version"]),
+        identity=RecipeIdentity(
+            recipe_id=_as_string(identity["recipe_id"]),
+            recipe_version=_as_string(identity["recipe_version"]),
+        ),
+        source_requirements=RecipeSourceRequirements(
+            source_experiment=_optional_parsed_string(
+                source_requirements,
+                "source_experiment",
+            ),
+            required_metric_names=_parsed_string_tuple(
+                source_requirements,
+                "required_metric_names",
+            ),
+            required_artifact_paths=_parsed_string_tuple(
+                source_requirements,
+                "required_artifact_paths",
+            ),
+        ),
+        contract=RecipeContractBinding(
+            contract_id=_as_string(contract["contract_id"]),
+            contract_version=_as_string(contract["contract_version"]),
+        ),
+        analysis=RecipeAnalysis(
+            metric_names=_parsed_optional_string_tuple(analysis, "metric_names"),
+            finding_policy_bindings=_parsed_policy_bindings(analysis),
         ),
     )
 
 
-def _parse_contract_binding(section: Mapping[str, object]) -> RecipeContractBinding:
-    """Parse contract binding section values.
+def load_recipe_json(path: str | PathLike[str]) -> Recipe:
+    """Decode one JSON file and parse it through :func:`parse_recipe`.
 
     Args:
-        section: Contract binding section mapping.
+        path: Filesystem path to a UTF-8 JSON Recipe.
 
     Returns:
-        Parsed RecipeContractBinding value.
-    """
-    return RecipeContractBinding(
-        contract_id=_require_string(section, "contract_id", "contract_binding"),
-    )
-
-
-def _parse_metrics_slices(section: Mapping[str, object]) -> RecipeMetricsSlices:
-    """Parse metrics and slices section values.
-
-    Args:
-        section: Metrics/slices section mapping.
-
-    Returns:
-        Parsed RecipeMetricsSlices value.
-    """
-    return RecipeMetricsSlices(
-        metrics=_optional_string_tuple(section, "metrics", "metrics_slices"),
-        slices=_optional_string_tuple(section, "slices", "metrics_slices"),
-    )
-
-
-def _parse_finding_policy(section: Mapping[str, object]) -> RecipeFindingPolicy:
-    """Parse finding policy section values.
-
-    Args:
-        section: Finding policy section mapping.
-
-    Returns:
-        Parsed RecipeFindingPolicy value.
-    """
-    return RecipeFindingPolicy(
-        profile=_optional_string(section, "profile", "finding_policy"),
-    )
-
-
-def _parse_output_binding(section: Mapping[str, object]) -> RecipeOutputBinding:
-    """Parse output binding section values.
-
-    Args:
-        section: Output binding section mapping.
-
-    Returns:
-        Parsed RecipeOutputBinding value.
-    """
-    return RecipeOutputBinding(
-        summary_mode=_optional_string(section, "summary_mode", "output_binding"),
-    )
-
-
-def _require_string(section: Mapping[str, object], key: str, section_name: str) -> str:
-    """Require one non-empty string field from a section.
-
-    Args:
-        section: Section mapping containing the field.
-        key: Required field key.
-        section_name: Section name used in deterministic error messages.
-
-    Returns:
-        Non-empty string value for the required key.
+        The parsed immutable Recipe.
 
     Raises:
-        ValueError: If the field is missing, non-string, or empty.
+        OSError: If the file cannot be read.
+        RecipeValidationError: If JSON decoding or Recipe validation fails.
     """
-    if key not in section:
-        raise ValueError(f"Section '{section_name}' missing required field '{key}'.")
-    value = section[key]
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise RecipeValidationError(
+            issues=(
+                RecipeValidationIssue(
+                    code="invalid_encoding",
+                    section="recipe",
+                    field=None,
+                    message="Recipe file must be UTF-8 encoded.",
+                ),
+            )
+        ) from exc
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RecipeValidationError(
+            issues=(
+                RecipeValidationIssue(
+                    code="invalid_json",
+                    section="recipe",
+                    field=None,
+                    message="Recipe file must contain valid JSON.",
+                ),
+            )
+        ) from exc
+    return parse_recipe(decoded)
+
+
+def _collect_recipe_issues(raw: object) -> list[RecipeValidationIssue]:
+    """Collect structural issues in canonical schema order."""
+    if not isinstance(raw, Mapping):
+        return [_issue("invalid_type", "recipe", None, "Recipe must be a mapping.")]
+
+    issues: list[RecipeValidationIssue] = []
+    if any(not isinstance(key, str) for key in raw):
+        issues.append(
+            _issue(
+                "invalid_json_key",
+                "recipe",
+                None,
+                "Recipe field names must be strings.",
+            )
+        )
+
+    string_keys = {key for key in raw if isinstance(key, str)}
+    for field in _REQUIRED_TOP_LEVEL_FIELDS:
+        if field not in string_keys:
+            issues.append(
+                _issue(
+                    "missing_field",
+                    "recipe",
+                    field,
+                    f"Missing required field 'recipe.{field}'.",
+                )
+            )
+    for field in sorted(string_keys - _TOP_LEVEL_FIELDS):
+        issues.append(
+            _issue(
+                "unknown_field",
+                "recipe",
+                field,
+                f"Unknown field 'recipe.{field}'.",
+            )
+        )
+
+    if "recipe_schema_version" in raw:
+        value = raw["recipe_schema_version"]
+        if (
+            _validate_nonempty_string(
+                value,
+                section="recipe",
+                field="recipe_schema_version",
+                issues=issues,
+            )
+            and value != RECIPE_SCHEMA_VERSION
+        ):
+            issues.append(
+                _issue(
+                    "unsupported_version",
+                    "recipe",
+                    "recipe_schema_version",
+                    f"Field 'recipe.recipe_schema_version' must be '{RECIPE_SCHEMA_VERSION}'.",
+                )
+            )
+
+    _validate_section(raw, "identity", issues)
+    _validate_section(raw, "source_requirements", issues)
+    _validate_section(raw, "contract", issues)
+    _validate_section(raw, "analysis", issues)
+    return issues
+
+
+def _validate_section(
+    raw: Mapping[object, object],
+    section: str,
+    issues: list[RecipeValidationIssue],
+) -> None:
+    """Validate one present Recipe section."""
+    if section not in raw:
+        return
+    value = raw[section]
+    if not isinstance(value, Mapping):
+        issues.append(
+            _issue(
+                "invalid_type",
+                section,
+                None,
+                f"Section '{section}' must be a mapping.",
+            )
+        )
+        return
+
+    if any(not isinstance(key, str) for key in value):
+        issues.append(
+            _issue(
+                "invalid_json_key",
+                section,
+                None,
+                f"Field names in section '{section}' must be strings.",
+            )
+        )
+    string_keys = {key for key in value if isinstance(key, str)}
+    for field in _REQUIRED_SECTION_FIELDS[section]:
+        if field not in string_keys:
+            issues.append(
+                _issue(
+                    "missing_field",
+                    section,
+                    field,
+                    f"Missing required field '{section}.{field}'.",
+                )
+            )
+    for field in sorted(string_keys - _SECTION_FIELDS[section]):
+        issues.append(
+            _issue(
+                "unknown_field",
+                section,
+                field,
+                f"Unknown field '{section}.{field}'.",
+            )
+        )
+
+    if section == "identity":
+        _validate_named_string(value, section, "recipe_id", issues)
+        _validate_named_string(value, section, "recipe_version", issues)
+    elif section == "source_requirements":
+        _validate_optional_named_string(value, section, "source_experiment", issues)
+        _validate_string_list(value, section, "required_metric_names", issues)
+        _validate_string_list(value, section, "required_artifact_paths", issues)
+    elif section == "contract":
+        _validate_named_string(value, section, "contract_id", issues)
+        _validate_named_string(value, section, "contract_version", issues)
+    elif section == "analysis":
+        _validate_string_list(value, section, "metric_names", issues)
+        _validate_policy_bindings(value, issues)
+
+
+def _validate_named_string(
+    mapping: Mapping[object, object],
+    section: str,
+    field: str,
+    issues: list[RecipeValidationIssue],
+) -> None:
+    """Validate a present required string field."""
+    if field in mapping:
+        _validate_nonempty_string(mapping[field], section=section, field=field, issues=issues)
+
+
+def _validate_optional_named_string(
+    mapping: Mapping[object, object],
+    section: str,
+    field: str,
+    issues: list[RecipeValidationIssue],
+) -> None:
+    """Validate an optional string whose explicit null is invalid."""
+    if field in mapping:
+        _validate_nonempty_string(mapping[field], section=section, field=field, issues=issues)
+
+
+def _validate_nonempty_string(
+    value: object,
+    *,
+    section: str,
+    field: str,
+    issues: list[RecipeValidationIssue],
+) -> bool:
+    """Validate a nonempty string and report one located issue."""
+    location = f"{section}.{field}"
     if not isinstance(value, str):
-        raise ValueError(f"Field '{section_name}.{key}' must be a string.")
-    if not value:
-        raise ValueError(f"Field '{section_name}.{key}' must be non-empty.")
-    return value
+        issues.append(
+            _issue(
+                "invalid_type",
+                section,
+                field,
+                f"Field '{location}' must be a string.",
+            )
+        )
+        return False
+    if not value.strip():
+        issues.append(
+            _issue(
+                "empty_value",
+                section,
+                field,
+                f"Field '{location}' must be non-empty.",
+            )
+        )
+        return False
+    return True
 
 
-def _optional_string(section: Mapping[str, object], key: str, section_name: str) -> str | None:
-    """Return one optional non-empty string field from a section.
+def _validate_string_list(
+    mapping: Mapping[object, object],
+    section: str,
+    field: str,
+    issues: list[RecipeValidationIssue],
+) -> None:
+    """Validate one optional unique list of nonempty strings."""
+    if field not in mapping:
+        return
+    value = mapping[field]
+    location = f"{section}.{field}"
+    if not isinstance(value, list):
+        issues.append(
+            _issue(
+                "invalid_type",
+                section,
+                field,
+                f"Field '{location}' must be a list of strings.",
+            )
+        )
+        return
 
-    Args:
-        section: Section mapping containing the field.
-        key: Optional field key.
-        section_name: Section name used in deterministic error messages.
-
-    Returns:
-        Optional non-empty string value, or ``None`` when omitted.
-
-    Raises:
-        ValueError: If the field is provided and is non-string or empty.
-    """
-    if key not in section or section[key] is None:
-        return None
-    value = section[key]
-    if not isinstance(value, str):
-        raise ValueError(f"Field '{section_name}.{key}' must be a string when provided.")
-    if not value:
-        raise ValueError(f"Field '{section_name}.{key}' must be non-empty when provided.")
-    return value
-
-
-def _optional_string_tuple(
-    section: Mapping[str, object],
-    key: str,
-    section_name: str,
-) -> tuple[str, ...]:
-    """Return an optional sequence of non-empty strings as an immutable tuple.
-
-    Args:
-        section: Section mapping containing the field.
-        key: Optional field key.
-        section_name: Section name used in deterministic error messages.
-
-    Returns:
-        Tuple of string values. Returns empty tuple when omitted.
-
-    Raises:
-        ValueError: If provided value is not a sequence of non-empty strings.
-    """
-    if key not in section or section[key] is None:
-        return ()
-
-    raw_value = section[key]
-    if isinstance(raw_value, str) or not isinstance(raw_value, Sequence):
-        raise ValueError(f"Field '{section_name}.{key}' must be a sequence of strings.")
-
-    values: list[str] = []
-    for item in raw_value:
+    seen: set[str] = set()
+    duplicate_reported = False
+    for index, item in enumerate(value):
+        item_field = f"{field}[{index}]"
         if not isinstance(item, str):
-            raise ValueError(f"Field '{section_name}.{key}' must contain only strings.")
-        if not item:
-            raise ValueError(f"Field '{section_name}.{key}' must not contain empty strings.")
-        values.append(item)
-    return tuple(values)
+            issues.append(
+                _issue(
+                    "invalid_type",
+                    section,
+                    item_field,
+                    f"Field '{section}.{item_field}' must be a string.",
+                )
+            )
+            continue
+        if not item.strip():
+            issues.append(
+                _issue(
+                    "empty_value",
+                    section,
+                    item_field,
+                    f"Field '{section}.{item_field}' must be non-empty.",
+                )
+            )
+        if item in seen and not duplicate_reported:
+            issues.append(
+                _issue(
+                    "duplicate_value",
+                    section,
+                    field,
+                    f"Field '{location}' must not contain duplicate values.",
+                )
+            )
+            duplicate_reported = True
+        seen.add(item)
+
+
+def _validate_policy_bindings(
+    analysis: Mapping[object, object],
+    issues: list[RecipeValidationIssue],
+) -> None:
+    """Validate optional three-state Finding-policy authoring."""
+    field = "finding_policy_bindings"
+    if field not in analysis:
+        return
+    value = analysis[field]
+    if not isinstance(value, list):
+        issues.append(
+            _issue(
+                "invalid_type",
+                "analysis",
+                field,
+                "Field 'analysis.finding_policy_bindings' must be a list.",
+            )
+        )
+        return
+
+    seen: set[tuple[str, str]] = set()
+    for index, binding in enumerate(value):
+        prefix = f"finding_policy_bindings[{index}]"
+        if not isinstance(binding, Mapping):
+            issues.append(
+                _issue(
+                    "invalid_type",
+                    "analysis",
+                    prefix,
+                    f"Field 'analysis.{prefix}' must be a mapping.",
+                )
+            )
+            continue
+        if any(not isinstance(key, str) for key in binding):
+            issues.append(
+                _issue(
+                    "invalid_json_key",
+                    "analysis",
+                    prefix,
+                    f"Field names in 'analysis.{prefix}' must be strings.",
+                )
+            )
+        string_keys = {key for key in binding if isinstance(key, str)}
+        for required_field in _REQUIRED_POLICY_BINDING_FIELDS:
+            if required_field not in string_keys:
+                located = f"{prefix}.{required_field}"
+                issues.append(
+                    _issue(
+                        "missing_field",
+                        "analysis",
+                        located,
+                        f"Missing required field 'analysis.{located}'.",
+                    )
+                )
+        for unknown_field in sorted(string_keys - _POLICY_BINDING_FIELDS):
+            located = f"{prefix}.{unknown_field}"
+            issues.append(
+                _issue(
+                    "unknown_field",
+                    "analysis",
+                    located,
+                    f"Unknown field 'analysis.{located}'.",
+                )
+            )
+
+        policy_id = binding.get("finding_policy_id")
+        policy_version = binding.get("finding_policy_version")
+        id_valid = False
+        version_valid = False
+        if "finding_policy_id" in binding:
+            id_valid = _validate_nonempty_string(
+                policy_id,
+                section="analysis",
+                field=f"{prefix}.finding_policy_id",
+                issues=issues,
+            )
+        if "finding_policy_version" in binding:
+            version_valid = _validate_nonempty_string(
+                policy_version,
+                section="analysis",
+                field=f"{prefix}.finding_policy_version",
+                issues=issues,
+            )
+        if id_valid and version_valid:
+            identity = (_as_string(policy_id), _as_string(policy_version))
+            if identity in seen:
+                issues.append(
+                    _issue(
+                        "duplicate_value",
+                        "analysis",
+                        prefix,
+                        "Finding-policy identity/version pairs must be unique.",
+                    )
+                )
+            seen.add(identity)
+
+        if "parameters" in binding:
+            parameters = binding["parameters"]
+            parameter_field = f"{prefix}.parameters"
+            if not isinstance(parameters, Mapping):
+                issues.append(
+                    _issue(
+                        "invalid_type",
+                        "analysis",
+                        parameter_field,
+                        f"Field 'analysis.{parameter_field}' must be a mapping.",
+                    )
+                )
+            else:
+                _validate_json_mapping(parameters, "analysis", parameter_field, issues)
+
+
+def _validate_json_mapping(
+    value: Mapping[object, object],
+    section: str,
+    field: str,
+    issues: list[RecipeValidationIssue],
+) -> None:
+    """Validate one recursively JSON-compatible parameter mapping."""
+    if any(not isinstance(key, str) for key in value):
+        issues.append(
+            _issue(
+                "invalid_json_key",
+                section,
+                field,
+                f"Field '{section}.{field}' must contain only string object keys.",
+            )
+        )
+    for key in sorted(key for key in value if isinstance(key, str)):
+        _validate_json_value(value[key], section, f"{field}.{key}", issues)
+
+
+def _validate_json_value(
+    value: object,
+    section: str,
+    field: str,
+    issues: list[RecipeValidationIssue],
+) -> None:
+    """Validate a recursively JSON-compatible value with finite numbers."""
+    if value is None or isinstance(value, str | bool | int):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            issues.append(
+                _issue(
+                    "non_finite_number",
+                    section,
+                    field,
+                    f"Field '{section}.{field}' must contain only finite numbers.",
+                )
+            )
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_json_value(item, section, f"{field}[{index}]", issues)
+        return
+    if isinstance(value, Mapping):
+        _validate_json_mapping(value, section, field, issues)
+        return
+    issues.append(
+        _issue(
+            "invalid_json_value",
+            section,
+            field,
+            f"Field '{section}.{field}' must contain a JSON-compatible value.",
+        )
+    )
+
+
+def _parsed_policy_bindings(
+    analysis: Mapping[str, object],
+) -> tuple[RecipeFindingPolicyBinding, ...] | None:
+    """Build parsed policy bindings after validation succeeds."""
+    if "finding_policy_bindings" not in analysis:
+        return None
+    raw_bindings = analysis["finding_policy_bindings"]
+    assert isinstance(raw_bindings, list)
+    bindings: list[RecipeFindingPolicyBinding] = []
+    for raw_binding in raw_bindings:
+        binding = _as_mapping(raw_binding)
+        parameters = binding.get("parameters", {})
+        assert isinstance(parameters, Mapping)
+        bindings.append(
+            RecipeFindingPolicyBinding(
+                finding_policy_id=_as_string(binding["finding_policy_id"]),
+                finding_policy_version=_as_string(binding["finding_policy_version"]),
+                parameters=_freeze_json_mapping(parameters),
+            )
+        )
+    return tuple(bindings)
+
+
+def _freeze_json_mapping(value: Mapping[object, object]) -> FrozenRecipeParameters:
+    """Defensively copy a valid JSON mapping into immutable values."""
+    return MappingProxyType(
+        {
+            key: _freeze_json_value(value[key])
+            for key in sorted(key for key in value if isinstance(key, str))
+        }
+    )
+
+
+def _freeze_json_value(value: object) -> FrozenRecipeJSONValue:
+    """Defensively copy one valid JSON value into immutable containers."""
+    if isinstance(value, Mapping):
+        return _freeze_json_mapping(value)
+    if isinstance(value, list):
+        return tuple(_freeze_json_value(item) for item in value)
+    assert value is None or isinstance(value, str | int | float | bool)
+    return value
+
+
+def _parsed_optional_string_tuple(
+    mapping: Mapping[str, object],
+    field: str,
+) -> tuple[str, ...] | None:
+    """Return None for omission and a tuple for an authored list."""
+    if field not in mapping:
+        return None
+    return _parsed_string_tuple(mapping, field)
+
+
+def _parsed_string_tuple(mapping: Mapping[str, object], field: str) -> tuple[str, ...]:
+    """Build a tuple from a validated optional string list."""
+    if field not in mapping:
+        return ()
+    value = mapping[field]
+    assert isinstance(value, list)
+    return tuple(_as_string(item) for item in value)
+
+
+def _optional_parsed_string(mapping: Mapping[str, object], field: str) -> str | None:
+    """Build an optional string after validation succeeds."""
+    if field not in mapping:
+        return None
+    return _as_string(mapping[field])
+
+
+def _optional_mapping(raw: Mapping[str, object], field: str) -> Mapping[str, object]:
+    """Return a validated optional mapping or an empty mapping."""
+    if field not in raw:
+        return MappingProxyType({})
+    return _as_mapping(raw[field])
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    """Narrow a mapping value after validation succeeds."""
+    assert isinstance(value, Mapping)
+    return value
+
+
+def _as_string(value: object) -> str:
+    """Narrow a string value after validation succeeds."""
+    assert isinstance(value, str)
+    return value
+
+
+def _issue(
+    code: str,
+    section: str,
+    field: str | None,
+    message: str,
+) -> RecipeValidationIssue:
+    """Build one deterministic located Recipe issue."""
+    return RecipeValidationIssue(code=code, section=section, field=field, message=message)
