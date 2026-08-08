@@ -162,6 +162,18 @@ class CompiledRecipe:
     contract: Contract
     finding_policy_bindings: tuple[CompiledFindingPolicyBinding, ...]
 
+    def __post_init__(self) -> None:
+        """Ensure the plan and contract represent same id and version."""
+        expcted = (
+            self.effective_plan.contract.contract_id,
+            self.effective_plan.contract.contract_version,
+        )
+        actual = (self.contract.contract_id, self.contract.version)
+        if expcted != actual:
+            raise ValueError(
+                f"Mismatch between effective plan contract {expcted} and resolved contract {actual}"
+            )
+
     @property
     def identity(self) -> RecipeIdentity:
         """Return the compiled Recipe identity."""
