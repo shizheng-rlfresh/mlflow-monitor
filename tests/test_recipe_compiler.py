@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import FrozenInstanceError, replace
+from types import MappingProxyType
 
 import pytest
 
 from mlflow_monitor.builtins import SYSTEM_DEFAULT_CONTRACT_ID
+from mlflow_monitor.domain import (
+    CompatibilityEvidence,
+    Diff,
+    FindingDraft,
+    ReferenceComparisonCoverage,
+)
 from mlflow_monitor.errors import RecipeValidationError
+from mlflow_monitor.finding_policy import (
+    FrozenFindingPolicyParameters,
+    JSONValue,
+)
 from mlflow_monitor.recipe import build_system_default_recipe, parse_recipe
 from mlflow_monitor.recipe_compiler import (
     SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
@@ -20,8 +32,38 @@ from mlflow_monitor.recipe_compiler import (
 )
 
 
-def test_component_registry_contains_only_immutable_system_components() -> None:
-    registry = ComponentRegistry()
+class _CustomFindingPolicy:
+    finding_policy_id = "custom-regression"
+    finding_policy_version = "v1"
+
+    def validate_parameters(
+        self,
+        parameters: Mapping[str, JSONValue],
+    ) -> FrozenFindingPolicyParameters:
+        maximum_decrease = parameters.get("maximum_decrease", 0.1)
+        if not isinstance(maximum_decrease, float) or not 0 <= maximum_decrease <= 1:
+            raise ValueError("maximum_decrease must be a float between zero and one")
+        return MappingProxyType({"maximum_decrease": maximum_decrease, "severity": "high"})
+
+    def evaluate(
+        self,
+        *,
+        parameters: FrozenFindingPolicyParameters,
+        diffs: tuple[Diff, ...],
+        compatibility_evidence: tuple[CompatibilityEvidence, ...],
+        reference_comparison_coverage: tuple[ReferenceComparisonCoverage, ...],
+    ) -> tuple[FindingDraft, ...]:
+        return ()
+
+
+class _SystemPolicyOverride(_CustomFindingPolicy):
+    finding_policy_id = SYSTEM_COMPATIBILITY_FINDING_POLICY_ID
+    finding_policy_version = SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION
+
+
+def test_component_registry_adds_immutable_custom_finding_policies() -> None:
+    policy = _CustomFindingPolicy()
+    registry = ComponentRegistry(finding_policies=(policy,))
 
     assert tuple(registry.contracts) == ((SYSTEM_DEFAULT_CONTRACT_ID, "v0"),)
     assert tuple(registry.finding_policies) == (
@@ -29,6 +71,7 @@ def test_component_registry_contains_only_immutable_system_components() -> None:
             SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
             SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
         ),
+        (policy.finding_policy_id, policy.finding_policy_version),
     )
     with pytest.raises(TypeError):
         registry.contracts[("custom", "1")] = registry.contracts[  # type: ignore[index]
@@ -41,6 +84,106 @@ def test_component_registry_contains_only_immutable_system_components() -> None:
                 SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
             )
         ]
+
+
+def test_component_registry_rejects_duplicate_policy_identity() -> None:
+    policy = _CustomFindingPolicy()
+
+    with pytest.raises(ValueError, match="custom-regression@v1"):
+        ComponentRegistry(finding_policies=(policy, policy))
+
+    with pytest.raises(ValueError, match="system-compatibility-findings@v0"):
+        ComponentRegistry(finding_policies=(_SystemPolicyOverride(),))
+
+
+def test_compile_recipe_resolves_custom_finding_policy_and_its_parameters() -> None:
+    policy = _CustomFindingPolicy()
+    raw = build_system_default_recipe()
+    raw["analysis"] = {
+        "finding_policy_bindings": [
+            {
+                "finding_policy_id": policy.finding_policy_id,
+                "finding_policy_version": policy.finding_policy_version,
+                "parameters": {"maximum_decrease": 0.2},
+            }
+        ]
+    }
+
+    compiled = compile_recipe(raw, component_registry=ComponentRegistry(finding_policies=(policy,)))
+
+    assert compiled.finding_policy_bindings[0].policy is policy
+    assert compiled.effective_plan.analysis.finding_policy_bindings[0].parameters == {
+        "maximum_decrease": 0.2,
+        "severity": "high",
+    }
+    assert (
+        json.loads(json.dumps(compiled.effective_plan.to_dict()))
+        == compiled.effective_plan.to_dict()
+    )
+
+
+def test_compile_recipe_keeps_custom_policy_opt_in_and_orders_explicit_bindings() -> None:
+    policy = _CustomFindingPolicy()
+    registry = ComponentRegistry(finding_policies=(policy,))
+
+    assert compile_recipe(
+        component_registry=registry
+    ).effective_plan.analysis.finding_policy_bindings == (
+        SYSTEM_DEFAULT_COMPILED_RECIPE.effective_plan.analysis.finding_policy_bindings
+    )
+
+    raw = build_system_default_recipe()
+    raw["analysis"] = {
+        "finding_policy_bindings": [
+            {
+                "finding_policy_id": SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+                "finding_policy_version": SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+            },
+            {
+                "finding_policy_id": policy.finding_policy_id,
+                "finding_policy_version": policy.finding_policy_version,
+            },
+        ]
+    }
+
+    compiled = compile_recipe(raw, component_registry=registry)
+
+    assert [
+        (binding.finding_policy_id, binding.finding_policy_version)
+        for binding in compiled.effective_plan.analysis.finding_policy_bindings
+    ] == [
+        (policy.finding_policy_id, policy.finding_policy_version),
+        (
+            SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+            SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+        ),
+    ]
+
+
+def test_compile_recipe_rejects_custom_policy_invalid_parameters_and_unknown_version() -> None:
+    policy = _CustomFindingPolicy()
+    registry = ComponentRegistry(finding_policies=(policy,))
+    raw = build_system_default_recipe()
+    raw["analysis"] = {
+        "finding_policy_bindings": [
+            {
+                "finding_policy_id": policy.finding_policy_id,
+                "finding_policy_version": policy.finding_policy_version,
+                "parameters": {"maximum_decrease": 2.0},
+            }
+        ]
+    }
+
+    with pytest.raises(RecipeValidationError) as exc_info:
+        compile_recipe(raw, component_registry=registry)
+
+    assert exc_info.value.issues[0].code == "invalid_policy_parameters"
+
+    raw["analysis"]["finding_policy_bindings"][0]["finding_policy_version"] = "v2"
+    with pytest.raises(RecipeValidationError) as exc_info:
+        compile_recipe(raw, component_registry=registry)
+
+    assert exc_info.value.issues[0].code == "unknown_component"
 
 
 def test_compile_recipe_zero_configuration_expands_system_defaults() -> None:

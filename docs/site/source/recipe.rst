@@ -61,9 +61,11 @@ parser. Compilation expands defaults, canonicalizes ordering, resolves the exact
 Contract and Finding-policy bindings, validates policy parameters, and returns an
 immutable ``CompiledRecipe`` with a JSON-serializable effective plan.
 
-The current ``ComponentRegistry`` intentionally contains only the packaged system
-Contract and ``system-compatibility-findings@v0`` policy. It accepts no user
-components; custom Contracts are outside the v0 boundary.
+``ComponentRegistry`` always includes the packaged system Contract and
+``system-compatibility-findings@v0`` policy. It may also receive additional
+Finding policies, each registered by its exact ID and version; duplicate
+identities, including the packaged policy identity, are rejected. Custom
+Contracts remain outside the v0 boundary.
 
 
 Recipe Compiler

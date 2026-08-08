@@ -30,8 +30,15 @@ type FrozenFindingPolicyParameters = Mapping[str, FrozenJSONValue]
 class FindingPolicy(Protocol):
     """Registered extension point for versioned Finding interpretation."""
 
-    finding_policy_id: str
-    finding_policy_version: str
+    @property
+    def finding_policy_id(self) -> str:
+        """Return the stable policy identifier."""
+        ...
+
+    @property
+    def finding_policy_version(self) -> str:
+        """Return the exact policy version."""
+        ...
 
     def validate_parameters(
         self,

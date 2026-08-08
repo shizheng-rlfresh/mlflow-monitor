@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
@@ -192,19 +192,43 @@ class CompiledRecipe:
 
 @dataclass(frozen=True, slots=True, init=False)
 class ComponentRegistry:
-    """Minimal immutable registry containing the v0 system components.
+    """Immutable registry containing system components and custom Finding policies.
 
     Attributes:
         contracts: System Contracts indexed by exact identity and version.
-        finding_policies: System policies indexed by exact identity and version.
+        finding_policies: System and custom policies indexed by exact identity and
+            version.
     """
 
     contracts: Mapping[tuple[str, str], Contract]
     finding_policies: Mapping[tuple[str, str], FindingPolicy]
 
-    def __init__(self) -> None:
-        """Construct the fixed system-only component registry."""
+    def __init__(self, *, finding_policies: Sequence[FindingPolicy] = ()) -> None:
+        """Construct the registry with optional custom Finding policies.
+
+        Args:
+            finding_policies: Additional policies to register by exact ID and
+                version. Duplicate identities, including system identities, are
+                rejected.
+
+        Raises:
+            ValueError: If more than one policy has the same ID and version.
+        """
         contract = resolve_contract_v0(SYSTEM_DEFAULT_CONTRACT_ID)
+        policies: dict[tuple[str, str], FindingPolicy] = {
+            (
+                SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
+                SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
+            ): SYSTEM_COMPATIBILITY_FINDING_POLICY
+        }
+        for policy in finding_policies:
+            identity = (policy.finding_policy_id, policy.finding_policy_version)
+            if identity in policies:
+                policy_identity = f"{policy.finding_policy_id}@{policy.finding_policy_version}"
+                raise ValueError(
+                    f"Finding policy identity {policy_identity} is already registered."
+                )
+            policies[identity] = policy
         object.__setattr__(
             self,
             "contracts",
@@ -213,14 +237,7 @@ class ComponentRegistry:
         object.__setattr__(
             self,
             "finding_policies",
-            MappingProxyType(
-                {
-                    (
-                        SYSTEM_COMPATIBILITY_FINDING_POLICY_ID,
-                        SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION,
-                    ): SYSTEM_COMPATIBILITY_FINDING_POLICY
-                }
-            ),
+            MappingProxyType(policies),
         )
 
 
