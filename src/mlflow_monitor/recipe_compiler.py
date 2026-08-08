@@ -339,12 +339,16 @@ def compile_recipe(
     contract_key = (parsed.contract.contract_id, parsed.contract.contract_version)
     contract = registry.contracts.get(contract_key)
     if contract is None:
+        contract_id_exists = any(
+            registered_id == parsed.contract.contract_id for registered_id, _ in registry.contracts
+        )
+        field = "contract_version" if contract_id_exists else "contract_id"
         raise RecipeValidationError(
             issues=(
                 RecipeValidationIssue(
                     code="unknown_component",
                     section="contract",
-                    field="contract_id",
+                    field=field,
                     message="Recipe Contract identity/version is not registered.",
                 ),
             )
