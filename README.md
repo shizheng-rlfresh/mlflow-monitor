@@ -80,8 +80,9 @@ for `main`.
 
 ## Architecture and Worldview
 
-The current [architecture](docs/site/source/architecture.md) and
-[worldview](docs/site/source/worldview.md) pages are retained MVP-staged presentation
+For the active development line, start with the [worldview](docs/site/source/v0-worldview.md)
+and [architecture](docs/site/source/v0-architecture.md). The [MVP documentation](docs/site/source/mvp.rst)
+describes what `v0.1.0` shipped and links to its preserved original presentation
 documents.
 
 ## Development Setup
