@@ -17,12 +17,12 @@ A v0 Recipe requires ``recipe_schema_version``, ``identity``, and an exact
    {
      "recipe_schema_version": "v0",
      "identity": {
-       "recipe_id": "churn-monitoring",
+       "recipe_id": "fraud-model-monitoring",
        "recipe_version": "3"
      },
      "source_requirements": {
-       "source_experiment": "training/churn",
-       "required_metric_names": ["accuracy"],
+       "source_experiment": "training/fraud_model",
+       "required_metric_names": ["pr_auc"],
        "required_artifact_paths": ["model/MLmodel"]
      },
      "contract": {
@@ -30,7 +30,7 @@ A v0 Recipe requires ``recipe_schema_version``, ``identity``, and an exact
        "contract_version": "v0"
      },
      "analysis": {
-       "metric_names": ["accuracy", "latency_p95"],
+       "metric_names": ["pr_auc", "precision", "recall"],
        "finding_policy_bindings": []
      }
    }
