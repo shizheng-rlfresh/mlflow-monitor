@@ -233,7 +233,20 @@ def load_recipe_json(path: str | PathLike[str]) -> Recipe:
         RecipeValidationError: If JSON decoding or Recipe validation fails.
     """
     try:
-        decoded = json.loads(Path(path).read_text(encoding="utf-8"))
+        text = Path(path).read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise RecipeValidationError(
+            issues=(
+                RecipeValidationIssue(
+                    code="invalid_encoding",
+                    section="recipe",
+                    field=None,
+                    message="Recipe file must be UTF-8 encoded.",
+                ),
+            )
+        ) from exc
+    try:
+        decoded = json.loads(text)
     except json.JSONDecodeError as exc:
         raise RecipeValidationError(
             issues=(
