@@ -423,9 +423,7 @@ class MonitorMLflowClient:
             data: JSON-serializable dictionary payload.
             path: Artifact path such as `outputs/result.json`.
         """
-        for key, value in data.items():
-            if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-                raise ValueError(f"Infinite or NaN value detected for key '{key}': {value}")
+        self._validate_finite_values(data)
 
         self._client.log_dict(monitoring_run_id, data, path)
 
@@ -495,3 +493,12 @@ class MonitorMLflowClient:
     def _get_experiment_by_name(self, name: str) -> Experiment | None:
         """Return the raw MLflow experiment for internal lifecycle-aware flows."""
         return self._client.get_experiment_by_name(name)
+
+    def _validate_finite_values(self, value: Any) -> None:
+        """Validate that a float value is finite."""
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            raise ValueError(f"Infinite or NaN value detected: {value}")
+        if isinstance(value, dict):
+            for sub_value in value.values():
+                self._validate_finite_values(sub_value)
+        return
