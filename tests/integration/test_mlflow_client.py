@@ -318,3 +318,67 @@ def test_log_json_artifact_writes_requested_json_path(
     payload = json.loads((artifact_dir / "result.json").read_text())
 
     assert payload == {"status": "ok"}
+
+
+def test_read_json_artifact_distinguishes_existing_from_missing(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
+    client = MonitorMLflowClient(tracking_uri=tracking_uri)
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    experiment_id = client.get_or_create_monitoring_experiment(
+        "churn-monitoring",
+        artifact_location=artifact_root_uri,
+    )
+    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={}).run_id
+    raw.log_dict(
+        monitoring_run_id,
+        {"location": "state"},
+        "state/shared-name.json",
+    )
+
+    assert (
+        client.read_monitoring_run_json_artifact(
+            monitoring_run_id,
+            "state/shared-name.json",
+        )
+        is not None
+    )
+    assert (
+        client.read_monitoring_run_json_artifact(
+            monitoring_run_id,
+            "state/missing.json",
+        )
+        is None
+    )
+
+
+def test_log_json_artifact_has_deterministic_canonical_bytes(
+    tracking_uri: str,
+    artifact_root_uri: str,
+) -> None:
+    client = MonitorMLflowClient(tracking_uri=tracking_uri)
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    experiment_id = client.get_or_create_monitoring_experiment(
+        "churn-monitoring",
+        artifact_location=artifact_root_uri,
+    )
+    monitoring_run_id = client.create_monitoring_run(experiment_id, tags={}).run_id
+
+    client.log_monitoring_run_json_artifact(
+        monitoring_run_id,
+        {"z": 1, "a": {"z": 2, "a": "café"}},
+        "canonical/first.json",
+    )
+    client.log_monitoring_run_json_artifact(
+        monitoring_run_id,
+        {"a": {"a": "café", "z": 2}, "z": 1},
+        "canonical/second.json",
+    )
+
+    artifact_dir = Path(raw.download_artifacts(monitoring_run_id, "canonical"))
+    first = (artifact_dir / "first.json").read_text(encoding="utf-8")
+    second = (artifact_dir / "second.json").read_text(encoding="utf-8")
+
+    assert first == second
+    assert json.loads(first) == {"a": {"a": "café", "z": 2}, "z": 1}

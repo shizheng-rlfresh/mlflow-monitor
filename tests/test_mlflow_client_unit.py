@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 from mlflow.entities import Experiment, Run, ViewType
 from mlflow.exceptions import MlflowException
-from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS, RESOURCE_DOES_NOT_EXIST
+from mlflow.protos.databricks_pb2 import (
+    INTERNAL_ERROR,
+    RESOURCE_ALREADY_EXISTS,
+    RESOURCE_DOES_NOT_EXIST,
+)
 
 from mlflow_monitor.mlflow_client import MonitorMLflowClient
 
@@ -320,3 +325,82 @@ def test_get_run_experiment_name_returns_none_when_experiment_cannot_be_resolved
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_run_experiment_name("run-123") is None
+
+
+def test_read_monitoring_run_json_artifact_downloads_the_exact_requested_path(
+    tmp_path: Path,
+) -> None:
+    artifact_path = tmp_path / "prepared_context.json"
+    artifact_path.write_text("{}", encoding="utf-8")
+    stub_client = MagicMock()
+    stub_client.download_artifacts.return_value = str(artifact_path)
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    client.read_monitoring_run_json_artifact(
+        "monitoring-run-1",
+        "state/prepared_context.json",
+    )
+    stub_client.download_artifacts.assert_called_once_with(
+        "monitoring-run-1",
+        "state/prepared_context.json",
+    )
+
+
+def test_read_monitoring_run_json_artifact_returns_none_when_artifact_is_missing() -> None:
+    stub_client = MagicMock()
+    stub_client.download_artifacts.side_effect = MlflowException(
+        "Artifact is missing.",
+        error_code=RESOURCE_DOES_NOT_EXIST,
+    )
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    assert (
+        client.read_monitoring_run_json_artifact(
+            "monitoring-run-1",
+            "state/prepared_context.json",
+        )
+        is None
+    )
+
+
+def test_read_monitoring_run_json_artifact_propagates_transport_failure() -> None:
+    transport_error = MlflowException(
+        "Artifact transport failed.",
+        error_code=INTERNAL_ERROR,
+    )
+    stub_client = MagicMock()
+    stub_client.download_artifacts.side_effect = transport_error
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    with pytest.raises(MlflowException) as exc_info:
+        client.read_monitoring_run_json_artifact(
+            "monitoring-run-1",
+            "state/prepared_context.json",
+        )
+
+    assert exc_info.value is transport_error
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_log_monitoring_run_json_artifact_rejects_non_finite_numbers(
+    value: float,
+) -> None:
+    stub_client = MagicMock()
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    with pytest.raises(ValueError):
+        client.log_monitoring_run_json_artifact(
+            "monitoring-run-1",
+            {"nested": {"value": value}},
+            "state/prepared_context.json",
+        )
+
+    assert not stub_client.method_calls

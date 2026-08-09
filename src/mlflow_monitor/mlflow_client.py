@@ -26,6 +26,9 @@ What does not belong here:
 
 from __future__ import annotations
 
+import json
+import math
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -420,7 +423,38 @@ class MonitorMLflowClient:
             data: JSON-serializable dictionary payload.
             path: Artifact path such as `outputs/result.json`.
         """
+        for key, value in data.items():
+            if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                raise ValueError(f"Infinite or NaN value detected for key '{key}': {value}")
+
         self._client.log_dict(monitoring_run_id, data, path)
+
+    def read_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+    ) -> dict[str, Any] | None:
+        """Read one JSON artifact from a monitoring run.
+
+        Args:
+            monitoring_run_id: Monitoring run identifier that owns the artifact.
+            path: Artifact path such as `outputs/result.json`.
+
+        Returns:
+            The decoded JSON dictionary when the artifact exists, otherwise `None`.
+        """
+        try:
+            local_path = self._client.download_artifacts(monitoring_run_id, path)
+        except MlflowException as exc:
+            if _normalize_error_code(exc.error_code) != _RESOURCE_DOES_NOT_EXIST:
+                raise
+            return None
+
+        if not os.path.exists(local_path):
+            return None
+
+        with open(local_path, encoding="utf-8") as f:
+            return json.load(f)
 
     def _list_artifact_paths_recursive(self, run_id: str, path: str | None) -> list[str]:
         """Collect file artifact paths under one optional artifact prefix."""
