@@ -827,7 +827,7 @@ class InMemoryMonitoringGateway:
             message=(
                 "Existing monitoring run JSON artifact is inconsistent with the requested data."
             ),
-            details=(("monitoring_run_id", monitoring_run_id),),
+            details=(("monitoring_run_id", monitoring_run_id), ("path", path)),
         )
 
     def _encode_monitoring_run_json_artifact(

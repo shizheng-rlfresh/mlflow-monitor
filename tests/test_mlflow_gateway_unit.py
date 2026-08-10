@@ -485,6 +485,69 @@ def test_create_or_reuse_monitoring_run_writes_idempotency_tag_last() -> None:
     ]
 
 
+def test_write_monitoring_run_json_artifact_rejects_run_outside_monitoring_namespace() -> None:
+    stub_client = MagicMock()
+    stub_client.get_run_experiment_name.return_value = "training/churn"
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayNamespaceViolation, match="monitoring namespace"):
+        gateway.write_monitoring_run_json_artifact(
+            monitoring_run_id="train-run-1",
+            data={"value": 1},
+            path="state/prepared_context.json",
+        )
+
+    stub_client.get_run_tags.assert_not_called()
+    stub_client.read_monitoring_run_json_artifact.assert_not_called()
+    stub_client.log_monitoring_run_json_artifact.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "missing_tag",
+    [
+        "training.source_run_id",
+        "monitoring.sequence_index",
+        "monitoring.lifecycle_status",
+        "monitoring.recipe_id",
+        "monitoring.recipe_version",
+    ],
+)
+def test_write_monitoring_run_json_artifact_rejects_missing_allocation_tag(
+    missing_tag: str,
+) -> None:
+    stub_client = MagicMock()
+    stub_client.get_run_experiment_name.return_value = "mlflow_monitor/churn_model"
+    stub_client.get_run_tags.return_value = {
+        "training.source_run_id": "train-run-1",
+        "monitoring.sequence_index": "0",
+        "monitoring.lifecycle_status": "created",
+        "monitoring.recipe_id": "system_default",
+        "monitoring.recipe_version": "v0",
+    }
+    del stub_client.get_run_tags.return_value[missing_tag]
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.write_monitoring_run_json_artifact(
+            monitoring_run_id="monitoring-run-1",
+            data={"value": 1},
+            path="state/prepared_context.json",
+        )
+
+    assert exc_info.value.code == "monitoring_allocation_inconsistent"
+    assert exc_info.value.details == (
+        ("reason", "invalid_allocation"),
+        ("monitoring_run_id", "monitoring-run-1"),
+        ("missing_tags", missing_tag),
+    )
+    stub_client.read_monitoring_run_json_artifact.assert_not_called()
+    stub_client.log_monitoring_run_json_artifact.assert_not_called()
+
+
 def test_finalize_monitoring_run_result_rejects_mismatched_run_id_before_side_effects() -> None:
     stub_client = MagicMock()
 
