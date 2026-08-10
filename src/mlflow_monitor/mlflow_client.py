@@ -38,6 +38,8 @@ from mlflow.entities import Experiment, Run, ViewType
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS, RESOURCE_DOES_NOT_EXIST
 
+from mlflow_monitor.utils import canonical_json
+
 _RESOURCE_ALREADY_EXISTS = "RESOURCE_ALREADY_EXISTS"
 _RESOURCE_DOES_NOT_EXIST = "RESOURCE_DOES_NOT_EXIST"
 
@@ -422,19 +424,7 @@ class MonitorMLflowClient:
             data: JSON-serializable dictionary payload.
             path: Artifact path such as `outputs/result.json`.
         """
-        try:
-            encoded = json.dumps(
-                obj=data,
-                ensure_ascii=False,
-                allow_nan=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-        except ValueError as exc:
-            raise ValueError(f"Infinite or NaN value detected in JSON artifact: {exc}") from exc
-        except TypeError as exc:
-            raise ValueError(f"Non-serializable value detected in JSON artifact: {exc}") from exc
-
+        encoded = canonical_json(data)
         self._client.log_text(monitoring_run_id, encoded, path)
 
     def read_monitoring_run_json_artifact(
@@ -462,7 +452,8 @@ class MonitorMLflowClient:
             return None
 
         with open(local_path, encoding="utf-8") as f:
-            return json.load(f)
+            artifact = json.load(f)
+            return artifact if artifact is not None else {}
 
     def _list_artifact_paths_recursive(self, run_id: str, path: str | None) -> list[str]:
         """Collect file artifact paths under one optional artifact prefix."""

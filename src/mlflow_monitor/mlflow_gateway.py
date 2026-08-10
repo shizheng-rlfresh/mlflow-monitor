@@ -57,6 +57,7 @@ from mlflow_monitor.gateway import (
 )
 from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflowClient
 from mlflow_monitor.result_contract import MonitorRunResult
+from mlflow_monitor.utils import canonical_json
 
 _BASELINE_TAG = "training.baseline_run_id"
 _IDEMPOTENCY_TAG_SUFFIX = ".monitoring_run_id"
@@ -706,7 +707,7 @@ class MLflowMonitoringGateway:
             )
             return
 
-        if existing_artifact == data:
+        if canonical_json(existing_artifact) == canonical_json(data):
             return
 
         raise GatewayConsistencyViolation(
