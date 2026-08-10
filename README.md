@@ -89,7 +89,7 @@ documents.
 Use Python 3.12 or newer and `uv`:
 
 ```bash
-uv sync --extra dev --group doc
+uv sync --extra dev
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
