@@ -27,7 +27,6 @@ What does not belong here:
 from __future__ import annotations
 
 import json
-import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -423,9 +422,20 @@ class MonitorMLflowClient:
             data: JSON-serializable dictionary payload.
             path: Artifact path such as `outputs/result.json`.
         """
-        self._validate_finite_values(data)
+        try:
+            encoded = json.dumps(
+                obj=data,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        except ValueError as exc:
+            raise ValueError(f"Infinite or NaN value detected in JSON artifact: {exc}") from exc
+        except TypeError as exc:
+            raise ValueError(f"Non-serializable value detected in JSON artifact: {exc}") from exc
 
-        self._client.log_dict(monitoring_run_id, data, path)
+        self._client.log_text(monitoring_run_id, encoded, path)
 
     def read_monitoring_run_json_artifact(
         self,
@@ -493,12 +503,3 @@ class MonitorMLflowClient:
     def _get_experiment_by_name(self, name: str) -> Experiment | None:
         """Return the raw MLflow experiment for internal lifecycle-aware flows."""
         return self._client.get_experiment_by_name(name)
-
-    def _validate_finite_values(self, value: Any) -> None:
-        """Validate that a float value is finite."""
-        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-            raise ValueError(f"Infinite or NaN value detected: {value}")
-        if isinstance(value, dict):
-            for sub_value in value.values():
-                self._validate_finite_values(sub_value)
-        return

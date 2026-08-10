@@ -35,10 +35,11 @@ Lifecycle sketch:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import uuid4
 
 from mlflow_monitor.contract_checker import ContractEvidence
@@ -295,6 +296,15 @@ class MonitoringGateway(Protocol):
         """Ensure final result payloads and terminal monitoring-run state are persisted."""
         ...
 
+    def write_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        data: dict[str, Any],
+        path: str,
+    ) -> None:
+        """Write one dictionary payload as a JSON artifact on a monitoring run."""
+        ...
+
 
 class InMemoryMonitoringGateway:
     """Deterministic in-memory gateway implementation for testing and local use."""
@@ -315,6 +325,7 @@ class InMemoryMonitoringGateway:
         self._active_lkg_by_subject: dict[str, str] = {}
         self._monitoring_runs_by_subject: dict[str, dict[str, MonitoringRunRecord]] = {}
         self._source_runs_by_id: dict[str, SourceRunRecord] = {}
+        self._monitoring_runs_artifact_store: dict[tuple[str, str], str] = {}
 
     @property
     def config(self) -> GatewayConfig:
@@ -786,6 +797,60 @@ class InMemoryMonitoringGateway:
     ) -> None:
         """No-op finalization hook for the in-memory test gateway."""
         _ = (monitoring_run_id, result)
+
+    def write_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        data: dict[str, Any],
+        path: str,
+    ) -> None:
+        """Write one dictionary payload as a JSON artifact on a monitoring run."""
+        existing_artifact_encoded = self._monitoring_runs_artifact_store.get(
+            (monitoring_run_id, path)
+        )
+
+        _, _, encoded = self._encode_monitoring_run_json_artifact(
+            monitoring_run_id=monitoring_run_id,
+            path=path,
+            data=data,
+        )
+
+        if existing_artifact_encoded is None:
+            self._monitoring_runs_artifact_store[(monitoring_run_id, path)] = encoded
+            return
+
+        if existing_artifact_encoded == encoded:
+            return
+
+        raise GatewayConsistencyViolation(
+            code="monitoring_run_json_artifact_inconsistent",
+            message=(
+                "Existing monitoring run JSON artifact is inconsistent with the requested data."
+            ),
+            details=(("monitoring_run_id", monitoring_run_id),),
+        )
+
+    def _encode_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+        data: dict[str, Any],
+    ) -> tuple[str, str, str]:
+        """Encode a dictionary payload as a JSON string for a monitoring run artifact."""
+        try:
+            encoded = json.dumps(
+                obj=data,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        except ValueError as exc:
+            raise ValueError(f"Infinite or NaN value detected in JSON artifact: {exc}") from exc
+        except TypeError as exc:
+            raise TypeError(f"Non-serializable value detected in JSON artifact: {exc}") from exc
+
+        return monitoring_run_id, path, encoded
 
     def _validate_namespace_prefix(self, prefix: str) -> None:
         """Validate namespace prefix can safely compose a monitoring namespace.

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from mlflow_monitor.contract_checker import ContractEvidence
 from mlflow_monitor.domain import (
@@ -684,6 +685,37 @@ class MLflowMonitoringGateway:
         self._validate_namespace_prefix(self._config.namespace_prefix)
         self._validate_subject_id(subject_id)
         return f"{self._config.namespace_prefix}/{subject_id}"
+
+    def write_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        data: dict[str, Any],
+        path: str,
+    ) -> None:
+        """Write one dictionary payload as a JSON artifact on a monitoring run."""
+        existing_artifact = self._mlflow.read_monitoring_run_json_artifact(
+            monitoring_run_id,
+            path,
+        )
+
+        if existing_artifact is None:
+            self._mlflow.log_monitoring_run_json_artifact(
+                monitoring_run_id,
+                data,
+                path,
+            )
+            return
+
+        if existing_artifact == data:
+            return
+
+        raise GatewayConsistencyViolation(
+            code="monitoring_run_json_artifact_inconsistent",
+            message=(
+                "Existing monitoring run JSON artifact is inconsistent with the requested data."
+            ),
+            details=(("monitoring_run_id", monitoring_run_id),),
+        )
 
     def _get_or_create_experiment_id(self, subject_id: str) -> str:
         """Return the monitoring experiment id for a subject, creating it if needed."""
