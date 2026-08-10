@@ -440,6 +440,9 @@ class MonitorMLflowClient:
 
         Returns:
             The decoded JSON dictionary when the artifact exists, otherwise `None`.
+
+        Raises:
+            ValueError: If the artifact does not contain a JSON object.
         """
         try:
             local_path = self._client.download_artifacts(monitoring_run_id, path)
@@ -453,7 +456,11 @@ class MonitorMLflowClient:
 
         with open(local_path, encoding="utf-8") as f:
             artifact = json.load(f)
-            return artifact if artifact is not None else {}
+            if not isinstance(artifact, dict):
+                raise ValueError(
+                    f"Monitoring run JSON artifact {path!r} must contain a JSON object."
+                )
+            return artifact
 
     def _list_artifact_paths_recursive(self, run_id: str, path: str | None) -> list[str]:
         """Collect file artifact paths under one optional artifact prefix."""

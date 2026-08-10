@@ -103,6 +103,34 @@ def test_json_artifact_contract_writes_missing_accepts_identical_and_rejects_dif
     )
 
 
+@pytest.mark.parametrize(
+    ("original", "conflicting"),
+    [
+        ({"value": True}, {"value": 1}),
+        ({"value": 1}, {"value": 1.0}),
+    ],
+)
+def test_json_artifact_contract_preserves_json_scalar_type_distinctions(
+    json_artifact_gateway: _GatewayHarness,
+    original: dict[str, object],
+    conflicting: dict[str, object],
+) -> None:
+    monitoring_run_id = json_artifact_gateway.allocate("source-run-1")
+    path = "state/prepared_context.json"
+    json_artifact_gateway.gateway.write_monitoring_run_json_artifact(
+        monitoring_run_id=monitoring_run_id,
+        data=original,
+        path=path,
+    )
+
+    with pytest.raises(GatewayConsistencyViolation):
+        json_artifact_gateway.gateway.write_monitoring_run_json_artifact(
+            monitoring_run_id=monitoring_run_id,
+            data=conflicting,
+            path=path,
+        )
+
+
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_json_artifact_contract_rejects_non_finite_content_without_writing(
     json_artifact_gateway: _GatewayHarness,

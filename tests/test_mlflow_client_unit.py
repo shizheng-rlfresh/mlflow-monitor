@@ -367,6 +367,22 @@ def test_read_monitoring_run_json_artifact_returns_none_when_artifact_is_missing
     )
 
 
+def test_read_monitoring_run_json_artifact_rejects_json_null(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "prepared_context.json"
+    artifact_path.write_text("null", encoding="utf-8")
+    stub_client = MagicMock()
+    stub_client.download_artifacts.return_value = str(artifact_path)
+
+    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+        client = MonitorMLflowClient(tracking_uri="file:///ignored")
+
+    with pytest.raises(ValueError, match="must contain a JSON object"):
+        client.read_monitoring_run_json_artifact(
+            "monitoring-run-1",
+            "state/prepared_context.json",
+        )
+
+
 def test_read_monitoring_run_json_artifact_propagates_transport_failure() -> None:
     transport_error = MlflowException(
         "Artifact transport failed.",

@@ -35,7 +35,6 @@ Lifecycle sketch:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -55,6 +54,7 @@ from mlflow_monitor.errors import (
     TrainingRunMutationViolation,
 )
 from mlflow_monitor.result_contract import MonitorRunResult
+from mlflow_monitor.utils import canonical_json
 
 
 @dataclass(frozen=True, slots=True)
@@ -837,20 +837,7 @@ class InMemoryMonitoringGateway:
         data: dict[str, Any],
     ) -> tuple[str, str, str]:
         """Encode a dictionary payload as a JSON string for a monitoring run artifact."""
-        try:
-            encoded = json.dumps(
-                obj=data,
-                ensure_ascii=False,
-                allow_nan=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-        except ValueError as exc:
-            raise ValueError(f"Infinite or NaN value detected in JSON artifact: {exc}") from exc
-        except TypeError as exc:
-            raise TypeError(f"Non-serializable value detected in JSON artifact: {exc}") from exc
-
-        return monitoring_run_id, path, encoded
+        return monitoring_run_id, path, canonical_json(data)
 
     def _validate_namespace_prefix(self, prefix: str) -> None:
         """Validate namespace prefix can safely compose a monitoring namespace.
