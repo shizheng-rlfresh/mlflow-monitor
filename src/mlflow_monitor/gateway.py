@@ -813,8 +813,7 @@ class InMemoryMonitoringGateway:
                     be written.
 
         Raises:
-            GatewayNamespaceViolation: If the monitoring run identifier is not in the allocated
-                in the inmemory store.
+            GatewayNamespaceViolation: If the monitoring run identifier is not allocated.
 
         Returns:
             None
