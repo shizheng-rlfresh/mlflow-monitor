@@ -451,8 +451,11 @@ class MonitorMLflowClient:
                 raise
             return None
 
-        if not os.path.exists(local_path):
-            return None
+        if not os.path.isfile(local_path):
+            raise FileNotFoundError(
+                f"Expected downloaded artifact {path!r} for monitoring_run_id={monitoring_run_id!r}, "
+                f"at {local_path!r}, but the file does not exist."
+            )
 
         with open(local_path, encoding="utf-8") as f:
             artifact = json.load(f)
