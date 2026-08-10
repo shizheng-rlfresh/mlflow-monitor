@@ -38,7 +38,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import uuid4
 
 from mlflow_monitor.contract_checker import ContractEvidence
@@ -54,6 +54,7 @@ from mlflow_monitor.errors import (
     TrainingRunMutationViolation,
 )
 from mlflow_monitor.result_contract import MonitorRunResult
+from mlflow_monitor.utils import canonical_json
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,6 +296,15 @@ class MonitoringGateway(Protocol):
         """Ensure final result payloads and terminal monitoring-run state are persisted."""
         ...
 
+    def write_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        data: dict[str, Any],
+        path: str,
+    ) -> None:
+        """Write one dictionary payload as a JSON artifact on a monitoring run."""
+        ...
+
 
 class InMemoryMonitoringGateway:
     """Deterministic in-memory gateway implementation for testing and local use."""
@@ -315,6 +325,7 @@ class InMemoryMonitoringGateway:
         self._active_lkg_by_subject: dict[str, str] = {}
         self._monitoring_runs_by_subject: dict[str, dict[str, MonitoringRunRecord]] = {}
         self._source_runs_by_id: dict[str, SourceRunRecord] = {}
+        self._monitoring_runs_artifact_store: dict[tuple[str, str], str] = {}
 
     @property
     def config(self) -> GatewayConfig:
@@ -787,6 +798,62 @@ class InMemoryMonitoringGateway:
         """No-op finalization hook for the in-memory test gateway."""
         _ = (monitoring_run_id, result)
 
+    def write_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        data: dict[str, Any],
+        path: str,
+    ) -> None:
+        """Write one dictionary payload as a JSON artifact on a monitoring run.
+
+        Args:
+            monitoring_run_id: Monitoring run identifier to which the artifact belongs.
+            data: Dictionary payload to be written as a JSON artifact.
+            path: Path within the monitoring run's artifact store where the JSON artifact will
+                    be written.
+
+        Raises:
+            GatewayNamespaceViolation: If the monitoring run identifier is not allocated.
+
+        Returns:
+            None
+        """
+        self._validate_monitoring_run_artifact_target(monitoring_run_id)
+
+        existing_artifact_encoded = self._monitoring_runs_artifact_store.get(
+            (monitoring_run_id, path)
+        )
+
+        _, _, encoded = self._encode_monitoring_run_json_artifact(
+            monitoring_run_id=monitoring_run_id,
+            path=path,
+            data=data,
+        )
+
+        if existing_artifact_encoded is None:
+            self._monitoring_runs_artifact_store[(monitoring_run_id, path)] = encoded
+            return
+
+        if existing_artifact_encoded == encoded:
+            return
+
+        raise GatewayConsistencyViolation(
+            code="monitoring_run_json_artifact_inconsistent",
+            message=(
+                "Existing monitoring run JSON artifact is inconsistent with the requested data."
+            ),
+            details=(("monitoring_run_id", monitoring_run_id), ("path", path)),
+        )
+
+    def _encode_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+        data: dict[str, Any],
+    ) -> tuple[str, str, str]:
+        """Encode a dictionary payload as a JSON string for a monitoring run artifact."""
+        return monitoring_run_id, path, canonical_json(data)
+
     def _validate_namespace_prefix(self, prefix: str) -> None:
         """Validate namespace prefix can safely compose a monitoring namespace.
 
@@ -1000,3 +1067,18 @@ class InMemoryMonitoringGateway:
     def _generate_monitoring_run_id(self) -> str:
         """Return a new opaque monitoring run identifier."""
         return f"monitoring-run-{uuid4().hex}"
+
+    def _validate_monitoring_run_artifact_target(
+        self,
+        monitoring_run_id: str,
+    ) -> None:
+        """Validate that the target location for a monitoring run artifact is correct."""
+        allocated_monitoring_run_ids = {
+            allocated_monitoring_run_id
+            for allocated_monitoring_run_id, _ in self._idempotency_bindings.values()
+        }
+
+        if monitoring_run_id not in allocated_monitoring_run_ids:
+            raise GatewayNamespaceViolation(
+                message=(f"Run {monitoring_run_id!r} is not an allocated monitoring run.")
+            )

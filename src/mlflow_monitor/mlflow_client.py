@@ -26,6 +26,8 @@ What does not belong here:
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -35,6 +37,8 @@ from mlflow import MlflowClient
 from mlflow.entities import Experiment, Run, ViewType
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS, RESOURCE_DOES_NOT_EXIST
+
+from mlflow_monitor.utils import canonical_json
 
 _RESOURCE_ALREADY_EXISTS = "RESOURCE_ALREADY_EXISTS"
 _RESOURCE_DOES_NOT_EXIST = "RESOURCE_DOES_NOT_EXIST"
@@ -420,7 +424,56 @@ class MonitorMLflowClient:
             data: JSON-serializable dictionary payload.
             path: Artifact path such as `outputs/result.json`.
         """
-        self._client.log_dict(monitoring_run_id, data, path)
+        encoded = canonical_json(data)
+        self._client.log_text(monitoring_run_id, encoded, path)
+
+    def read_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+    ) -> dict[str, Any] | None:
+        """Read one JSON artifact from a monitoring run.
+
+        Args:
+            monitoring_run_id: Monitoring run identifier that owns the artifact.
+            path: Artifact path such as `outputs/result.json`.
+
+        Returns:
+            The decoded JSON dictionary when the artifact exists, otherwise `None`.
+
+        Raises:
+            ValueError: If the artifact does not contain a JSON object.
+        """
+        try:
+            local_path = self._client.download_artifacts(monitoring_run_id, path)
+        except MlflowException as exc:
+            if _normalize_error_code(exc.error_code) != _RESOURCE_DOES_NOT_EXIST:
+                raise
+
+            # If the run itself does not exist, re-raise the exception.
+            if self.get_run(monitoring_run_id) is None:
+                raise
+
+            # If the run exists but the artifact does not, return None.
+            return None
+
+        if not os.path.isfile(local_path):
+            raise FileNotFoundError(
+                f"Expected downloaded artifact {path!r} for "
+                f"monitoring_run_id={monitoring_run_id!r}, "
+                f"at {local_path!r}, but the file does not exist."
+            )
+
+        with open(local_path, encoding="utf-8") as f:
+            artifact = json.load(f)
+
+        if not isinstance(artifact, dict):
+            raise ValueError(f"Monitoring run JSON artifact {path!r} must contain a JSON object.")
+
+        # validate nested values, including ensuring no infinite or NaN values.
+        canonical_json(artifact)
+
+        return artifact
 
     def _list_artifact_paths_recursive(self, run_id: str, path: str | None) -> list[str]:
         """Collect file artifact paths under one optional artifact prefix."""

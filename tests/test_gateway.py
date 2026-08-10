@@ -272,6 +272,28 @@ def test_training_mutation_raises_violation() -> None:
         gateway.mutate_training_run("train-run-1", {"status": "modified"})
 
 
+def test_write_monitoring_run_json_artifact_rejects_source_training_run_id() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-1",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+
+    with pytest.raises(GatewayNamespaceViolation, match="not an allocated monitoring run"):
+        gateway.write_monitoring_run_json_artifact(
+            monitoring_run_id="train-run-1",
+            data={"value": 1},
+            path="state/prepared_context.json",
+        )
+
+
 def test_resolve_source_run_id_returns_matching_raw_run_id() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(

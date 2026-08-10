@@ -32,6 +32,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any
 
 from mlflow_monitor.contract_checker import ContractEvidence
 from mlflow_monitor.domain import (
@@ -56,6 +58,7 @@ from mlflow_monitor.gateway import (
 )
 from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflowClient
 from mlflow_monitor.result_contract import MonitorRunResult
+from mlflow_monitor.utils import canonical_json
 
 _BASELINE_TAG = "training.baseline_run_id"
 _IDEMPOTENCY_TAG_SUFFIX = ".monitoring_run_id"
@@ -73,6 +76,16 @@ _REFERENCE_TAG_PREFIX = "monitoring.reference."
 _RESULT_ARTIFACT_PATH = "outputs/result.json"
 _VISIBLE_NON_FAILED_STATUSES = frozenset({LifecycleStatus.CHECKED, LifecycleStatus.CLOSED})
 _REFERENCE_KINDS = ("baseline", "previous", "lkg", "custom")
+
+
+class RequiredMonitoringRunTags(StrEnum):
+    """Required monitoring run tag keys."""
+
+    SOURCE_RUN_TAG = _SOURCE_RUN_TAG
+    SEQUENCE_INDEX_TAG = _SEQUENCE_INDEX_TAG
+    LIFECYCLE_STATUS_TAG = _LIFECYCLE_STATUS_TAG
+    RECIPE_ID_TAG = _RECIPE_ID_TAG
+    RECIPE_VERSION_TAG = _RECIPE_VERSION_TAG
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,11 +179,11 @@ class MLflowMonitoringGateway:
         monitoring_run_info = self._mlflow.create_monitoring_run(
             experiment_id,
             tags={
-                _SOURCE_RUN_TAG: key.source_run_id,
-                _SEQUENCE_INDEX_TAG: str(sequence_index),
-                _LIFECYCLE_STATUS_TAG: LifecycleStatus.CREATED.value,
-                _RECIPE_ID_TAG: key.recipe_id,
-                _RECIPE_VERSION_TAG: key.recipe_version,
+                RequiredMonitoringRunTags.SOURCE_RUN_TAG: key.source_run_id,
+                RequiredMonitoringRunTags.SEQUENCE_INDEX_TAG: str(sequence_index),
+                RequiredMonitoringRunTags.LIFECYCLE_STATUS_TAG: LifecycleStatus.CREATED.value,
+                RequiredMonitoringRunTags.RECIPE_ID_TAG: key.recipe_id,
+                RequiredMonitoringRunTags.RECIPE_VERSION_TAG: key.recipe_version,
             },
             source_run_name=source_run_name,
         )
@@ -685,6 +698,54 @@ class MLflowMonitoringGateway:
         self._validate_subject_id(subject_id)
         return f"{self._config.namespace_prefix}/{subject_id}"
 
+    def write_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        data: dict[str, Any],
+        path: str,
+    ) -> None:
+        """Write one dictionary payload as a JSON artifact on a monitoring run.
+
+        Args:
+            monitoring_run_id: Monitoring run id being targeted.
+            data: Dictionary payload to write as a JSON artifact.
+            path: Artifact path within the monitoring run.
+
+        Raises:
+            GatewayConsistencyViolation: If an existing JSON artifact at the same path
+                is inconsistent with the requested data.
+            GatewayNamespaceViolation: If the monitoring run does not belong to
+                a monitoring namespace.
+
+        Returns:
+            None.
+        """
+        self._validate_monitoring_run_artifact_target(monitoring_run_id)
+
+        existing_artifact = self._mlflow.read_monitoring_run_json_artifact(
+            monitoring_run_id,
+            path,
+        )
+
+        if existing_artifact is None:
+            self._mlflow.log_monitoring_run_json_artifact(
+                monitoring_run_id,
+                data,
+                path,
+            )
+            return
+
+        if canonical_json(existing_artifact) == canonical_json(data):
+            return
+
+        raise GatewayConsistencyViolation(
+            code="monitoring_run_json_artifact_inconsistent",
+            message=(
+                "Existing monitoring run JSON artifact is inconsistent with the requested data."
+            ),
+            details=(("monitoring_run_id", monitoring_run_id), ("path", path)),
+        )
+
     def _get_or_create_experiment_id(self, subject_id: str) -> str:
         """Return the monitoring experiment id for a subject, creating it if needed."""
         return self._mlflow.get_or_create_monitoring_experiment(
@@ -1133,4 +1194,33 @@ class MLflowMonitoringGateway:
         if not subject_id or "/" in subject_id:
             raise GatewayNamespaceViolation(
                 message=(f"subject_id must be non-empty and must not contain '/': {subject_id!r}")
+            )
+
+    def _validate_monitoring_run_artifact_target(self, monitoring_run_id: str) -> None:
+        """Validate that an artifact target is a monitoring-owned allocation."""
+        self._validate_namespace_prefix(self._config.namespace_prefix)
+        experiment_name = self._mlflow.get_run_experiment_name(monitoring_run_id)
+        monitoring_namespace_prefix = f"{self._config.namespace_prefix}/"
+        if experiment_name is None or not experiment_name.startswith(monitoring_namespace_prefix):
+            raise GatewayNamespaceViolation(
+                message=(f"Run {monitoring_run_id!r} does not belong to a monitoring namespace.")
+            )
+
+        subject_id = experiment_name.removeprefix(monitoring_namespace_prefix)
+        self._validate_subject_id(subject_id)
+        run_tags = self._mlflow.get_run_tags(monitoring_run_id)
+        missing_tags = tuple(
+            tag.value for tag in RequiredMonitoringRunTags if not run_tags.get(tag.value)
+        )
+        if missing_tags:
+            raise self._allocation_consistency_error(
+                reason="invalid_allocation",
+                message=(
+                    f"Monitoring run {monitoring_run_id!r} is missing durable allocation tags: "
+                    + ", ".join(missing_tags)
+                ),
+                details=(
+                    ("monitoring_run_id", monitoring_run_id),
+                    ("missing_tags", ",".join(missing_tags)),
+                ),
             )
