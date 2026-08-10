@@ -83,7 +83,7 @@ each green ticket commit, run focused tests plus the applicable Ruff and Pyright
 checks. Before closing a ticket, run the complete gate:
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --group doc
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
