@@ -449,6 +449,12 @@ class MonitorMLflowClient:
         except MlflowException as exc:
             if _normalize_error_code(exc.error_code) != _RESOURCE_DOES_NOT_EXIST:
                 raise
+
+            # If the run itself does not exist, re-raise the exception.
+            if self.get_run(monitoring_run_id) is None:
+                raise
+
+            # If the run exists but the artifact does not, return None.
             return None
 
         if not os.path.isfile(local_path):
@@ -460,11 +466,14 @@ class MonitorMLflowClient:
 
         with open(local_path, encoding="utf-8") as f:
             artifact = json.load(f)
-            if not isinstance(artifact, dict):
-                raise ValueError(
-                    f"Monitoring run JSON artifact {path!r} must contain a JSON object."
-                )
-            return artifact
+
+        if not isinstance(artifact, dict):
+            raise ValueError(f"Monitoring run JSON artifact {path!r} must contain a JSON object.")
+
+        # validate nested values, including ensuring no infinite or NaN values.
+        canonical_json(artifact)
+
+        return artifact
 
     def _list_artifact_paths_recursive(self, run_id: str, path: str | None) -> list[str]:
         """Collect file artifact paths under one optional artifact prefix."""
