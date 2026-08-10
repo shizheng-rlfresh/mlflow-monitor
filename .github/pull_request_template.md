@@ -28,15 +28,15 @@ Give reviewers only the context needed for this diff.
 
 ## Validation
 
-<!-- Check only commands that were run successfully (do not change the commands). Explain any omissions below. -->
+<!-- Check only commands that were run successfully (do not change the commands or drop the checkboxes). Explain any omissions below. -->
 
-- [ ] `uv sync --extra dev --group doc`
+- [ ] `uv sync --extra dev`
 - [ ] `uv run pytest`
 - [ ] `uv run ruff check .`
 - [ ] `uv run ruff format --check .`
 - [ ] `uv run pyright`
 - [ ] Matching `docs/site/` content is updated, or no developer-doc change is required
-- [ ] `uv run sphinx-build -W -b html docs/site/source docs/site/build/html`
+- [ ] `uv run --group doc sphinx-build -W -b html docs/site/source docs/site/build/html`
 - [ ] `uv build`
 
 <!-- Validation omissions, if any: -->
