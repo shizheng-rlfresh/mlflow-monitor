@@ -18,6 +18,7 @@ from mlflow_monitor.domain import (
 from mlflow_monitor.errors import CheckStageError, InvalidRunTransition, PrepareStageError
 from mlflow_monitor.gateway import (
     GatewayConfig,
+    IdempotencyKey,
     InMemoryMonitoringGateway,
     TimelineInitializationResult,
 )
@@ -425,6 +426,56 @@ def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     assert prepared.recipe_id == "default"
     assert prepared.recipe_version == "v0"
     assert prepared.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
+
+
+def test_prepare_run_context_bootstraps_allocated_uninitialized_timeline() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    for source_run_id in (BASELINE.source_run_id, "train-run-current"):
+        gateway.add_source_run(
+            subject_id="churn_model",
+            source_run_id=source_run_id,
+            source_experiment="training/churn",
+            metrics=BASELINE.metric_snapshot,
+            artifacts=("metrics.json",),
+            environment=BASELINE.environment_context,
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-01",
+        )
+    compiled_invocation = make_compiled_invocation(
+        source_run_id="train-run-current",
+        required_metrics=tuple(BASELINE.metric_snapshot),
+        custom_reference_monitoring_run_id=None,
+    )
+    compiled_recipe = compiled_invocation.compiled_recipe
+    allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            recipe_id=compiled_recipe.identity.recipe_id,
+            recipe_version=compiled_recipe.identity.recipe_version,
+        )
+    )
+
+    timeline_state = gateway.get_timeline_state("churn_model")
+
+    assert timeline_state is not None
+    assert timeline_state.timeline_id == allocation.timeline_id
+    assert timeline_state.baseline_source_run_id is None
+
+    prepared = prepare_test_context(
+        monitoring_run_id=allocation.monitoring_run_id,
+        subject_id="churn_model",
+        compiled_invocation=compiled_invocation,
+        gateway=gateway,
+        baseline_source_run_id=BASELINE.source_run_id,
+    )
+    bootstrapped_timeline_state = gateway.get_timeline_state("churn_model")
+
+    assert prepared.timeline_id == allocation.timeline_id
+    assert bootstrapped_timeline_state is not None
+    assert bootstrapped_timeline_state.timeline_id == allocation.timeline_id
+    assert bootstrapped_timeline_state.baseline_source_run_id == BASELINE.source_run_id
 
 
 def test_execute_contract_check_returns_warn_result_for_environment_mismatch() -> None:

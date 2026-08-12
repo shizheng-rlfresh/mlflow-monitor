@@ -139,6 +139,7 @@ class CreateOrReuseMonitoringRunResult:
         monitoring_run_id: Monitoring run identifier owned by the gateway.
         source_run_id: Immutable source training run identifier.
         sequence_index: Monotonic per-subject sequence index.
+        timeline_id: Stable timeline identifier associated with this monitoring run.
         existing_monitoring_run: Existing stored monitoring run record, if any. This may be
             None even when a prior idempotency binding already exists.
         allocated: Whether this call created a new idempotency binding / monitoring-run
@@ -147,6 +148,7 @@ class CreateOrReuseMonitoringRunResult:
 
     monitoring_run_id: str
     source_run_id: str
+    timeline_id: str
     sequence_index: int
     existing_monitoring_run: MonitoringRunRecord | None
     allocated: bool
@@ -337,6 +339,15 @@ class InMemoryMonitoringGateway:
     ) -> CreateOrReuseMonitoringRunResult:
         """Create a new monitoring run allocation or return the existing idempotent one."""
         self._validate_subject_id(key.subject_id)
+
+        # get the existing timeline or init a new timeline if it doesn't exist
+        timeline_state = self.get_timeline_state(key.subject_id)
+        if timeline_state is None:
+            timeline_init_result = self.initialize_timeline(key.subject_id, key.source_run_id)
+            timeline_id = timeline_init_result.timeline_id
+        else:
+            timeline_id = timeline_state.timeline_id
+
         existing_binding = self._idempotency_bindings.get(key)
         if existing_binding is not None:
             existing_monitoring_run_id, sequence_index = existing_binding
@@ -346,6 +357,7 @@ class InMemoryMonitoringGateway:
             return CreateOrReuseMonitoringRunResult(
                 monitoring_run_id=existing_monitoring_run_id,
                 source_run_id=key.source_run_id,
+                timeline_id=timeline_id,
                 sequence_index=sequence_index,
                 existing_monitoring_run=existing_monitoring_run,
                 allocated=False,
@@ -358,6 +370,7 @@ class InMemoryMonitoringGateway:
         return CreateOrReuseMonitoringRunResult(
             monitoring_run_id=new_monitoring_run_id,
             source_run_id=key.source_run_id,
+            timeline_id=timeline_id,
             sequence_index=sequence_index,
             existing_monitoring_run=None,
             allocated=True,

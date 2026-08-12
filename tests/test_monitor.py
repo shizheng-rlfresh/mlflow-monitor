@@ -153,6 +153,7 @@ class AllocationOnlyReplayGateway(InMemoryMonitoringGateway):
         return CreateOrReuseMonitoringRunResult(
             monitoring_run_id=replayed.monitoring_run_id,
             source_run_id=replayed.source_run_id,
+            timeline_id=replayed.timeline_id,
             sequence_index=replayed.sequence_index,
             existing_monitoring_run=None,
             allocated=False,
@@ -520,13 +521,13 @@ def test_run_orchestration_failed_prepare_rerun_short_circuits_terminal_state() 
     assert stored.contract_check_result is None
 
 
-def test_run_orchestration_bootstrap_failure_returns_failed_result_without_timeline() -> None:
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
+def test_run_orchestration_prebootstrap_failure_preserves_allocation_sequence() -> None:
+    gateway = make_gateway()
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id="train-run-current",
+        source_run_id="train-run-second",
         source_experiment=None,
-        metrics={"f1": 0.91},
+        metrics={"f1": 0.92},
         artifacts=("metrics.json",),
         environment={"python": "3.12"},
         features=("age",),
@@ -534,22 +535,43 @@ def test_run_orchestration_bootstrap_failure_returns_failed_result_without_timel
         data_scope="validation:2026-03-01",
     )
 
-    result = run_orchestration(
+    failed_result = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-current",
         baseline_source_run_id=None,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
     )
+    failed_monitoring_run = gateway.get_monitoring_run(
+        "churn_model", failed_result.monitoring_run_id
+    )
+    uninitialized_timeline_state = gateway.get_timeline_state("churn_model")
 
-    stored = gateway.get_monitoring_run("churn_model", result.monitoring_run_id)
+    successful_result = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-second",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+    successful_monitoring_run = gateway.get_monitoring_run(
+        "churn_model", successful_result.monitoring_run_id
+    )
 
-    assert result.lifecycle_status is LifecycleStatus.FAILED
-    assert result.timeline_id is None
-    assert result.error is not None
-    assert result.error.stage == "prepare"
-    assert stored is not None
-    assert stored.lifecycle_status is LifecycleStatus.FAILED
+    assert failed_result.lifecycle_status is LifecycleStatus.FAILED
+    assert failed_result.timeline_id == "timeline-churn_model"
+    assert failed_result.error is not None
+    assert failed_result.error.stage == "prepare"
+    assert failed_monitoring_run is not None
+    assert failed_monitoring_run.sequence_index == 0
+    assert failed_monitoring_run.lifecycle_status is LifecycleStatus.FAILED
+    assert uninitialized_timeline_state is not None
+    assert uninitialized_timeline_state.timeline_id == failed_result.timeline_id
+    assert uninitialized_timeline_state.baseline_source_run_id is None
+    assert successful_result.lifecycle_status is LifecycleStatus.CHECKED
+    assert successful_result.timeline_id == failed_result.timeline_id
+    assert successful_monitoring_run is not None
+    assert successful_monitoring_run.sequence_index == 1
 
 
 def test_run_orchestration_check_error_persists_failed_and_returns_runtime_error() -> None:

@@ -26,16 +26,27 @@ def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:
         recipe_id="default",
         recipe_version="v0",
     )
+
+    assert gateway.get_timeline_state("churn_model") is None
+
     first = gateway.create_or_reuse_monitoring_run(key)
+    timeline_state = gateway.get_timeline_state("churn_model")
     second = gateway.create_or_reuse_monitoring_run(key)
 
     assert first.monitoring_run_id.startswith("monitoring-run-")
     assert first.source_run_id == "train-run-1"
+    assert first.timeline_id == "timeline-churn_model"
     assert first.sequence_index == 0
     assert first.existing_monitoring_run is None
     assert first.allocated is True
+    assert timeline_state is not None
+    assert timeline_state.timeline_id == first.timeline_id
+    assert (
+        timeline_state.baseline_source_run_id is None
+    )  # no bootstrap for create_or_reuse_monitoring_run
     assert second.monitoring_run_id == first.monitoring_run_id
     assert second.source_run_id == first.source_run_id
+    assert second.timeline_id == first.timeline_id
     assert second.sequence_index == first.sequence_index
     assert second.existing_monitoring_run is None
     assert second.allocated is False
@@ -142,15 +153,35 @@ def test_create_or_reuse_monitoring_run_is_monotonic_per_subject() -> None:
 
 def test_initialize_timeline_is_deterministic_and_stores_baseline_reference() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
+    first_allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-1",
+            recipe_id="default",
+            recipe_version="v0",
+        )
+    )
 
     first_timeline_result = gateway.initialize_timeline("churn_model", "train-run-1")
     second_timeline_result = gateway.initialize_timeline("churn_model", "train-run-2")
+    second_allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-2",
+            recipe_id="default",
+            recipe_version="v0",
+        )
+    )
     timeline_state = gateway.get_timeline_state("churn_model")
 
-    assert first_timeline_result.timeline_id == "timeline-churn_model"
+    assert first_allocation.timeline_id == "timeline-churn_model"
+    assert first_allocation.sequence_index == 0
+    assert first_timeline_result.timeline_id == first_allocation.timeline_id
     assert second_timeline_result.timeline_id == first_timeline_result.timeline_id
     assert first_timeline_result.created is True
     assert second_timeline_result.created is False
+    assert second_allocation.timeline_id == first_allocation.timeline_id
+    assert second_allocation.sequence_index == 1
     assert timeline_state is not None
     assert timeline_state.baseline_source_run_id == "train-run-1"
 
