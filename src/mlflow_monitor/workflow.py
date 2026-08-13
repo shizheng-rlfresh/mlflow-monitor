@@ -148,8 +148,8 @@ def prepare_run_context(
         compiled_recipe: Execution-ready compiled Recipe.
         gateway: Gateway used for timeline and source-run reads.
         source_run_id: Invocation-owned Source Training Run identifier.
-        baseline_source_run_id: Optional baseline source run id used to bootstrap ,i.e.,
-            pin timeline baseline, or to explicitly confirm the baseline for an existing timeline.
+        baseline_source_run_id: Optional baseline source run id used to bootstrap (pin)
+            timeline baseline, or to explicitly confirm the baseline for an existing timeline.
         custom_reference_monitoring_run_id: Optional invocation-owned Monitoring
             Run selected as a custom reference.
 
@@ -290,7 +290,7 @@ def prepare_run_context(
             details=(("subject_id", subject_id),),
         )
 
-    # This should be impossible to happen, adding this to mute the ruff complain.
+    # This should be impossible to happen, adding this check as a safeguard.
     if not timeline_state.baseline_source_run_id:
         raise PrepareStageError(
             code="prepare_baseline_missing",
@@ -480,8 +480,9 @@ def _resolve_baseline_for_prepare(
                 code="prepare_invalid_baseline",
                 message=(
                     f"Baseline source run could not be resolved for subject_id={subject_id!r}, "
-                    f"source_experiment={compiled_recipe.source_requirements.source_experiment!r}, "
-                    f"and source_run_id={baseline_source_run_id!r}."
+                    f"compiled_recipe.source_requirements.source_experiment="
+                    f"{compiled_recipe.source_requirements.source_experiment!r}, "
+                    f"and baseline_source_run_id={baseline_source_run_id!r}."
                 ),
                 details=(
                     ("subject_id", subject_id),
@@ -505,7 +506,7 @@ def _resolve_baseline_for_prepare(
                 ),
                 details=(
                     ("subject_id", subject_id),
-                    ("baseline_source_run_id", resolved_baseline),
+                    ("baseline_source_run_id", baseline_source_run_id),
                 ),
             )
 
