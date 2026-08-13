@@ -165,6 +165,7 @@ class MLflowMonitoringGateway:
             return CreateOrReuseMonitoringRunResult(
                 monitoring_run_id=existing_allocation.monitoring_run_id,
                 source_run_id=existing_allocation.key.source_run_id,
+                timeline_id=experiment_id,
                 sequence_index=existing_allocation.sequence_index,
                 existing_monitoring_run=self.get_monitoring_run(
                     key.subject_id,
@@ -199,6 +200,7 @@ class MLflowMonitoringGateway:
         return CreateOrReuseMonitoringRunResult(
             monitoring_run_id=monitoring_run_info.run_id,
             source_run_id=key.source_run_id,
+            timeline_id=experiment_id,
             sequence_index=sequence_index,
             existing_monitoring_run=None,
             allocated=True,
@@ -224,7 +226,21 @@ class MLflowMonitoringGateway:
         if not baseline_source_run_id:
             raise GatewayNamespaceViolation(message="baseline_source_run_id must be non-empty.")
 
-        experiment_id = self._get_or_create_experiment_id(subject_id)
+        timeline_state = self.get_timeline_state(subject_id)
+        if timeline_state is None:
+            raise GatewayConsistencyViolation(
+                code="timeline_state_not_found_for_subject_id",
+                message=f"Timeline state for subject_id '{subject_id}' not found.",
+                details=(("subject_id", subject_id),),
+            )
+
+        if timeline_state.baseline_source_run_id is not None:
+            return TimelineInitializationResult(
+                timeline_id=timeline_state.timeline_id,
+                created=False,
+            )
+
+        experiment_id = timeline_state.timeline_id
         experiment_tags = self._mlflow.get_monitoring_experiment_tags(experiment_id)
         existing_baseline_source_run_id = experiment_tags.get(_BASELINE_TAG)
         if existing_baseline_source_run_id:
@@ -474,8 +490,19 @@ class MLflowMonitoringGateway:
 
         experiment_tags = self._mlflow.get_monitoring_experiment_tags(experiment_id)
         baseline_source_run_id = experiment_tags.get(_BASELINE_TAG)
-        if not baseline_source_run_id:
+
+        allocation_snapshots = self._mlflow.list_monitoring_runs_with_tag(
+            experiment_id=experiment_id,
+            tag_key=_SOURCE_RUN_TAG,
+        )
+
+        if not allocation_snapshots:
             return None
+
+        # validate the records are actual durable snapshots
+        for snapshot in allocation_snapshots:
+            self._parse_monitoring_run_allocation(subject_id, snapshot)
+
         return TimelineState(
             timeline_id=experiment_id,
             baseline_source_run_id=baseline_source_run_id,
