@@ -186,6 +186,18 @@ def test_initialize_timeline_is_deterministic_and_stores_baseline_reference() ->
     assert timeline_state.baseline_source_run_id == "train-run-1"
 
 
+def test_initialize_timeline_requires_an_existing_allocation() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(
+        GatewayConsistencyViolation,
+        match="Timeline state for subject_id 'churn_model' not found.",
+    ):
+        gateway.initialize_timeline("churn_model", "train-run-1")
+
+    assert gateway.get_timeline_state("churn_model") is None
+
+
 def test_initialize_timeline_rejects_empty_baseline_source_run_id() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
 

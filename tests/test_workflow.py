@@ -17,10 +17,12 @@ from mlflow_monitor.domain import (
 )
 from mlflow_monitor.errors import CheckStageError, InvalidRunTransition, PrepareStageError
 from mlflow_monitor.gateway import (
+    CreateOrReuseMonitoringRunResult,
     GatewayConfig,
     IdempotencyKey,
     InMemoryMonitoringGateway,
     TimelineInitializationResult,
+    TimelineState,
 )
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RECIPE_ID
 from mlflow_monitor.recipe_compiler import CompiledRecipe, compile_recipe
@@ -56,13 +58,22 @@ class CompiledInvocation:
     custom_reference_monitoring_run_id: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class InitializedTimelineFixture:
+    """Gateway plus opaque Monitoring Run identities created by its fixture."""
+
+    gateway: InMemoryMonitoringGateway
+    previous_monitoring_run_id: str
+    custom_monitoring_run_id: str
+
+
 def make_compiled_invocation(
     *,
     source_run_id: str = "train-run-123",
     source_experiment: str | None = "training/churn",
     required_metrics: tuple[str, ...] = ("f1", "auc"),
     required_artifacts: tuple[str, ...] = ("metrics.json",),
-    custom_reference_monitoring_run_id: str | None = "monitoring-run-custom-1",
+    custom_reference_monitoring_run_id: str | None = None,
     recipe_id: str = "default",
     contract_id: str = SYSTEM_DEFAULT_CONTRACT_ID,
 ) -> CompiledInvocation:
@@ -90,7 +101,6 @@ def make_compiled_invocation(
 
 def prepare_test_context(
     *,
-    monitoring_run_id: str,
     subject_id: str,
     compiled_invocation: CompiledInvocation | CompiledRecipe,
     gateway: InMemoryMonitoringGateway,
@@ -108,8 +118,14 @@ def prepare_test_context(
             raise AssertionError("A Source Training Run is required for a bare CompiledRecipe.")
         effective_source_run_id = source_run_id
         custom_reference_monitoring_run_id = None
+    allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id=subject_id,
+        source_run_id=effective_source_run_id,
+        compiled_recipe=compiled_recipe,
+    )
     return _prepare_run_context(
-        monitoring_run_id=monitoring_run_id,
+        monitoring_run_id=allocation.monitoring_run_id,
         subject_id=subject_id,
         compiled_recipe=compiled_recipe,
         gateway=gateway,
@@ -119,20 +135,72 @@ def prepare_test_context(
     )
 
 
-def make_gateway_with_timeline() -> InMemoryMonitoringGateway:
-    """Build a gateway fixture with timeline and source-run state."""
+def allocate_test_monitoring_run(
+    gateway: InMemoryMonitoringGateway,
+    *,
+    subject_id: str,
+    source_run_id: str,
+    compiled_recipe: CompiledRecipe,
+) -> CreateOrReuseMonitoringRunResult:
+    """Allocate a Monitoring Run through the same public API as production."""
+    return gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id=subject_id,
+            source_run_id=source_run_id,
+            recipe_id=compiled_recipe.identity.recipe_id,
+            recipe_version=compiled_recipe.identity.recipe_version,
+        )
+    )
+
+
+def initialize_test_timeline(
+    gateway: InMemoryMonitoringGateway,
+    *,
+    subject_id: str = "churn_model",
+    source_run_id: str = "train-run-123",
+    baseline_source_run_id: str = "train-run-baseline",
+    compiled_recipe: CompiledRecipe | None = None,
+) -> TimelineInitializationResult:
+    """Allocate a Monitoring Run before bootstrapping its Timeline baseline."""
+    effective_compiled_recipe = (
+        compiled_recipe or make_compiled_invocation(source_run_id=source_run_id).compiled_recipe
+    )
+    allocate_test_monitoring_run(
+        gateway,
+        subject_id=subject_id,
+        source_run_id=source_run_id,
+        compiled_recipe=effective_compiled_recipe,
+    )
+    return gateway.initialize_timeline(subject_id, baseline_source_run_id)
+
+
+def make_gateway_with_timeline() -> InitializedTimelineFixture:
+    """Build an initialized Timeline using public allocation operations."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
+    compiled_recipe = make_compiled_invocation().compiled_recipe
+    previous_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-prev",
+        compiled_recipe=compiled_recipe,
+    )
     gateway.initialize_timeline("churn_model", "train-run-baseline")
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        monitoring_run_id="monitoring-run-prev",
+        monitoring_run_id=previous_allocation.monitoring_run_id,
         source_run_id="train-run-prev",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
     )
+    custom_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-custom-1",
+        compiled_recipe=compiled_recipe,
+    )
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
-        monitoring_run_id="monitoring-run-custom-1",
+        monitoring_run_id=custom_allocation.monitoring_run_id,
         source_run_id="train-run-custom-1",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=1,
@@ -148,7 +216,11 @@ def make_gateway_with_timeline() -> InMemoryMonitoringGateway:
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
     )
-    return gateway
+    return InitializedTimelineFixture(
+        gateway=gateway,
+        previous_monitoring_run_id=previous_allocation.monitoring_run_id,
+        custom_monitoring_run_id=custom_allocation.monitoring_run_id,
+    )
 
 
 class BrokenInitializeTimelineGateway(InMemoryMonitoringGateway):
@@ -181,23 +253,16 @@ class RaceWinningInitializeTimelineGateway(InMemoryMonitoringGateway):
         self, subject_id: str, baseline_source_run_id: str
     ) -> TimelineInitializationResult:
         """Materialize timeline state as if another writer initialized first."""
-        if self.get_timeline_state(subject_id) is None:
-            self._timeline_by_subject[subject_id] = self._timeline_by_subject.get(
-                subject_id,
-                None,
-            ) or self._build_competing_timeline_state(subject_id)
+        timeline_state = self.get_timeline_state(subject_id)
+        assert timeline_state is not None
+        if timeline_state.baseline_source_run_id is None:
+            self._timeline_by_subject[subject_id] = TimelineState(
+                timeline_id=timeline_state.timeline_id,
+                baseline_source_run_id=self._competing_baseline_source_run_id,
+            )
         return TimelineInitializationResult(
-            timeline_id=f"timeline-{subject_id}",
+            timeline_id=timeline_state.timeline_id,
             created=False,
-        )
-
-    def _build_competing_timeline_state(self, subject_id: str):
-        """Return timeline state pinned to the competing baseline."""
-        from mlflow_monitor.gateway import TimelineState
-
-        return TimelineState(
-            timeline_id=f"timeline-{subject_id}",
-            baseline_source_run_id=self._competing_baseline_source_run_id,
         )
 
 
@@ -401,25 +466,30 @@ def test_transition_run_preserves_comparability_fields() -> None:
 
 def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     """Prepare should resolve references and required source-run inputs."""
-    gateway = make_gateway_with_timeline()
-    gateway.set_active_lkg_monitoring_run_id("churn_model", "monitoring-run-lkg")
-    compiled = make_compiled_invocation()
+    fixture = make_gateway_with_timeline()
+    gateway = fixture.gateway
+    gateway.set_active_lkg_monitoring_run_id("churn_model", fixture.previous_monitoring_run_id)
+    compiled = make_compiled_invocation(
+        custom_reference_monitoring_run_id=fixture.custom_monitoring_run_id
+    )
 
     prepared = prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=compiled,
         gateway=gateway,
     )
 
-    assert prepared.monitoring_run_id == "monitoring-run-1"
+    assert (
+        prepared.monitoring_run_id
+        == gateway.idempotency_bindings("churn_model")["train-run-123|default|v0"]
+    )
     assert prepared.subject_id == "churn_model"
     assert prepared.timeline_id == "timeline-churn_model"
     assert prepared.source_run_id == "train-run-123"
     assert prepared.baseline_source_run_id == "train-run-baseline"
-    assert prepared.previous_monitoring_run_id == "monitoring-run-custom-1"
-    assert prepared.active_lkg_monitoring_run_id == "monitoring-run-lkg"
-    assert prepared.custom_reference_monitoring_run_id == "monitoring-run-custom-1"
+    assert prepared.previous_monitoring_run_id == fixture.custom_monitoring_run_id
+    assert prepared.active_lkg_monitoring_run_id == fixture.previous_monitoring_run_id
+    assert prepared.custom_reference_monitoring_run_id == fixture.custom_monitoring_run_id
     assert prepared.contract == CONTRACT
     assert prepared.required_metrics == ("auc", "f1")
     assert prepared.required_artifacts == ("metrics.json",)
@@ -464,7 +534,6 @@ def test_prepare_run_context_bootstraps_allocated_uninitialized_timeline() -> No
     assert timeline_state.baseline_source_run_id is None
 
     prepared = prepare_test_context(
-        monitoring_run_id=allocation.monitoring_run_id,
         subject_id="churn_model",
         compiled_invocation=compiled_invocation,
         gateway=gateway,
@@ -472,6 +541,7 @@ def test_prepare_run_context_bootstraps_allocated_uninitialized_timeline() -> No
     )
     bootstrapped_timeline_state = gateway.get_timeline_state("churn_model")
 
+    assert prepared.monitoring_run_id == allocation.monitoring_run_id
     assert prepared.timeline_id == allocation.timeline_id
     assert bootstrapped_timeline_state is not None
     assert bootstrapped_timeline_state.timeline_id == allocation.timeline_id
@@ -680,7 +750,7 @@ def test_execute_contract_check_rejects_duplicate_reason_codes() -> None:
 def test_prepare_run_context_succeeds_without_previous_run() -> None:
     """Prepare should tolerate a missing previous run."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    initialize_test_timeline(gateway)
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-123",
@@ -694,7 +764,6 @@ def test_prepare_run_context_succeeds_without_previous_run() -> None:
     )
 
     prepared = prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=make_compiled_invocation(custom_reference_monitoring_run_id=None),
         gateway=gateway,
@@ -705,10 +774,9 @@ def test_prepare_run_context_succeeds_without_previous_run() -> None:
 
 def test_prepare_run_context_succeeds_without_active_lkg() -> None:
     """Prepare should tolerate a missing active LKG."""
-    gateway = make_gateway_with_timeline()
+    gateway = make_gateway_with_timeline().gateway
 
     prepared = prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=make_compiled_invocation(),
         gateway=gateway,
@@ -720,7 +788,7 @@ def test_prepare_run_context_succeeds_without_active_lkg() -> None:
 def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
     """Prepare should resolve a raw source run when source_experiment is omitted."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    initialize_test_timeline(gateway)
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-123",
@@ -734,7 +802,6 @@ def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
     )
 
     prepared = prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=make_compiled_invocation(
             source_experiment=None,
@@ -748,10 +815,9 @@ def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
 
 def test_prepare_run_context_preserves_omitted_custom_reference() -> None:
     """Prepare should keep an omitted custom reference as None."""
-    gateway = make_gateway_with_timeline()
+    gateway = make_gateway_with_timeline().gateway
 
     prepared = prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=make_compiled_invocation(custom_reference_monitoring_run_id=None),
         gateway=gateway,
@@ -763,11 +829,10 @@ def test_prepare_run_context_preserves_omitted_custom_reference() -> None:
 def test_prepare_run_context_fails_when_source_run_cannot_be_resolved() -> None:
     """Prepare should fail explicitly when the source run is missing."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    initialize_test_timeline(gateway)
 
     with pytest.raises(PrepareStageError, match="Source training run could not be resolved"):
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(custom_reference_monitoring_run_id=None),
             gateway=gateway,
@@ -777,7 +842,7 @@ def test_prepare_run_context_fails_when_source_run_cannot_be_resolved() -> None:
 def test_prepare_run_context_fails_when_required_metric_is_missing() -> None:
     """Prepare should fail explicitly when a required metric is absent."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    initialize_test_timeline(gateway)
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-123",
@@ -792,7 +857,6 @@ def test_prepare_run_context_fails_when_required_metric_is_missing() -> None:
 
     with pytest.raises(PrepareStageError, match="missing required metric"):
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 required_metrics=("f1", "auc"),
@@ -805,7 +869,7 @@ def test_prepare_run_context_fails_when_required_metric_is_missing() -> None:
 def test_prepare_run_context_fails_when_required_artifact_is_missing() -> None:
     """Prepare should fail explicitly when a required artifact is absent."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    initialize_test_timeline(gateway)
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-123",
@@ -820,7 +884,6 @@ def test_prepare_run_context_fails_when_required_artifact_is_missing() -> None:
 
     with pytest.raises(PrepareStageError, match="missing required artifact"):
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 required_artifacts=("metrics.json",),
@@ -833,7 +896,14 @@ def test_prepare_run_context_fails_when_required_artifact_is_missing() -> None:
 def test_prepare_run_context_uses_invocation_owned_source_run_id() -> None:
     """Prepare should use the invocation identity rather than Recipe selection."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    initialize_test_timeline(
+        gateway,
+        source_run_id="train-run-runtime",
+        compiled_recipe=make_compiled_invocation(
+            source_run_id="train-run-runtime",
+            recipe_id=SYSTEM_DEFAULT_RECIPE_ID,
+        ).compiled_recipe,
+    )
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-runtime",
@@ -847,7 +917,6 @@ def test_prepare_run_context_uses_invocation_owned_source_run_id() -> None:
     )
 
     prepared = prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=make_compiled_invocation(
             source_run_id="train-run-runtime",
@@ -865,7 +934,12 @@ def test_prepare_run_context_uses_invocation_owned_source_run_id() -> None:
 def test_prepare_run_context_succeeds_for_resolved_system_default_recipe() -> None:
     """Prepare should treat the built-in default recipe as a first-class runtime input."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    compiled = compile_recipe()
+    initialize_test_timeline(
+        gateway,
+        source_run_id="train-run-runtime",
+        compiled_recipe=compiled,
+    )
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-runtime",
@@ -878,10 +952,7 @@ def test_prepare_run_context_succeeds_for_resolved_system_default_recipe() -> No
         data_scope="validation:2026-03-01",
     )
 
-    compiled = compile_recipe()
-
     prepared = prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=compiled,
         gateway=gateway,
@@ -903,7 +974,12 @@ def test_prepare_run_context_succeeds_for_resolved_system_default_recipe() -> No
 def test_prepare_run_context_allows_system_default_recipe_without_optional_evidence() -> None:
     """Prepare should not require extra metrics or artifacts for the system default recipe."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    compiled = compile_recipe()
+    initialize_test_timeline(
+        gateway,
+        source_run_id="train-run-runtime",
+        compiled_recipe=compiled,
+    )
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-runtime",
@@ -916,10 +992,7 @@ def test_prepare_run_context_allows_system_default_recipe_without_optional_evide
         data_scope="validation:2026-03-01",
     )
 
-    compiled = compile_recipe()
-
     prepared = prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=compiled,
         gateway=gateway,
@@ -935,7 +1008,7 @@ def test_prepare_run_context_allows_system_default_recipe_without_optional_evide
 def test_prepare_run_context_fails_when_custom_reference_is_missing() -> None:
     """Prepare should fail when configured custom reference is absent."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    gateway.initialize_timeline("churn_model", "train-run-baseline")
+    initialize_test_timeline(gateway)
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-123",
@@ -952,7 +1025,6 @@ def test_prepare_run_context_fails_when_custom_reference_is_missing() -> None:
         PrepareStageError, match="Custom reference monitoring run could not be resolved"
     ):
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 custom_reference_monitoring_run_id="monitoring-run-missing"
@@ -963,10 +1035,17 @@ def test_prepare_run_context_fails_when_custom_reference_is_missing() -> None:
 
 def test_prepare_run_context_fails_when_custom_reference_is_on_another_subject() -> None:
     """Prepare should reject a custom reference from another subject timeline."""
-    gateway = make_gateway_with_timeline()
+    gateway = make_gateway_with_timeline().gateway
+    compiled_invocation = make_compiled_invocation()
+    foreign_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="fraud_model",
+        source_run_id="train-run-foreign",
+        compiled_recipe=compiled_invocation.compiled_recipe,
+    )
     gateway.upsert_monitoring_run(
         subject_id="fraud_model",
-        monitoring_run_id="monitoring-run-foreign",
+        monitoring_run_id=foreign_allocation.monitoring_run_id,
         source_run_id="train-run-foreign",
         lifecycle_status=LifecycleStatus.CLOSED,
         sequence_index=0,
@@ -976,58 +1055,31 @@ def test_prepare_run_context_fails_when_custom_reference_is_on_another_subject()
         PrepareStageError, match="Custom reference monitoring run could not be resolved"
     ):
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                custom_reference_monitoring_run_id="monitoring-run-foreign"
+                custom_reference_monitoring_run_id=foreign_allocation.monitoring_run_id
             ),
             gateway=gateway,
         )
 
 
-def test_prepare_run_context_succeeds_for_first_run_with_baseline_passed_in() -> None:
-    """Prepare should resolve references and required source-run inputs."""
+def test_prepare_run_context_fails_for_uninitialized_timeline_with_no_baseline() -> None:
+    """Prepare should require a baseline when allocation has not pinned one."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-123",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
-        features=("age", "income"),
-        schema={"age": "int", "income": "float"},
+        environment={},
+        features=(),
+        schema={},
         data_scope="validation:2026-03-01",
     )
 
-    prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
-        subject_id="churn_model",
-        compiled_invocation=make_compiled_invocation(
-            source_run_id=BASELINE.source_run_id,
-            source_experiment="training/churn",
-            required_metrics=tuple(BASELINE.metric_snapshot.keys()),
-            required_artifacts=("metrics.json",),
-            custom_reference_monitoring_run_id=None,
-        ),
-        gateway=gateway,
-        baseline_source_run_id=BASELINE.source_run_id,
-    )
-
-    timeline_state = gateway.get_timeline_state("churn_model")
-
-    assert timeline_state is not None
-    assert timeline_state.baseline_source_run_id == "train-run-1"
-    assert timeline_state.timeline_id == "timeline-churn_model"
-
-
-def test_prepare_run_context_fails_for_first_run_with_no_baseline() -> None:
-    """Prepare should fail without existing timeline and provided baseline."""
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
-
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id="train-run-123",
@@ -1040,25 +1092,39 @@ def test_prepare_run_context_fails_for_first_run_with_no_baseline() -> None:
         )
 
     error = exc_info.value
-    assert error.code == "prepare_missing_baseline_no_timeline"
+    assert error.code == "prepare_missing_baseline_for_uninitialized_timeline"
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", None),
     )
     assert error.message == (
-        "No timeline exists for subject_id=churn_model "
+        "The timeline for subject_id='churn_model' has no pinned baseline "
         "and no baseline_source_run_id was provided. "
-        "A valid baseline_source_run_id is required to bootstrap a new timeline."
+        "A valid baseline_source_run_id is required to bootstrap the timeline."
     )
+    timeline_state = gateway.get_timeline_state("churn_model")
+    assert timeline_state is not None
+    assert timeline_state.timeline_id == "timeline-churn_model"
+    assert timeline_state.baseline_source_run_id is None
 
 
-def test_prepare_run_context_fails_for_first_run_with_empty_baseline() -> None:
-    """Prepare should fail without existing timeline and provided baseline."""
+def test_prepare_run_context_fails_for_uninitialized_timeline_with_empty_baseline() -> None:
+    """Prepare should reject an empty baseline for an allocated Timeline."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-123",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={},
+        features=(),
+        schema={},
+        data_scope="validation:2026-03-01",
+    )
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id="train-run-123",
@@ -1072,19 +1138,23 @@ def test_prepare_run_context_fails_for_first_run_with_empty_baseline() -> None:
         )
 
     error = exc_info.value
-    assert error.code == "prepare_missing_baseline_no_timeline"
+    assert error.code == "prepare_missing_baseline_for_uninitialized_timeline"
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", ""),
     )
     assert error.message == (
-        "No timeline exists for subject_id=churn_model "
+        "The timeline for subject_id='churn_model' has no pinned baseline "
         "and no baseline_source_run_id was provided. "
-        "A valid baseline_source_run_id is required to bootstrap a new timeline."
+        "A valid baseline_source_run_id is required to bootstrap the timeline."
     )
+    timeline_state = gateway.get_timeline_state("churn_model")
+    assert timeline_state is not None
+    assert timeline_state.timeline_id == "timeline-churn_model"
+    assert timeline_state.baseline_source_run_id is None
 
 
-def test_prepare_run_context_fails_for_first_run_with_missing_baseline_run() -> None:
+def test_prepare_run_context_fails_for_uninitialized_timeline_with_missing_baseline_run() -> None:
     """Prepare should reject bootstrap baselines that do not resolve."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
@@ -1101,7 +1171,6 @@ def test_prepare_run_context_fails_for_first_run_with_missing_baseline_run() -> 
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id=BASELINE.source_run_id,
@@ -1122,14 +1191,14 @@ def test_prepare_run_context_fails_for_first_run_with_missing_baseline_run() -> 
         ("baseline_source_run_id", "missing-baseline"),
     )
     assert error.message == (
-        "Baseline source run could not be resolved for subject_id=churn_model, "
-        "compiled_recipe.source_requirements.source_experiment='training/churn', "
+        "Baseline source run could not be resolved for subject_id='churn_model', "
+        "source_experiment='training/churn', "
         "and baseline_source_run_id='missing-baseline'."
     )
 
 
-def test_prepare_run_context_does_not_persist_timeline_when_source_run_resolution_fails() -> None:
-    """Failed first prepare should not leave timeline state behind."""
+def test_prepare_run_context_does_not_bootstrap_when_source_run_resolution_fails() -> None:
+    """Failed Prepare should retain allocation without pinning a baseline."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
@@ -1145,7 +1214,6 @@ def test_prepare_run_context_does_not_persist_timeline_when_source_run_resolutio
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id="missing-source",
@@ -1159,11 +1227,14 @@ def test_prepare_run_context_does_not_persist_timeline_when_source_run_resolutio
         )
 
     assert exc_info.value.code == "prepare_source_run_not_found"
-    assert gateway.get_timeline_state("churn_model") is None
+    timeline_state = gateway.get_timeline_state("churn_model")
+    assert timeline_state is not None
+    assert timeline_state.timeline_id == "timeline-churn_model"
+    assert timeline_state.baseline_source_run_id is None
 
 
-def test_prepare_run_context_does_not_persist_timeline_when_metric_validation_fails() -> None:
-    """Failed first prepare should not persist bootstrap state on metric errors."""
+def test_prepare_run_context_does_not_bootstrap_when_metric_validation_fails() -> None:
+    """Metric validation failure should leave the baseline uninitialized."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
@@ -1179,7 +1250,6 @@ def test_prepare_run_context_does_not_persist_timeline_when_metric_validation_fa
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id=BASELINE.source_run_id,
@@ -1193,11 +1263,14 @@ def test_prepare_run_context_does_not_persist_timeline_when_metric_validation_fa
         )
 
     assert exc_info.value.code == "prepare_missing_required_metric"
-    assert gateway.get_timeline_state("churn_model") is None
+    timeline_state = gateway.get_timeline_state("churn_model")
+    assert timeline_state is not None
+    assert timeline_state.timeline_id == "timeline-churn_model"
+    assert timeline_state.baseline_source_run_id is None
 
 
-def test_prepare_run_context_does_not_persist_timeline_when_artifact_validation_fails() -> None:
-    """Failed first prepare should not persist bootstrap state on artifact errors."""
+def test_prepare_run_context_does_not_bootstrap_when_artifact_validation_fails() -> None:
+    """Artifact validation failure should leave the baseline uninitialized."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
@@ -1213,7 +1286,6 @@ def test_prepare_run_context_does_not_persist_timeline_when_artifact_validation_
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id=BASELINE.source_run_id,
@@ -1227,11 +1299,14 @@ def test_prepare_run_context_does_not_persist_timeline_when_artifact_validation_
         )
 
     assert exc_info.value.code == "prepare_missing_required_artifact"
-    assert gateway.get_timeline_state("churn_model") is None
+    timeline_state = gateway.get_timeline_state("churn_model")
+    assert timeline_state is not None
+    assert timeline_state.timeline_id == "timeline-churn_model"
+    assert timeline_state.baseline_source_run_id is None
 
 
-def test_prepare_run_context_does_not_persist_timeline_when_custom_reference_is_invalid() -> None:
-    """Failed first prepare should not persist bootstrap state on reference errors."""
+def test_prepare_run_context_does_not_bootstrap_when_custom_reference_is_invalid() -> None:
+    """Reference validation failure should leave the baseline uninitialized."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
@@ -1247,7 +1322,6 @@ def test_prepare_run_context_does_not_persist_timeline_when_custom_reference_is_
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id=BASELINE.source_run_id,
@@ -1261,10 +1335,13 @@ def test_prepare_run_context_does_not_persist_timeline_when_custom_reference_is_
         )
 
     assert exc_info.value.code == "prepare_custom_reference_not_found"
-    assert gateway.get_timeline_state("churn_model") is None
+    timeline_state = gateway.get_timeline_state("churn_model")
+    assert timeline_state is not None
+    assert timeline_state.timeline_id == "timeline-churn_model"
+    assert timeline_state.baseline_source_run_id is None
 
 
-def test_prepare_run_context_fails_for_first_run_with_foreign_subject_baseline() -> None:
+def test_prepare_rejects_foreign_subject_baseline_before_timeline_bootstrap() -> None:
     """Prepare should reject bootstrap baselines from another subject."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
@@ -1292,7 +1369,6 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_subject_baseline()
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id=BASELINE.source_run_id,
@@ -1313,13 +1389,13 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_subject_baseline()
         ("baseline_source_run_id", "fraud-baseline"),
     )
     assert error.message == (
-        "Baseline source run could not be resolved for subject_id=churn_model, "
-        "compiled_recipe.source_requirements.source_experiment='training/churn', "
+        "Baseline source run could not be resolved for subject_id='churn_model', "
+        "source_experiment='training/churn', "
         "and baseline_source_run_id='fraud-baseline'."
     )
 
 
-def test_prepare_run_context_fails_for_first_run_with_foreign_experiment_baseline() -> None:
+def test_prepare_rejects_foreign_experiment_baseline_before_timeline_bootstrap() -> None:
     """Prepare should reject bootstrap baselines from another experiment."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
@@ -1347,7 +1423,6 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_experiment_baselin
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id=BASELINE.source_run_id,
@@ -1368,8 +1443,8 @@ def test_prepare_run_context_fails_for_first_run_with_foreign_experiment_baselin
         ("baseline_source_run_id", "fraud-baseline"),
     )
     assert error.message == (
-        "Baseline source run could not be resolved for subject_id=churn_model, "
-        "compiled_recipe.source_requirements.source_experiment='training/churn', "
+        "Baseline source run could not be resolved for subject_id='churn_model', "
+        "source_experiment='training/churn', "
         "and baseline_source_run_id='fraud-baseline'."
     )
 
@@ -1391,7 +1466,6 @@ def test_prepare_run_context_fails_when_timeline_init_does_not_materialize_state
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id=BASELINE.source_run_id,
@@ -1431,7 +1505,6 @@ def test_prepare_run_context_succeeds_when_competing_bootstrap_pins_same_baselin
     )
 
     prepared = prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=make_compiled_invocation(
             source_run_id=BASELINE.source_run_id,
@@ -1479,7 +1552,6 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id=BASELINE.source_run_id,
@@ -1503,8 +1575,18 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
 def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_passed_in() -> None:
     """Prepare should resolve references and required source-run inputs."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    timeline_initialization_result = gateway.initialize_timeline(
-        "churn_model", BASELINE.source_run_id
+    compiled_invocation = make_compiled_invocation(
+        source_run_id=BASELINE.source_run_id,
+        source_experiment="training/churn",
+        required_metrics=tuple(BASELINE.metric_snapshot.keys()),
+        required_artifacts=("metrics.json",),
+        custom_reference_monitoring_run_id=None,
+    )
+    timeline_initialization_result = initialize_test_timeline(
+        gateway,
+        source_run_id=BASELINE.source_run_id,
+        baseline_source_run_id=BASELINE.source_run_id,
+        compiled_recipe=compiled_invocation.compiled_recipe,
     )
 
     gateway.add_source_run(
@@ -1520,15 +1602,8 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
     )
 
     prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
-        compiled_invocation=make_compiled_invocation(
-            source_run_id=BASELINE.source_run_id,
-            source_experiment="training/churn",
-            required_metrics=tuple(BASELINE.metric_snapshot.keys()),
-            required_artifacts=("metrics.json",),
-            custom_reference_monitoring_run_id=None,
-        ),
+        compiled_invocation=compiled_invocation,
         gateway=gateway,
         baseline_source_run_id=BASELINE.source_run_id,
     )
@@ -1544,11 +1619,10 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
 
 def test_prepare_run_context_succeeds_with_existed_timeline_and_no_baseline() -> None:
     """Baseline resolution should succeed by returning the existing pinned baseline."""
-    gateway = make_gateway_with_timeline()
+    gateway = make_gateway_with_timeline().gateway
     timeline_state = gateway.get_timeline_state("churn_model")
 
     prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=make_compiled_invocation(
             source_run_id="train-run-123",
@@ -1567,7 +1641,7 @@ def test_prepare_run_context_succeeds_with_existed_timeline_and_no_baseline() ->
 
 def test_prepare_run_context_succeeds_with_created_timeline_matching_baseline() -> None:
     """Prepare should succeed when provided baseline matches the existing timeline baseline."""
-    gateway = make_gateway_with_timeline()
+    gateway = make_gateway_with_timeline().gateway
 
     gateway.add_source_run(
         subject_id="churn_model",
@@ -1584,7 +1658,6 @@ def test_prepare_run_context_succeeds_with_created_timeline_matching_baseline() 
     timeline_state = gateway.get_timeline_state("churn_model")
 
     prepare_test_context(
-        monitoring_run_id="monitoring-run-1",
         subject_id="churn_model",
         compiled_invocation=make_compiled_invocation(
             source_run_id="train-run-123",
@@ -1604,7 +1677,7 @@ def test_prepare_run_context_succeeds_with_created_timeline_matching_baseline() 
 
 def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> None:
     """Prepare should fail when provided baseline does not match existing timeline baseline."""
-    gateway = make_gateway_with_timeline()
+    gateway = make_gateway_with_timeline().gateway
 
     # add source run that does not match the existing timeline baseline
     gateway.add_source_run(
@@ -1626,7 +1699,6 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
                 source_run_id="train-run-other",
@@ -1654,16 +1726,26 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
     )
 
 
-def test_prepare_run_context_fail_with_no_timeline_and_invalid_baseline() -> None:
-    """Prepare should fail with no timeline and invalid baseline that cannot be resolved."""
+def test_prepare_run_context_fails_for_uninitialized_timeline_and_invalid_baseline() -> None:
+    """Prepare should reject an unresolved baseline before bootstrapping."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={},
+        features=(),
+        schema={},
+        data_scope="validation:2026-03-01",
+    )
 
     with pytest.raises(PrepareStageError) as exc_info:
         prepare_test_context(
-            monitoring_run_id="monitoring-run-1",
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                source_run_id="train-run-baseline",
+                source_run_id="train-run-current",
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
