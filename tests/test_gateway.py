@@ -16,6 +16,7 @@ from mlflow_monitor.errors import (
     TrainingRunMutationViolation,
 )
 from mlflow_monitor.gateway import (
+    CreateOrReuseMonitoringRunResult,
     GatewayConfig,
     IdempotencyKey,
     InMemoryMonitoringGateway,
@@ -54,6 +55,25 @@ def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:
     assert second.sequence_index == first.sequence_index
     assert second.existing_monitoring_run is None
     assert second.allocated is False
+
+
+@pytest.mark.parametrize("timeline_id", [None, "", "   "])
+def test_create_or_reuse_result_requires_nonempty_timeline_id(
+    timeline_id: str | None,
+) -> None:
+    """Allocation results should reject missing Timeline identity immediately."""
+    with pytest.raises(
+        ValueError,
+        match="CreateOrReuseMonitoringRunResult.timeline_id must be a non-empty string",
+    ):
+        CreateOrReuseMonitoringRunResult(
+            monitoring_run_id="monitoring-run-1",
+            source_run_id="train-run-1",
+            timeline_id=timeline_id,
+            sequence_index=0,
+            existing_monitoring_run=None,
+            allocated=True,
+        )
 
 
 def test_create_or_reuse_monitoring_run_diff_recipe_version_creates_new() -> None:

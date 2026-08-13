@@ -475,15 +475,15 @@ class MLflowMonitoringGateway:
         return tuple(records)
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
-        """Return Timeline state after the subject's first Monitoring Run allocation.
+        """Return the recorded Timeline state for an allocated subject.
 
         Args:
             subject_id: Monitored subject identifier.
 
         Returns:
-            Timeline state for an allocated subject. Its baseline is `None`
-            until bootstrap succeeds. Returns `None` when no Monitoring Run
-            allocation exists.
+            Timeline state containing its stable identity and optional pinned
+            Baseline Source Run identity. Returns `None` when no durable
+            Monitoring Run allocation exists.
         """
         experiment_id = self._get_experiment_id(subject_id)
         if experiment_id is None:

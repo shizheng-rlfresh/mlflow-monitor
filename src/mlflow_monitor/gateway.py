@@ -159,6 +159,13 @@ class CreateOrReuseMonitoringRunResult:
     existing_monitoring_run: MonitoringRunRecord | None
     allocated: bool
 
+    def __post_init__(self) -> None:
+        """Require the Timeline identity established by allocation."""
+        if not isinstance(self.timeline_id, str) or not self.timeline_id.strip():
+            raise ValueError(
+                "CreateOrReuseMonitoringRunResult.timeline_id must be a non-empty string."
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class SourceRunRecord:
