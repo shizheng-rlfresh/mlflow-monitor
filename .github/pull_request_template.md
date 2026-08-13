@@ -4,11 +4,11 @@
 
 ## Ticket or Issue
 
-<!-- Reference the ticket or issue that this pull request addresses. 
-Using the format (ticket/issue-number)[url-to-ticket-or-issue].
-
-Note that the tickets are not publicly accessible, thus the format should be simplified as
-[ticket-number]()
+<!-- Reference the ticket or issue that this pull request addresses.
+Use one of these formats:
+- GitHub issue: #123
+- Public link: [ticket-id](https://url-to-ticket-or-issue)
+- Internal ticket (no public URL): ticket-id
 
 -->
 
