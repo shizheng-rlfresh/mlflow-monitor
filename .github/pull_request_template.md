@@ -2,6 +2,16 @@
 
 <!-- Summarize the concrete changes in this pull request. -->
 
+## Ticket or Issue
+
+<!-- Reference the ticket or issue that this pull request addresses. 
+Using the format (ticket/issue-number)[url-to-ticket-or-issue].
+
+Note that the tickets are not publicly accessible, thus the format should be simplified as
+[ticket-number]()
+
+-->
+
 ## Why
 
 <!-- Explain the problem, requirement, or ticket outcome this change addresses. -->
