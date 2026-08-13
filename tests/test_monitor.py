@@ -19,6 +19,7 @@ from mlflow_monitor.gateway import (
     GatewayConfig,
     IdempotencyKey,
     InMemoryMonitoringGateway,
+    TimelineState,
 )
 from mlflow_monitor.orchestration import run_orchestration
 from mlflow_monitor.result_contract import MonitorRunResult
@@ -158,6 +159,28 @@ class AllocationOnlyReplayGateway(InMemoryMonitoringGateway):
             existing_monitoring_run=None,
             allocated=False,
         )
+
+
+class UnreadableAllocatedTimelineGateway(InMemoryMonitoringGateway):
+    """Hide Timeline reads after returning a successful allocation."""
+
+    def __init__(self, config: GatewayConfig) -> None:
+        super().__init__(config)
+        self._timeline_reads_blocked = False
+        self.allocation_timeline_id: str | None = None
+
+    def create_or_reuse_monitoring_run(
+        self, key: IdempotencyKey
+    ) -> CreateOrReuseMonitoringRunResult:
+        result = super().create_or_reuse_monitoring_run(key)
+        self.allocation_timeline_id = result.timeline_id
+        self._timeline_reads_blocked = True
+        return result
+
+    def get_timeline_state(self, subject_id: str) -> TimelineState | None:
+        if self._timeline_reads_blocked:
+            return None
+        return super().get_timeline_state(subject_id)
 
 
 class FinalizingGateway(InMemoryMonitoringGateway):
@@ -574,6 +597,24 @@ def test_run_orchestration_prebootstrap_failure_preserves_allocation_sequence() 
     assert successful_monitoring_run.sequence_index == 1
 
 
+def test_run_orchestration_preserves_allocation_timeline_id_when_timeline_read_fails() -> None:
+    """A failed allocated result should use identity returned by allocation."""
+    gateway = UnreadableAllocatedTimelineGateway(GatewayConfig())
+
+    result = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert result.lifecycle_status is LifecycleStatus.FAILED
+    assert result.timeline_id == gateway.allocation_timeline_id == "timeline-churn_model"
+    assert result.error is not None
+    assert result.error.code == "prepare_missing_timeline"
+
+
 def test_run_orchestration_check_error_persists_failed_and_returns_runtime_error() -> None:
     gateway = make_gateway()
 
@@ -914,7 +955,7 @@ def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun
     assert second.comparability_status is None
     assert second.error is not None
     assert second.error.stage == "prepare"
-    assert second.error.code == "prepare_baseline_trying_to_override_existing_timeline"
+    assert second.error.code == "prepare_baseline_override_existing_timeline"
     assert stored is not None
     assert stored.lifecycle_status is LifecycleStatus.CHECKED
     assert stored.contract_check_result is not None

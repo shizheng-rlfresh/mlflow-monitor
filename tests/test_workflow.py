@@ -1617,6 +1617,55 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
     assert timeline_state.timeline_id == "timeline-churn_model"
 
 
+def test_prepare_run_context_accepts_baseline_alias_resolving_to_pinned_baseline() -> None:
+    """Prepare should compare a resolved baseline identity with the pinned identity."""
+    gateway = AliasResolvingBaselineGateway(GatewayConfig())
+    compiled_invocation = make_compiled_invocation(
+        source_run_id="train-run-current",
+        source_experiment="training/churn",
+        required_metrics=("f1", "auc"),
+        required_artifacts=("metrics.json",),
+    )
+    pin_test_timeline(
+        gateway,
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        compiled_recipe=compiled_invocation.compiled_recipe,
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91, "auc": 0.95},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-baseline",
+        source_experiment="training/churn",
+        metrics={"f1": 0.87, "auc": 0.93},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age", "income"),
+        schema={"age": "int", "income": "float"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.add_source_run_alias("baseline-alias", "train-run-baseline")
+
+    prepared = prepare_test_context(
+        subject_id="churn_model",
+        compiled_invocation=compiled_invocation,
+        gateway=gateway,
+        baseline_source_run_id="baseline-alias",
+    )
+
+    assert prepared.baseline_source_run_id == "train-run-baseline"
+
+
 def test_prepare_run_context_succeeds_with_existed_timeline_and_no_baseline() -> None:
     """Baseline resolution should succeed by returning the existing pinned baseline."""
     gateway = make_gateway_with_timeline().gateway
@@ -1712,7 +1761,7 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
         )
 
     error = exc_info.value
-    assert error.code == "prepare_baseline_trying_to_override_existing_timeline"
+    assert error.code == "prepare_baseline_override_existing_timeline"
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", "train-run-other"),

@@ -48,6 +48,7 @@ class OrchestrationState:
         source_run_id: The original run ID from the training system that produced this run.
         baseline_source_run_id: The source run ID of the baseline this run is compared against
         compiled_recipe: The execution-ready compiled Recipe for this run.
+        timeline_id: The Timeline identity returned by monitoring-run allocation.
         monitoring_run_id: The unique ID of the monitoring run to be executed.
         existing_monitoring_run: The existing monitoring run record, if any.
         is_new_monitoring_run: Whether this is a new monitoring run.
@@ -59,6 +60,7 @@ class OrchestrationState:
     source_run_id: str
     baseline_source_run_id: str | None
     compiled_recipe: CompiledRecipe
+    timeline_id: str
     monitoring_run_id: str
     existing_monitoring_run: MonitoringRunRecord | None
     is_new_monitoring_run: bool
@@ -135,6 +137,7 @@ def _resolve_orchestration_state(
         source_run_id=create_or_reuse_result.source_run_id,
         baseline_source_run_id=baseline_source_run_id,
         compiled_recipe=compiled_recipe,
+        timeline_id=create_or_reuse_result.timeline_id,
         monitoring_run_id=create_or_reuse_result.monitoring_run_id,
         existing_monitoring_run=create_or_reuse_result.existing_monitoring_run,
         is_new_monitoring_run=create_or_reuse_result.existing_monitoring_run is None,
@@ -155,12 +158,12 @@ def _short_circuit_existing_monitoring_run(
         result = _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
+            timeline_id=state.timeline_id,
             stage="prepare",
             error=_build_terminal_failed_monitoring_run_rerun_error(
                 subject_id=state.subject_id,
                 monitoring_run_id=state.monitoring_run_id,
             ),
-            gateway=gateway,
         )
         gateway.finalize_monitoring_run_result(
             monitoring_run_id=state.monitoring_run_id,
@@ -181,16 +184,16 @@ def _short_circuit_existing_monitoring_run(
         return _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
+            timeline_id=state.timeline_id,
             stage="prepare",
             error=replay_error,
-            gateway=gateway,
         )
 
     result = _build_existing_checked_monitoring_run_result(
         subject_id=state.subject_id,
         monitoring_run_id=state.monitoring_run_id,
+        timeline_id=state.timeline_id,
         existing_monitoring_run=state.existing_monitoring_run,
-        gateway=gateway,
     )
     gateway.finalize_monitoring_run_result(
         monitoring_run_id=state.monitoring_run_id,
@@ -233,9 +236,9 @@ def _run_prepare_monitoring_run_slice(
         result = _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
+            timeline_id=state.timeline_id,
             stage="prepare",
             error=exc,
-            gateway=gateway,
         )
         gateway.finalize_monitoring_run_result(
             monitoring_run_id=state.monitoring_run_id,
@@ -271,8 +274,8 @@ def _run_check_monitoring_run_slice(
         result = _build_existing_checked_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
+            timeline_id=state.timeline_id,
             existing_monitoring_run=existing_run,
-            gateway=gateway,
         )
         gateway.finalize_monitoring_run_result(
             monitoring_run_id=state.monitoring_run_id,
@@ -297,9 +300,9 @@ def _run_check_monitoring_run_slice(
         result = _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
+            timeline_id=state.timeline_id,
             stage="check",
             error=exc,
-            gateway=gateway,
         )
         gateway.finalize_monitoring_run_result(
             monitoring_run_id=state.monitoring_run_id,
@@ -319,6 +322,7 @@ def _run_check_monitoring_run_slice(
     result = _build_success_monitoring_run_result(
         subject_id=state.subject_id,
         monitoring_run_id=state.monitoring_run_id,
+        timeline_id=state.timeline_id,
         prepared_context=prepared_context,
         contract_check_result=contract_check_result,
         gateway=gateway,
@@ -334,6 +338,7 @@ def _build_success_monitoring_run_result(
     *,
     subject_id: str,
     monitoring_run_id: str,
+    timeline_id: str,
     prepared_context,
     contract_check_result: ContractCheckResult,
     gateway: MonitoringGateway,
@@ -343,6 +348,7 @@ def _build_success_monitoring_run_result(
     Args:
         subject_id: The ID of the monitored subject this run is associated with.
         monitoring_run_id: The ID of the monitoring run.
+        timeline_id: The Timeline identity returned by monitoring-run allocation.
         prepared_context: The prepared context produced by the prepare stage for this run.
         contract_check_result: The result of the contract check stage for this run.
         gateway: The monitoring gateway to use for retrieving any additional information needed.
@@ -350,11 +356,10 @@ def _build_success_monitoring_run_result(
     Returns:
         The canonical success result for this run, including comparability status and any findings.
     """
-    timeline_state = gateway.get_timeline_state(subject_id)
     return MonitorRunResult(
         monitoring_run_id=monitoring_run_id,
         subject_id=subject_id,
-        timeline_id=None if timeline_state is None else timeline_state.timeline_id,
+        timeline_id=timeline_id,
         lifecycle_status=LifecycleStatus.CHECKED,
         comparability_status=contract_check_result.status,
         summary=None,
@@ -369,25 +374,24 @@ def _build_existing_checked_monitoring_run_result(
     *,
     subject_id: str,
     monitoring_run_id: str,
+    timeline_id: str,
     existing_monitoring_run: MonitoringRunRecord,
-    gateway: MonitoringGateway,
 ) -> MonitorRunResult:
     """Build a success result for an already checked idempotent run.
 
     Args:
         subject_id: The ID of the monitored subject this run is associated with.
         monitoring_run_id: The ID of the monitoring run.
+        timeline_id: The Timeline identity returned by monitoring-run allocation.
         existing_monitoring_run: The previously persisted monitoring run record for this run.
-        gateway: The monitoring gateway to use for retrieving timeline information.
 
     Returns:
         The canonical success result for an already checked run.
     """
-    timeline_state = gateway.get_timeline_state(subject_id)
     return MonitorRunResult(
         monitoring_run_id=monitoring_run_id,
         subject_id=subject_id,
-        timeline_id=None if timeline_state is None else timeline_state.timeline_id,
+        timeline_id=timeline_id,
         lifecycle_status=LifecycleStatus.CHECKED,
         comparability_status=existing_monitoring_run.contract_check_result.status
         if existing_monitoring_run.contract_check_result is not None
@@ -404,27 +408,26 @@ def _build_failure_monitoring_run_result(
     *,
     subject_id: str,
     monitoring_run_id: str,
+    timeline_id: str,
     stage: str,
     error: Exception,
-    gateway: MonitoringGateway,
 ) -> MonitorRunResult:
     """Build the canonical failed result for a prepare/check execution error.
 
     Args:
         subject_id: The ID of the monitored subject this run is associated with.
         monitoring_run_id: The ID of the monitoring run.
+        timeline_id: The Timeline identity returned by monitoring-run allocation.
         stage: The stage during which the error occurred (e.g., "prepare" or "check").
         error: The exception raised during execution.
-        gateway: The monitoring gateway to use for retrieving any additional information needed.
 
     Returns:
         The canonical failure result for this run, including error details.
     """
-    timeline_state = gateway.get_timeline_state(subject_id)
     return MonitorRunResult(
         monitoring_run_id=monitoring_run_id,
         subject_id=subject_id,
-        timeline_id=None if timeline_state is None else timeline_state.timeline_id,
+        timeline_id=timeline_id,
         lifecycle_status=LifecycleStatus.FAILED,
         comparability_status=None,
         summary=None,
@@ -608,7 +611,7 @@ def _validate_checked_monitoring_run_rerun_inputs(
         return None
 
     return PrepareStageError(
-        code="prepare_baseline_trying_to_override_existing_timeline",
+        code="prepare_baseline_override_existing_timeline",
         message=(
             f"Provided baseline_source_run_id={baseline_source_run_id!r} "
             f"with resolved_baseline_source_run_id={resolved_baseline_source_run_id!r} "

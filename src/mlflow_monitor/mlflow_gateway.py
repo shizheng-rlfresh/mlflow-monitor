@@ -209,18 +209,18 @@ class MLflowMonitoringGateway:
     def pin_timeline_baseline(
         self, subject_id: str, baseline_source_run_id: str
     ) -> TimelinePinBaselineResult:
-        """Initialize the experiment-backed timeline baseline once.
+        """Pin the experiment-backed Timeline baseline once.
 
-        The monitoring experiment doubles as the subject timeline. Timeline
-        initialization therefore means "ensure the experiment exists and pin the
-        baseline tag if it has not been pinned already."
+        The monitoring experiment backs the subject Timeline and already exists
+        because Monitoring Run allocation precedes this operation. This method
+        pins the baseline tag when it has not been pinned already.
 
         Args:
             subject_id: Monitored subject identifier.
             baseline_source_run_id: Source training run id to pin as baseline.
 
         Returns:
-            Timeline initialization status with the stable timeline id.
+            Timeline identity and whether this call pinned the baseline.
         """
         self._validate_subject_id(subject_id)
         if not baseline_source_run_id:
@@ -475,14 +475,15 @@ class MLflowMonitoringGateway:
         return tuple(records)
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
-        """Return timeline state after the first monitoring run being allocated for the subject_id.
+        """Return Timeline state after the subject's first Monitoring Run allocation.
 
         Args:
             subject_id: Monitored subject identifier.
 
         Returns:
-            Timeline state when the monitoring experiment exists and has a
-            pinned baseline; otherwise `None`.
+            Timeline state for an allocated subject. Its baseline is `None`
+            until bootstrap succeeds. Returns `None` when no Monitoring Run
+            allocation exists.
         """
         experiment_id = self._get_experiment_id(subject_id)
         if experiment_id is None:

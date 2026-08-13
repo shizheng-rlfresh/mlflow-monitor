@@ -7,9 +7,9 @@ This module separates three kinds of state used by workflow:
    In the in-memory gateway, tests seed these with `add_source_run()`.
 
 2. Timeline state
-   Per-subject monitoring configuration anchored by a pinned
-   `baseline_source_run_id`. This is absent until the first monitoring run
-   being allocated. The baseline is then pinned by `pin_timeline_baseline()`.
+   Per-subject monitoring configuration created by the first Monitoring Run
+   allocation. Its `baseline_source_run_id` remains `None` until Prepare pins
+   the baseline through `pin_timeline_baseline()`.
 
 3. Monitoring runs
    Runs owned by the monitoring timeline itself. In the in-memory gateway,
@@ -22,9 +22,10 @@ Lifecycle sketch:
   - timeline state does not exist yet
   - monitoring runs do not exist yet
 
-- First prepare:
+- First Monitoring Run allocation and Prepare:
+  - allocation creates Timeline identity with no pinned baseline
   - workflow resolves the source run through the gateway
-  - if timeline state is missing, workflow may initialize it with a caller-supplied baseline
+  - Prepare pins a valid caller-supplied baseline
   - prepare then continues using the pinned timeline baseline
 
 - Later prepares:
@@ -111,10 +112,8 @@ class TimelineState:
             or None if not set yet.
 
     Note:
-        When first monitoring run is being allocated, the
-        `baseline_source_run_id` will typically be None. Only
-        when the baseline is bootstrapped, it will be set
-        to the source run id of the baseline run.
+        When the first Monitoring Run is allocated, `baseline_source_run_id`
+        is `None`. Successful bootstrap pins the Baseline Source Run identity.
     """
 
     timeline_id: str
@@ -201,7 +200,7 @@ class TimelinePinBaselineResult:
     """Result of pinning the timeline baseline attempt."""
 
     timeline_id: str
-    baseline_pinned: bool  # pinned baseline source run id
+    baseline_pinned: bool
 
 
 class MonitoringGateway(Protocol):
@@ -396,7 +395,7 @@ class InMemoryMonitoringGateway:
             baseline_source_run_id: Source training run id to pin as timeline baseline.
 
         Returns:
-            Timeline initialization result containing the timeline id and status.
+            Timeline identity and whether this call pinned the baseline.
         """
         if not baseline_source_run_id:
             raise GatewayNamespaceViolation(message="baseline_source_run_id must be non-empty.")
@@ -436,7 +435,8 @@ class InMemoryMonitoringGateway:
             subject_id: Monitored subject identifier.
 
         Returns:
-            The timeline state for the subject, or None if not initialized.
+            Timeline state after an allocation, or `None` when the subject has
+            no Monitoring Run allocation.
         """
         self._validate_subject_id(subject_id)
         return self._timeline_by_subject.get(subject_id)

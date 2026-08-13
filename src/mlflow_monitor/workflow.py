@@ -301,21 +301,6 @@ def prepare_run_context(
     timeline_runs = gateway.list_timeline_monitoring_runs(subject_id, exclude_failed=True)
     previous_monitoring_run_id = timeline_runs[-1].monitoring_run_id if timeline_runs else None
 
-    # No bootstrapping required, then we proceed to check if pinned baseline equals
-    # to the provided baseline if the provided baseline is not null or empty string.
-    if baseline_source_run_id and timeline_state.baseline_source_run_id != baseline_source_run_id:
-        raise PrepareStageError(
-            code="prepare_baseline_mismatch",
-            message=(
-                f"Pinned baseline {timeline_state.baseline_source_run_id!r} "
-                f"does not match provided baseline {baseline_source_run_id!r}."
-            ),
-            details=(
-                ("subject_id", subject_id),
-                ("baseline_source_run_id", baseline_source_run_id),
-            ),
-        )
-
     return PreparedContext(
         monitoring_run_id=monitoring_run_id,
         subject_id=subject_id,
@@ -510,7 +495,7 @@ def _resolve_baseline_for_prepare(
 
         if resolved_baseline != pinned_baseline:
             raise PrepareStageError(
-                code="prepare_baseline_trying_to_override_existing_timeline",
+                code="prepare_baseline_override_existing_timeline",
                 message=(
                     f"Provided baseline_source_run_id={baseline_source_run_id!r} "
                     f"with resolved baseline_source_run_id={resolved_baseline!r} does not match "

@@ -70,6 +70,28 @@ def test_monitor_run_result_failure_envelope_construction() -> None:
     assert result.error is error
 
 
+@pytest.mark.parametrize("timeline_id", [None, ""])
+def test_monitor_run_result_requires_nonempty_timeline_id(timeline_id: str | None) -> None:
+    """Allocated monitoring run results should require Timeline identity."""
+    with pytest.raises(ValueError, match="timeline_id must be a non-empty string"):
+        MonitorRunResult(
+            monitoring_run_id="monitoring-run-2",
+            subject_id="churn_model",
+            timeline_id=timeline_id,
+            lifecycle_status=LifecycleStatus.FAILED,
+            comparability_status=None,
+            summary=None,
+            finding_ids=(),
+            diff_ids=(),
+            references=(),
+            error=MonitorRunError(
+                code="prepare_error",
+                message="Prepare failed after allocation.",
+                stage="prepare",
+            ),
+        )
+
+
 def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
     """to_dict should serialize enum statuses and nested error payload."""
     error = MonitorRunError(
