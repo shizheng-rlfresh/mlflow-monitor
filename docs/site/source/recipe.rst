@@ -67,6 +67,37 @@ Finding policies, each registered by its exact ID and version; duplicate
 identities, including the packaged policy identity, are rejected. Custom
 Contracts remain outside the v0 boundary.
 
+Running a Compiled Recipe
+-------------------------
+
+Recipe parsing and compilation finish before monitoring execution. Pass only the
+resulting ``CompiledRecipe`` to ``monitor.run()``:
+
+.. code-block:: python
+
+   from mlflow_monitor import monitor
+   from mlflow_monitor.recipe import load_recipe_json
+   from mlflow_monitor.recipe_compiler import compile_recipe
+
+   recipe = load_recipe_json("recipes/churn.json")
+   compiled_recipe = compile_recipe(recipe)
+
+   result = monitor.run(
+       subject_id="customer-churn",
+       source_run_id="source-run-103",
+       recipe=compiled_recipe,
+   )
+
+Passing ``recipe=None`` selects the precompiled system default. ``monitor.run()``
+rejects raw mappings, file paths, and ``ComponentRegistry`` values; callers must
+parse and compile those inputs before execution. The optional
+``custom_reference_monitoring_run_id`` is supplied by each invocation and remains
+outside the reusable Recipe.
+
+The compiled Recipe ID and version participate in Monitoring Run idempotency.
+MLflow-Monitor does not globally compare effective plans that reuse the same ID
+and version across unrelated Monitoring Runs.
+
 
 Recipe Compiler
 ---------------

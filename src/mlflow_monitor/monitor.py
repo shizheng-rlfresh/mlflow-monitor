@@ -6,6 +6,7 @@ from mlflow_monitor.contract_checker import DefaultContractChecker
 from mlflow_monitor.gateway import GatewayConfig, MonitoringGateway
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
+from mlflow_monitor.recipe_compiler import CompiledRecipe
 from mlflow_monitor.result_contract import MonitorRunResult
 
 
@@ -14,18 +15,27 @@ def run(
     subject_id: str,
     source_run_id: str,
     baseline_source_run_id: str | None = None,
+    custom_reference_monitoring_run_id: str | None = None,
+    recipe: CompiledRecipe | None = None,
     gateway: MonitoringGateway | None = None,
 ) -> MonitorRunResult:
-    """Execute a monitoring run for one monitored subject, source run, and baseline source run.
+    """Execute monitoring for one Source Training Run.
 
     Args:
-        subject_id: The ID of the monitored subject this run is associated with.
-        source_run_id: The original run ID from the training system that produced this run.
-        baseline_source_run_id: baseline source run id for first run.
-        gateway: The monitoring gateway to use for persistence during orchestration.
+        subject_id: Monitored subject identifier.
+        source_run_id: Source Training Run identifier to monitor.
+        baseline_source_run_id: Optional Baseline Source Run identifier used to
+            bootstrap or confirm the subject's immutable baseline.
+        custom_reference_monitoring_run_id: Optional invocation-owned Reference
+            Monitoring Run identifier.
+        recipe: Precompiled Recipe, or ``None`` for the system default.
+        gateway: Optional persistence gateway override.
 
     Returns:
-        The result of the monitoring run execution, including comparability status and any findings.
+        The current synchronous monitoring result.
+
+    Raises:
+        TypeError: If ``recipe`` is neither a ``CompiledRecipe`` nor ``None``.
     """
     if gateway is None:
         gateway = MLflowMonitoringGateway(GatewayConfig())
@@ -34,6 +44,8 @@ def run(
         subject_id=subject_id,
         source_run_id=source_run_id,
         baseline_source_run_id=baseline_source_run_id,
+        custom_reference_monitoring_run_id=custom_reference_monitoring_run_id,
+        recipe=recipe,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
     )
