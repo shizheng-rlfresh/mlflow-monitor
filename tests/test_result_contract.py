@@ -55,7 +55,7 @@ def test_monitor_run_result_failure_envelope_construction() -> None:
     result = MonitorRunResult(
         monitoring_run_id="monitoring-run-2",
         subject_id="churn_model",
-        timeline_id=None,
+        timeline_id="timeline-1",
         lifecycle_status=LifecycleStatus.FAILED,
         comparability_status=None,
         summary=None,
@@ -68,6 +68,28 @@ def test_monitor_run_result_failure_envelope_construction() -> None:
     assert result.lifecycle_status is LifecycleStatus.FAILED
     assert result.comparability_status is None
     assert result.error is error
+
+
+@pytest.mark.parametrize("timeline_id", [None, ""])
+def test_monitor_run_result_requires_nonempty_timeline_id(timeline_id: str | None) -> None:
+    """Allocated monitoring run results should require Timeline identity."""
+    with pytest.raises(ValueError, match="timeline_id must be a non-empty string"):
+        MonitorRunResult(
+            monitoring_run_id="monitoring-run-2",
+            subject_id="churn_model",
+            timeline_id=timeline_id,
+            lifecycle_status=LifecycleStatus.FAILED,
+            comparability_status=None,
+            summary=None,
+            finding_ids=(),
+            diff_ids=(),
+            references=(),
+            error=MonitorRunError(
+                code="prepare_error",
+                message="Prepare failed after allocation.",
+                stage="prepare",
+            ),
+        )
 
 
 def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
@@ -132,7 +154,7 @@ def test_monitor_run_result_to_dict_stable_keys_for_success_and_failure() -> Non
     failure = MonitorRunResult(
         monitoring_run_id="monitoring-run-failure",
         subject_id="churn_model",
-        timeline_id=None,
+        timeline_id="timeline-1",
         lifecycle_status=LifecycleStatus.FAILED,
         comparability_status=None,
         summary=None,
@@ -161,7 +183,7 @@ def test_monitor_run_result_failed_requires_error() -> None:
         MonitorRunResult(
             monitoring_run_id="monitoring-run-failed",
             subject_id="churn_model",
-            timeline_id=None,
+            timeline_id="timeline-1",
             lifecycle_status=LifecycleStatus.FAILED,
             comparability_status=None,
             summary=None,

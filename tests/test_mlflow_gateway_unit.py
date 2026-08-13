@@ -105,6 +105,7 @@ def test_create_or_reuse_monitoring_run_repairs_partial_allocation_index(
 
     assert result.monitoring_run_id == "monitoring-run-1"
     assert result.source_run_id == "train-run-1"
+    assert result.timeline_id == "experiment-1"
     assert result.sequence_index == 0
     assert result.allocated is False
     assert stub_client.set_monitoring_experiment_tag.call_args_list == [
@@ -143,6 +144,7 @@ def test_create_or_reuse_monitoring_run_repairs_orphan_before_new_allocation() -
 
     assert result.monitoring_run_id == "monitoring-run-2"
     assert result.source_run_id == "train-run-2"
+    assert result.timeline_id == "experiment-1"
     assert result.sequence_index == 1
     assert result.allocated is True
     stub_client.create_monitoring_run.assert_called_once_with(
@@ -174,6 +176,38 @@ def test_create_or_reuse_monitoring_run_repairs_orphan_before_new_allocation() -
             "monitoring-run-2",
         ),
     ]
+
+
+def test_get_timeline_state_distinguishes_no_allocation_from_allocated_uninitialized() -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {}
+    stub_client.list_monitoring_runs_with_tag.return_value = ()
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    assert gateway.get_timeline_state("churn_model") is None
+    with pytest.raises(
+        GatewayConsistencyViolation,
+        match="Timeline state for subject_id 'churn_model' not found.",
+    ):
+        gateway.pin_timeline_baseline("churn_model", "train-run-1")
+    stub_client.set_monitoring_experiment_tag.assert_not_called()
+
+    stub_client.list_monitoring_runs_with_tag.return_value = (
+        _allocation_snapshot(
+            run_id="monitoring-run-1",
+            source_run_id="train-run-1",
+            sequence_index=0,
+        ),
+    )
+
+    timeline_state = gateway.get_timeline_state("churn_model")
+
+    assert timeline_state is not None
+    assert timeline_state.timeline_id == "experiment-1"
+    assert timeline_state.baseline_source_run_id is None
 
 
 def test_create_or_reuse_monitoring_run_reuses_older_recipe_without_rewriting_cache() -> None:

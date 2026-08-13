@@ -53,7 +53,7 @@ from mlflow_monitor.gateway import (
     GatewayConfig,
     IdempotencyKey,
     MonitoringRunRecord,
-    TimelineInitializationResult,
+    TimelinePinBaselineResult,
     TimelineState,
 )
 from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflowClient
@@ -100,9 +100,9 @@ class _MonitoringRunAllocation:
 class MLflowMonitoringGateway:
     """Monitoring gateway backed by real MLflow experiments and runs.
 
-    The gateway translates protocol-level operations such as "initialize the
-    subject timeline" or "create or reuse the monitoring run for this training
-    run" into:
+    The gateway translates protocol-level operations such as "pin the
+    subject timeline with baseline" or "create or reuse the monitoring run
+    for this training run" into:
 
     - monitoring experiment creation/read
     - experiment-tag index maintenance
@@ -165,6 +165,7 @@ class MLflowMonitoringGateway:
             return CreateOrReuseMonitoringRunResult(
                 monitoring_run_id=existing_allocation.monitoring_run_id,
                 source_run_id=existing_allocation.key.source_run_id,
+                timeline_id=experiment_id,
                 sequence_index=existing_allocation.sequence_index,
                 existing_monitoring_run=self.get_monitoring_run(
                     key.subject_id,
@@ -199,38 +200,53 @@ class MLflowMonitoringGateway:
         return CreateOrReuseMonitoringRunResult(
             monitoring_run_id=monitoring_run_info.run_id,
             source_run_id=key.source_run_id,
+            timeline_id=experiment_id,
             sequence_index=sequence_index,
             existing_monitoring_run=None,
             allocated=True,
         )
 
-    def initialize_timeline(
+    def pin_timeline_baseline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitializationResult:
-        """Initialize the experiment-backed timeline baseline once.
+    ) -> TimelinePinBaselineResult:
+        """Pin the experiment-backed Timeline baseline once.
 
-        The monitoring experiment doubles as the subject timeline. Timeline
-        initialization therefore means "ensure the experiment exists and pin the
-        baseline tag if it has not been pinned already."
+        The monitoring experiment backs the subject Timeline and already exists
+        because Monitoring Run allocation precedes this operation. This method
+        pins the baseline tag when it has not been pinned already.
 
         Args:
             subject_id: Monitored subject identifier.
             baseline_source_run_id: Source training run id to pin as baseline.
 
         Returns:
-            Timeline initialization status with the stable timeline id.
+            Timeline identity and whether this call pinned the baseline.
         """
         self._validate_subject_id(subject_id)
         if not baseline_source_run_id:
             raise GatewayNamespaceViolation(message="baseline_source_run_id must be non-empty.")
 
-        experiment_id = self._get_or_create_experiment_id(subject_id)
+        timeline_state = self.get_timeline_state(subject_id)
+        if timeline_state is None:
+            raise GatewayConsistencyViolation(
+                code="timeline_state_not_found_for_subject_id",
+                message=f"Timeline state for subject_id '{subject_id}' not found.",
+                details=(("subject_id", subject_id),),
+            )
+
+        if timeline_state.baseline_source_run_id is not None:
+            return TimelinePinBaselineResult(
+                timeline_id=timeline_state.timeline_id,
+                baseline_pinned=False,
+            )
+
+        experiment_id = timeline_state.timeline_id
         experiment_tags = self._mlflow.get_monitoring_experiment_tags(experiment_id)
         existing_baseline_source_run_id = experiment_tags.get(_BASELINE_TAG)
         if existing_baseline_source_run_id:
-            return TimelineInitializationResult(
+            return TimelinePinBaselineResult(
                 timeline_id=experiment_id,
-                created=False,
+                baseline_pinned=False,
             )
 
         self._set_experiment_tags(
@@ -240,9 +256,9 @@ class MLflowMonitoringGateway:
                 _NEXT_SEQUENCE_TAG: str(self._read_next_sequence_index(experiment_tags)),
             },
         )
-        return TimelineInitializationResult(
+        return TimelinePinBaselineResult(
             timeline_id=experiment_id,
-            created=True,
+            baseline_pinned=True,
         )
 
     def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
@@ -459,14 +475,15 @@ class MLflowMonitoringGateway:
         return tuple(records)
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
-        """Return timeline state once the baseline has been pinned.
+        """Return the recorded Timeline state for an allocated subject.
 
         Args:
             subject_id: Monitored subject identifier.
 
         Returns:
-            Timeline state when the monitoring experiment exists and has a
-            pinned baseline; otherwise `None`.
+            Timeline state containing its stable identity and optional pinned
+            Baseline Source Run identity. Returns `None` when no durable
+            Monitoring Run allocation exists.
         """
         experiment_id = self._get_experiment_id(subject_id)
         if experiment_id is None:
@@ -474,8 +491,19 @@ class MLflowMonitoringGateway:
 
         experiment_tags = self._mlflow.get_monitoring_experiment_tags(experiment_id)
         baseline_source_run_id = experiment_tags.get(_BASELINE_TAG)
-        if not baseline_source_run_id:
+
+        allocation_snapshots = self._mlflow.list_monitoring_runs_with_tag(
+            experiment_id=experiment_id,
+            tag_key=_SOURCE_RUN_TAG,
+        )
+
+        if not allocation_snapshots:
             return None
+
+        # validate the records are actual durable snapshots
+        for snapshot in allocation_snapshots:
+            self._parse_monitoring_run_allocation(subject_id, snapshot)
+
         return TimelineState(
             timeline_id=experiment_id,
             baseline_source_run_id=baseline_source_run_id,

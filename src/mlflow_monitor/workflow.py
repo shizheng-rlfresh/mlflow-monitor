@@ -148,9 +148,8 @@ def prepare_run_context(
         compiled_recipe: Execution-ready compiled Recipe.
         gateway: Gateway used for timeline and source-run reads.
         source_run_id: Invocation-owned Source Training Run identifier.
-        baseline_source_run_id: Optional baseline source run id used to bootstrap
-            a missing timeline baseline, or to explicitly confirm/pin the baseline
-            for an existing timeline.
+        baseline_source_run_id: Optional baseline source run id used to bootstrap (pin)
+            timeline baseline, or to explicitly confirm the baseline for an existing timeline.
         custom_reference_monitoring_run_id: Optional invocation-owned Monitoring
             Run selected as a custom reference.
 
@@ -232,7 +231,7 @@ def prepare_run_context(
 
     if baseline_resolution_result.requires_bootstrap:
         # race handling
-        timeline_init_result = gateway.initialize_timeline(
+        timeline_pin_baseline_result = gateway.pin_timeline_baseline(
             subject_id,
             baseline_resolution_result.baseline_source_run_id,
         )
@@ -247,17 +246,15 @@ def prepare_run_context(
                 ),
                 details=(("subject_id", subject_id),),
             )
-        if timeline_init_result.created:
+        if timeline_pin_baseline_result.baseline_pinned:
             if (
                 timeline_state.baseline_source_run_id
                 != baseline_resolution_result.baseline_source_run_id
             ):
                 _id = subject_id
                 raise PrepareStageError(
-                    code="prepare_timeline_initialization_failed",
-                    message=(
-                        f"Timeline initialization did not materialize state for subject_id={_id}."
-                    ),
+                    code="prepare_timeline_pin_failed",
+                    message=(f"Timeline pinning did not materialize state for subject_id={_id}."),
                     details=(("subject_id", subject_id),),
                 )
         elif (
@@ -290,6 +287,14 @@ def prepare_run_context(
         raise PrepareStageError(
             code="prepare_timeline_initialization_failed",
             message=(f"Timeline initialization did not materialize state for subject_id={_id}."),
+            details=(("subject_id", subject_id),),
+        )
+
+    # This should be impossible to happen, adding this check as a safeguard.
+    if not timeline_state.baseline_source_run_id:
+        raise PrepareStageError(
+            code="prepare_baseline_missing",
+            message=(f"Timeline for subject_id={subject_id} does not have a pinned baseline."),
             details=(("subject_id", subject_id),),
         )
 
@@ -402,53 +407,49 @@ def _resolve_baseline_for_prepare(
     Returns:
         Baseline resolution result containing timeline and resolved baseline information.
     """
-    if timeline_state is not None:
-        if baseline_source_run_id is None:
-            pass
-        else:
-            resolved_baseline_source_run_id = gateway.resolve_source_run_id(
-                subject_id=subject_id,
-                source_experiment=compiled_recipe.source_requirements.source_experiment,
-                source_run_id=baseline_source_run_id,
-            )
-            if resolved_baseline_source_run_id == timeline_state.baseline_source_run_id:
-                pass
-            else:
-                _id = subject_id
-                _provided_baseline = baseline_source_run_id
-                _existing_baseline = timeline_state.baseline_source_run_id
-                raise PrepareStageError(
-                    code="prepare_baseline_override_existing_timeline",
-                    message=(
-                        f"Provided baseline_source_run_id={_provided_baseline!r} "
-                        f"with resolved_baseline_source_run_id={resolved_baseline_source_run_id!r} "
-                        "does not match existing timeline "
-                        f"baseline_source_run_id={_existing_baseline!r} for subject_id={_id}. "
-                        "Overriding an existing timeline's baseline is not allowed."
-                    ),
-                    details=(
-                        ("subject_id", subject_id),
-                        ("baseline_source_run_id", _provided_baseline),
-                    ),
-                )
-
-        return BaselineResolutionResult(
-            baseline_source_run_id=timeline_state.baseline_source_run_id,
-            requires_bootstrap=False,
+    # The timeline does not exist yet, so we cannot resolve a baseline without it.
+    if timeline_state is None:
+        raise PrepareStageError(
+            code="prepare_missing_timeline",
+            message=(
+                f"No timeline exists for the subject_id={subject_id!r} "
+                "and baseline resolution cannot proceed. "
+                "Consider allocating a monitoring run first."
+            ),
+            details=(("subject_id", subject_id),),
         )
-    elif baseline_source_run_id:
-        resolved_baseline_source_run_id = gateway.resolve_source_run_id(
+
+    # The timeline exists, so we can check for a pinned baseline.
+    pinned_baseline = timeline_state.baseline_source_run_id
+
+    # If there is no pinned baseline, we will need to bootstrap the baseline
+    if pinned_baseline is None:
+        if baseline_source_run_id is None or baseline_source_run_id == "":
+            raise PrepareStageError(
+                code="prepare_missing_baseline_for_uninitialized_timeline",
+                message=(
+                    f"The timeline for subject_id={subject_id!r} has no pinned baseline "
+                    "and no baseline_source_run_id was provided. "
+                    "A valid baseline_source_run_id is required to bootstrap the timeline."
+                ),
+                details=(
+                    ("subject_id", subject_id),
+                    ("baseline_source_run_id", baseline_source_run_id),
+                ),
+            )
+
+        resolved_baseline = gateway.resolve_source_run_id(
             subject_id=subject_id,
             source_experiment=compiled_recipe.source_requirements.source_experiment,
             source_run_id=baseline_source_run_id,
         )
-        if resolved_baseline_source_run_id is None:
+
+        if resolved_baseline is None:
             raise PrepareStageError(
                 code="prepare_invalid_bootstrap_baseline",
                 message=(
-                    f"Baseline source run could not be resolved for subject_id={subject_id}, "
-                    "compiled_recipe.source_requirements.source_experiment="
-                    f"{compiled_recipe.source_requirements.source_experiment!r}, "
+                    f"Baseline source run could not be resolved for subject_id={subject_id!r}, "
+                    f"source_experiment={compiled_recipe.source_requirements.source_experiment!r}, "
                     f"and baseline_source_run_id={baseline_source_run_id!r}."
                 ),
                 details=(
@@ -462,19 +463,54 @@ def _resolve_baseline_for_prepare(
             )
 
         return BaselineResolutionResult(
-            baseline_source_run_id=resolved_baseline_source_run_id,
+            baseline_source_run_id=resolved_baseline,
             requires_bootstrap=True,
         )
-    else:
-        raise PrepareStageError(
-            code="prepare_missing_baseline_no_timeline",
-            message=(
-                f"No timeline exists for subject_id={subject_id} "
-                "and no baseline_source_run_id was provided. "
-                "A valid baseline_source_run_id is required to bootstrap a new timeline."
-            ),
-            details=(
-                ("subject_id", subject_id),
-                ("baseline_source_run_id", baseline_source_run_id),
-            ),
+
+    # If the timeline exists, we do not need to bootstrap the baseline.
+    if baseline_source_run_id is not None:
+        resolved_baseline = gateway.resolve_source_run_id(
+            subject_id=subject_id,
+            source_experiment=compiled_recipe.source_requirements.source_experiment,
+            source_run_id=baseline_source_run_id,
         )
+
+        if resolved_baseline is None:
+            raise PrepareStageError(
+                code="prepare_invalid_baseline",
+                message=(
+                    f"Baseline source run could not be resolved for subject_id={subject_id!r}, "
+                    f"compiled_recipe.source_requirements.source_experiment="
+                    f"{compiled_recipe.source_requirements.source_experiment!r}, "
+                    f"and baseline_source_run_id={baseline_source_run_id!r}."
+                ),
+                details=(
+                    ("subject_id", subject_id),
+                    (
+                        "compiled_recipe.source_requirements.source_experiment",
+                        compiled_recipe.source_requirements.source_experiment,
+                    ),
+                    ("baseline_source_run_id", baseline_source_run_id),
+                ),
+            )
+
+        if resolved_baseline != pinned_baseline:
+            raise PrepareStageError(
+                code="prepare_baseline_override_existing_timeline",
+                message=(
+                    f"Provided baseline_source_run_id={baseline_source_run_id!r} "
+                    f"with resolved baseline_source_run_id={resolved_baseline!r} does not match "
+                    f"existing timeline pinned baseline_source_run_id={pinned_baseline!r} "
+                    f"for subject_id={subject_id!r}. "
+                    "Overriding an existing timeline's baseline is not allowed."
+                ),
+                details=(
+                    ("subject_id", subject_id),
+                    ("baseline_source_run_id", baseline_source_run_id),
+                ),
+            )
+
+    return BaselineResolutionResult(
+        baseline_source_run_id=pinned_baseline,
+        requires_bootstrap=False,
+    )

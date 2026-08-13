@@ -51,7 +51,7 @@ class MonitorRunResult:
     Attributes:
         monitoring_run_id: Unique monitoring run identifier.
         subject_id: Monitored subject identifier.
-        timeline_id: Timeline identifier if known for this run.
+        timeline_id: Required Timeline identifier for this allocated Monitoring Run.
         lifecycle_status: Current workflow lifecycle status.
         comparability_status: Optional comparability verdict if computed.
         summary: Optional structured summary payload.
@@ -63,7 +63,7 @@ class MonitorRunResult:
 
     monitoring_run_id: str
     subject_id: str
-    timeline_id: str | None
+    timeline_id: str
     lifecycle_status: LifecycleStatus
     comparability_status: ComparabilityStatus | None
     summary: Mapping[str, str] | None
@@ -74,6 +74,8 @@ class MonitorRunResult:
 
     def __post_init__(self) -> None:
         """Freeze mapping and sequence fields after defensive copies."""
+        if not isinstance(self.timeline_id, str) or not self.timeline_id.strip():
+            raise ValueError("MonitorRunResult.timeline_id must be a non-empty string.")
         if self.lifecycle_status is LifecycleStatus.FAILED and self.error is None:
             raise ValueError(
                 "MonitorRunResult with lifecycle_status=failed requires a non-null error."

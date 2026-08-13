@@ -7,9 +7,9 @@ This module separates three kinds of state used by workflow:
    In the in-memory gateway, tests seed these with `add_source_run()`.
 
 2. Timeline state
-   Per-subject monitoring configuration anchored by a pinned
-   `baseline_source_run_id`. This is absent before the first monitoring run
-   and is created by `initialize_timeline()`.
+   Per-subject monitoring configuration created by the first Monitoring Run
+   allocation. Its `baseline_source_run_id` remains `None` until Prepare pins
+   the baseline through `pin_timeline_baseline()`.
 
 3. Monitoring runs
    Runs owned by the monitoring timeline itself. In the in-memory gateway,
@@ -22,9 +22,10 @@ Lifecycle sketch:
   - timeline state does not exist yet
   - monitoring runs do not exist yet
 
-- First prepare:
+- First Monitoring Run allocation and Prepare:
+  - allocation creates Timeline identity with no pinned baseline
   - workflow resolves the source run through the gateway
-  - if timeline state is missing, workflow may initialize it with a caller-supplied baseline
+  - Prepare pins a valid caller-supplied baseline
   - prepare then continues using the pinned timeline baseline
 
 - Later prepares:
@@ -107,11 +108,16 @@ class TimelineState:
 
     Attributes:
         timeline_id: Stable timeline identifier.
-        baseline_source_run_id: Pinned baseline source run id.
+        baseline_source_run_id: Pinned baseline source run id
+            or None if not set yet.
+
+    Note:
+        When the first Monitoring Run is allocated, `baseline_source_run_id`
+        is `None`. Successful bootstrap pins the Baseline Source Run identity.
     """
 
     timeline_id: str
-    baseline_source_run_id: str
+    baseline_source_run_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +145,7 @@ class CreateOrReuseMonitoringRunResult:
         monitoring_run_id: Monitoring run identifier owned by the gateway.
         source_run_id: Immutable source training run identifier.
         sequence_index: Monotonic per-subject sequence index.
+        timeline_id: Stable timeline identifier associated with this monitoring run.
         existing_monitoring_run: Existing stored monitoring run record, if any. This may be
             None even when a prior idempotency binding already exists.
         allocated: Whether this call created a new idempotency binding / monitoring-run
@@ -147,9 +154,17 @@ class CreateOrReuseMonitoringRunResult:
 
     monitoring_run_id: str
     source_run_id: str
+    timeline_id: str
     sequence_index: int
     existing_monitoring_run: MonitoringRunRecord | None
     allocated: bool
+
+    def __post_init__(self) -> None:
+        """Require the Timeline identity established by allocation."""
+        if not isinstance(self.timeline_id, str) or not self.timeline_id.strip():
+            raise ValueError(
+                "CreateOrReuseMonitoringRunResult.timeline_id must be a non-empty string."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,11 +203,11 @@ class SourceRunRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class TimelineInitializationResult:
-    """Result of timeline initialization attempt."""
+class TimelinePinBaselineResult:
+    """Result of pinning the timeline baseline attempt."""
 
     timeline_id: str
-    created: bool
+    baseline_pinned: bool
 
 
 class MonitoringGateway(Protocol):
@@ -209,10 +224,10 @@ class MonitoringGateway(Protocol):
         """
         ...
 
-    def initialize_timeline(
+    def pin_timeline_baseline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitializationResult:
-        """Initialize timeline state once for a subject and return timeline initialiation status."""
+    ) -> TimelinePinBaselineResult:
+        """Pin the timeline baseline for a subject and return the result."""
         ...
 
     def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
@@ -337,6 +352,18 @@ class InMemoryMonitoringGateway:
     ) -> CreateOrReuseMonitoringRunResult:
         """Create a new monitoring run allocation or return the existing idempotent one."""
         self._validate_subject_id(key.subject_id)
+
+        # get the existing timeline or create a new timeline if it doesn't exist
+        # if no timeline exists for the subject, that means this is the first
+        # monitoring run.
+        timeline_state = self.get_timeline_state(key.subject_id)
+        if timeline_state is None:
+            timeline_state = TimelineState(
+                timeline_id=f"timeline-{key.subject_id}",
+                baseline_source_run_id=None,
+            )
+            self._timeline_by_subject[key.subject_id] = timeline_state
+
         existing_binding = self._idempotency_bindings.get(key)
         if existing_binding is not None:
             existing_monitoring_run_id, sequence_index = existing_binding
@@ -346,6 +373,7 @@ class InMemoryMonitoringGateway:
             return CreateOrReuseMonitoringRunResult(
                 monitoring_run_id=existing_monitoring_run_id,
                 source_run_id=key.source_run_id,
+                timeline_id=timeline_state.timeline_id,
                 sequence_index=sequence_index,
                 existing_monitoring_run=existing_monitoring_run,
                 allocated=False,
@@ -358,40 +386,53 @@ class InMemoryMonitoringGateway:
         return CreateOrReuseMonitoringRunResult(
             monitoring_run_id=new_monitoring_run_id,
             source_run_id=key.source_run_id,
+            timeline_id=timeline_state.timeline_id,
             sequence_index=sequence_index,
             existing_monitoring_run=None,
             allocated=True,
         )
 
-    def initialize_timeline(
+    def pin_timeline_baseline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitializationResult:
-        """Initialize timeline state once for a subject and return timeline id.
+    ) -> TimelinePinBaselineResult:
+        """Pin the timeline baseline for a subject and return the result.
 
         Args:
             subject_id: Monitored subject identifier.
             baseline_source_run_id: Source training run id to pin as timeline baseline.
 
         Returns:
-            Timeline initialization result containing the timeline id and status.
+            Timeline identity and whether this call pinned the baseline.
         """
         if not baseline_source_run_id:
             raise GatewayNamespaceViolation(message="baseline_source_run_id must be non-empty.")
 
         self._validate_subject_id(subject_id)
-        if subject_id in self._timeline_by_subject:
-            return TimelineInitializationResult(
-                timeline_id=self._timeline_by_subject[subject_id].timeline_id,
-                created=False,
+
+        timeline_state = self._timeline_by_subject.get(subject_id)
+        if timeline_state is None:
+            raise GatewayConsistencyViolation(
+                code="timeline_state_not_found_for_subject_id",
+                message=f"Timeline state for subject_id '{subject_id}' not found.",
+                details=(("subject_id", subject_id),),
             )
-        timeline_state = TimelineState(
-            timeline_id=f"timeline-{subject_id}",
-            baseline_source_run_id=baseline_source_run_id,
-        )
-        self._timeline_by_subject[subject_id] = timeline_state
-        return TimelineInitializationResult(
+
+        # ready to bootstrap the timeline with the baseline source run id
+        if timeline_state.baseline_source_run_id is None:
+            self._timeline_by_subject[subject_id] = TimelineState(
+                timeline_id=timeline_state.timeline_id,
+                baseline_source_run_id=baseline_source_run_id,
+            )
+
+            return TimelinePinBaselineResult(
+                timeline_id=self._timeline_by_subject[subject_id].timeline_id,
+                baseline_pinned=True,
+            )
+
+        # timeline already has a baseline source run id, nothing to do
+        return TimelinePinBaselineResult(
             timeline_id=timeline_state.timeline_id,
-            created=True,
+            baseline_pinned=False,
         )
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
@@ -401,7 +442,8 @@ class InMemoryMonitoringGateway:
             subject_id: Monitored subject identifier.
 
         Returns:
-            The timeline state for the subject, or None if not initialized.
+            Timeline state after an allocation, or `None` when the subject has
+            no Monitoring Run allocation.
         """
         self._validate_subject_id(subject_id)
         return self._timeline_by_subject.get(subject_id)

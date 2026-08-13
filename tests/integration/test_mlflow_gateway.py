@@ -115,6 +115,12 @@ def test_mlflow_gateway_repairs_zero_tag_orphan_before_next_allocation(
         tracking_uri=tracking_uri,
         artifact_location=artifact_root_uri,
     )
+    uninitialized_timeline_state = repairing_gateway.get_timeline_state("churn_model")
+
+    assert uninitialized_timeline_state is not None
+    assert uninitialized_timeline_state.timeline_id == experiment.experiment_id
+    assert uninitialized_timeline_state.baseline_source_run_id is None
+
     recovered = repairing_gateway.create_or_reuse_monitoring_run(first_key)
     second = repairing_gateway.create_or_reuse_monitoring_run(
         IdempotencyKey(
@@ -129,9 +135,11 @@ def test_mlflow_gateway_repairs_zero_tag_orphan_before_next_allocation(
     monitoring_runs = raw.search_runs(experiment_ids=[experiment.experiment_id])
     assert recovered.monitoring_run_id == orphaned_run_id
     assert recovered.source_run_id == first_source_run_id
+    assert recovered.timeline_id == experiment.experiment_id
     assert recovered.sequence_index == 0
     assert recovered.allocated is False
     assert second.source_run_id == second_source_run_id
+    assert second.timeline_id == experiment.experiment_id
     assert second.sequence_index == 1
     assert second.allocated is True
     assert len(monitoring_runs) == 2
@@ -191,6 +199,7 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     assert experiment is not None
     assert result.lifecycle_status is LifecycleStatus.CHECKED
     assert result.comparability_status is ComparabilityStatus.PASS
+    assert result.timeline_id == experiment.experiment_id
     assert result.references == (
         MonitoringRunReference(
             kind="baseline",
@@ -214,6 +223,7 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     artifact_dir = Path(raw.download_artifacts(result.monitoring_run_id, "outputs"))
     payload = json.loads((artifact_dir / "result.json").read_text())
     assert payload["monitoring_run_id"] == result.monitoring_run_id
+    assert payload["timeline_id"] == experiment.experiment_id
     assert payload["lifecycle_status"] == "checked"
 
 
