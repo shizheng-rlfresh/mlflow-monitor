@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from mlflow_monitor import monitor
+from mlflow_monitor.builtins import SYSTEM_DEFAULT_RECIPE_ID
 from mlflow_monitor.contract_checker import DefaultContractChecker
 from mlflow_monitor.domain import (
     ComparabilityStatus,
@@ -22,12 +25,13 @@ from mlflow_monitor.gateway import (
     TimelineState,
 )
 from mlflow_monitor.orchestration import run_orchestration
+from mlflow_monitor.recipe import SYSTEM_DEFAULT_RECIPE_VERSION, build_system_default_recipe
+from mlflow_monitor.recipe_compiler import CompiledRecipe, ComponentRegistry, compile_recipe
 from mlflow_monitor.result_contract import MonitorRunResult
 
 
-def make_gateway() -> InMemoryMonitoringGateway:
-    """Build a gateway with baseline and current source runs."""
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
+def add_default_source_runs(gateway: InMemoryMonitoringGateway) -> None:
+    """Seed a gateway with the default baseline and current Source Training Runs."""
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-baseline",
@@ -50,7 +54,30 @@ def make_gateway() -> InMemoryMonitoringGateway:
         schema={"age": "int"},
         data_scope="validation:2026-03-01",
     )
+
+
+def make_gateway() -> InMemoryMonitoringGateway:
+    """Build a gateway with baseline and current source runs."""
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    add_default_source_runs(gateway)
     return gateway
+
+
+def make_compiled_recipe(
+    *,
+    recipe_id: str = "churn-monitoring",
+    recipe_version: str = "3",
+    metric_names: list[str] | None = None,
+) -> CompiledRecipe:
+    """Build one system-only compiled Recipe with configurable effective analysis."""
+    raw = build_system_default_recipe()
+    raw["identity"] = {
+        "recipe_id": recipe_id,
+        "recipe_version": recipe_version,
+    }
+    if metric_names is not None:
+        raw["analysis"] = {"metric_names": metric_names}
+    return compile_recipe(raw)
 
 
 class InvalidResultContractChecker:
@@ -198,6 +225,20 @@ class FinalizingGateway(InMemoryMonitoringGateway):
     ) -> None:
         assert monitoring_run_id == result.monitoring_run_id
         self.finalized_results.append(result)
+
+
+class RecordingAllocationGateway(InMemoryMonitoringGateway):
+    """Record every idempotency key presented to Monitoring Run allocation."""
+
+    def __init__(self, config: GatewayConfig) -> None:
+        super().__init__(config)
+        self.allocation_keys: list[IdempotencyKey] = []
+
+    def create_or_reuse_monitoring_run(
+        self, key: IdempotencyKey
+    ) -> CreateOrReuseMonitoringRunResult:
+        self.allocation_keys.append(key)
+        return super().create_or_reuse_monitoring_run(key)
 
 
 def test_run_orchestration_first_run_persists_checked_state() -> None:
@@ -986,6 +1027,189 @@ def test_public_run_is_a_thin_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["baseline_source_run_id"] == "train-run-baseline"
     assert captured["gateway"] is gateway
     assert "monitoring_run_id_factory" not in captured
+
+
+def test_public_run_forwards_compiled_recipe_and_custom_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = object()
+    captured: dict[str, object] = {}
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    compiled_recipe = make_compiled_recipe()
+
+    def fake_run_orchestration(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return expected
+
+    monkeypatch.setattr(monitor, "run_orchestration", fake_run_orchestration)
+
+    result = monitor.run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        custom_reference_monitoring_run_id="monitoring-run-reference",
+        recipe=compiled_recipe,
+        gateway=gateway,
+    )
+
+    assert result is expected
+    assert captured["recipe"] is compiled_recipe
+    assert captured["custom_reference_monitoring_run_id"] == "monitoring-run-reference"
+
+
+def test_public_run_explicit_none_uses_system_default_recipe_identity() -> None:
+    gateway = RecordingAllocationGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+
+    result = monitor.run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        recipe=None,
+        gateway=gateway,
+    )
+
+    assert result.lifecycle_status is LifecycleStatus.CHECKED
+    assert gateway.allocation_keys == [
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            recipe_id=SYSTEM_DEFAULT_RECIPE_ID,
+            recipe_version=SYSTEM_DEFAULT_RECIPE_VERSION,
+        )
+    ]
+
+
+def test_public_run_uses_supplied_compiled_recipe_identity_for_idempotency() -> None:
+    gateway = RecordingAllocationGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+    compiled_recipe = make_compiled_recipe(recipe_id="custom-churn", recipe_version="7")
+
+    result = monitor.run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        recipe=compiled_recipe,
+        gateway=gateway,
+    )
+
+    assert result.lifecycle_status is LifecycleStatus.CHECKED
+    assert gateway.allocation_keys == [
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            recipe_id="custom-churn",
+            recipe_version="7",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "recipe_input",
+    [
+        pytest.param(build_system_default_recipe(), id="raw-mapping"),
+        pytest.param(Path("recipe.json"), id="path"),
+        pytest.param("recipe.json", id="string-path"),
+        pytest.param(ComponentRegistry(), id="component-registry"),
+    ],
+)
+def test_public_run_rejects_uncompiled_recipe_without_allocating(recipe_input: object) -> None:
+    gateway = RecordingAllocationGateway(GatewayConfig())
+
+    with pytest.raises(TypeError) as exc_info:
+        monitor.run(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id="train-run-baseline",
+            recipe=recipe_input,
+            gateway=gateway,
+        )
+
+    assert "unexpected keyword argument" not in str(exc_info.value)
+    assert gateway.allocation_keys == []
+
+
+def test_public_run_adds_invocation_owned_custom_reference() -> None:
+    gateway = make_gateway()
+    compiled_recipe = make_compiled_recipe()
+    reference_allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-reference",
+            recipe_id=compiled_recipe.identity.recipe_id,
+            recipe_version=compiled_recipe.identity.recipe_version,
+        )
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=reference_allocation.monitoring_run_id,
+        source_run_id="train-run-reference",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=reference_allocation.sequence_index,
+    )
+
+    result = monitor.run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        custom_reference_monitoring_run_id=reference_allocation.monitoring_run_id,
+        recipe=compiled_recipe,
+        gateway=gateway,
+    )
+
+    assert result.lifecycle_status is LifecycleStatus.CHECKED
+    assert result.references == (
+        MonitoringRunReference(
+            kind="baseline",
+            monitoring_run_id=None,
+            source_run_id="train-run-baseline",
+        ),
+        MonitoringRunReference(
+            kind="previous",
+            monitoring_run_id=reference_allocation.monitoring_run_id,
+            source_run_id="train-run-reference",
+        ),
+        MonitoringRunReference(
+            kind="custom",
+            monitoring_run_id=reference_allocation.monitoring_run_id,
+            source_run_id="train-run-reference",
+        ),
+    )
+
+
+def test_public_run_does_not_globally_compare_effective_plans_for_same_recipe_identity() -> None:
+    gateway = make_gateway()
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-next",
+        source_experiment=None,
+        metrics={"f1": 0.92},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-02",
+    )
+    select_no_metrics = make_compiled_recipe(metric_names=[])
+    select_f1 = make_compiled_recipe(metric_names=["f1"])
+
+    first = monitor.run(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        recipe=select_no_metrics,
+        gateway=gateway,
+    )
+    second = monitor.run(
+        subject_id="churn_model",
+        source_run_id="train-run-next",
+        recipe=select_f1,
+        gateway=gateway,
+    )
+
+    assert first.lifecycle_status is LifecycleStatus.CHECKED
+    assert second.lifecycle_status is LifecycleStatus.CHECKED
+    assert second.monitoring_run_id != first.monitoring_run_id
 
 
 def test_public_run_defaults_to_mlflow_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
