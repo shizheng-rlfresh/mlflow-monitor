@@ -1,0 +1,36 @@
+name: Documentation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install documentation dependencies
+        run: uv sync --group doc
+
+      - name: Build documentation
+        run: >-
+          uv run --group doc sphinx-build
+          -W --keep-going
+          -b html
+          docs/site/source
+          docs/site/build/html
