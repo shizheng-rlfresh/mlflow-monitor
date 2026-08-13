@@ -1712,16 +1712,16 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
         )
 
     error = exc_info.value
-    assert error.code == "prepare_baseline_override_existing_timeline"
+    assert error.code == "prepare_baseline_trying_to_override_existing_timeline"
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", "train-run-other"),
     )
     assert error.message == (
         "Provided baseline_source_run_id='train-run-other' "
-        "with resolved_baseline_source_run_id='train-run-other' "
-        "does not match existing timeline "
-        "baseline_source_run_id='train-run-baseline' for subject_id=churn_model. "
+        "with resolved baseline_source_run_id='train-run-other' "
+        "does not match existing timeline pinned "
+        "baseline_source_run_id='train-run-baseline' for subject_id='churn_model'. "
         "Overriding an existing timeline's baseline is not allowed."
     )
 
@@ -1763,7 +1763,7 @@ def test_prepare_run_context_fails_for_uninitialized_timeline_and_invalid_baseli
         ("baseline_source_run_id", "train-run-baseline"),
     )
     assert error.message == (
-        "Baseline source run could not be resolved for subject_id=churn_model, "
-        "compiled_recipe.source_requirements.source_experiment='training/churn', "
+        "Baseline source run could not be resolved for subject_id='churn_model', "
+        "source_experiment='training/churn', "
         "and baseline_source_run_id='train-run-baseline'."
     )
