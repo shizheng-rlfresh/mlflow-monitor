@@ -914,7 +914,7 @@ def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun
     assert second.comparability_status is None
     assert second.error is not None
     assert second.error.stage == "prepare"
-    assert second.error.code == "prepare_baseline_override_existing_timeline"
+    assert second.error.code == "prepare_baseline_trying_to_override_existing_timeline"
     assert stored is not None
     assert stored.lifecycle_status is LifecycleStatus.CHECKED
     assert stored.contract_check_result is not None

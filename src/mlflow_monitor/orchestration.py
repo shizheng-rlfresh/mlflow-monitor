@@ -608,11 +608,11 @@ def _validate_checked_monitoring_run_rerun_inputs(
         return None
 
     return PrepareStageError(
-        code="prepare_baseline_override_existing_timeline",
+        code="prepare_baseline_trying_to_override_existing_timeline",
         message=(
             f"Provided baseline_source_run_id={baseline_source_run_id!r} "
             f"with resolved_baseline_source_run_id={resolved_baseline_source_run_id!r} "
-            "does not match existing timeline "
+            "does not match existing timeline pinned "
             f"baseline_source_run_id={timeline_state.baseline_source_run_id!r} "
             f"for subject_id={subject_id}. Overriding an existing timeline's baseline "
             "is not allowed."

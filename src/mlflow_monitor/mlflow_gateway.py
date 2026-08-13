@@ -475,7 +475,7 @@ class MLflowMonitoringGateway:
         return tuple(records)
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
-        """Return timeline state once the baseline has been pinned.
+        """Return timeline state after the first monitoring run being allocated for the subject_id.
 
         Args:
             subject_id: Monitored subject identifier.

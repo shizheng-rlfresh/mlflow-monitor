@@ -148,9 +148,8 @@ def prepare_run_context(
         compiled_recipe: Execution-ready compiled Recipe.
         gateway: Gateway used for timeline and source-run reads.
         source_run_id: Invocation-owned Source Training Run identifier.
-        baseline_source_run_id: Optional baseline source run id used to bootstrap
-            a missing timeline baseline, or to explicitly confirm/pin the baseline
-            for an existing timeline.
+        baseline_source_run_id: Optional baseline source run id used to bootstrap ,i.e.,
+            pin timeline baseline, or to explicitly confirm the baseline for an existing timeline.
         custom_reference_monitoring_run_id: Optional invocation-owned Monitoring
             Run selected as a custom reference.
 
@@ -291,11 +290,31 @@ def prepare_run_context(
             details=(("subject_id", subject_id),),
         )
 
+    # This should be impossible to happen, adding this to mute the ruff complain.
+    if not timeline_state.baseline_source_run_id:
+        raise PrepareStageError(
+            code="prepare_baseline_missing",
+            message=(f"Timeline for subject_id={subject_id} does not have a pinned baseline."),
+            details=(("subject_id", subject_id),),
+        )
+
     timeline_runs = gateway.list_timeline_monitoring_runs(subject_id, exclude_failed=True)
     previous_monitoring_run_id = timeline_runs[-1].monitoring_run_id if timeline_runs else None
 
-    assert timeline_state.baseline_source_run_id is not None
-    assert timeline_state.baseline_source_run_id != ""
+    # No bootstrapping required, then we proceed to check if pinned baseline equals
+    # to the provided baseline if the provided baseline is not null or empty string.
+    if baseline_source_run_id and timeline_state.baseline_source_run_id != baseline_source_run_id:
+        raise PrepareStageError(
+            code="prepare_baseline_mismatch",
+            message=(
+                f"Pinned baseline {timeline_state.baseline_source_run_id!r} "
+                f"does not match provided baseline {baseline_source_run_id!r}."
+            ),
+            details=(
+                ("subject_id", subject_id),
+                ("baseline_source_run_id", baseline_source_run_id),
+            ),
+        )
 
     return PreparedContext(
         monitoring_run_id=monitoring_run_id,
@@ -408,7 +427,9 @@ def _resolve_baseline_for_prepare(
         raise PrepareStageError(
             code="prepare_missing_timeline",
             message=(
-                f"No timeline exists for the {subject_id} and baseline resolution cannot proceed."
+                f"No timeline exists for the subject_id={subject_id!r} "
+                "and baseline resolution cannot proceed. "
+                "Consider allocating a monitoring run first."
             ),
             details=(("subject_id", subject_id),),
         )
@@ -462,12 +483,30 @@ def _resolve_baseline_for_prepare(
         )
 
     # If the timeline exists, we do not need to bootstrap the baseline.
-    if baseline_source_run_id is not None:
+    if baseline_source_run_id:
         resolved_baseline = gateway.resolve_source_run_id(
             subject_id=subject_id,
             source_experiment=compiled_recipe.source_requirements.source_experiment,
             source_run_id=baseline_source_run_id,
         )
+
+        if resolved_baseline is None:
+            raise PrepareStageError(
+                code="prepare_invalid_baseline",
+                message=(
+                    f"Baseline source run could not be resolved for subject_id={subject_id!r}, "
+                    f"source_experiment={compiled_recipe.source_requirements.source_experiment!r}, "
+                    f"and source_run_id={baseline_source_run_id!r}."
+                ),
+                details=(
+                    ("subject_id", subject_id),
+                    (
+                        "compiled_recipe.source_requirements.source_experiment",
+                        compiled_recipe.source_requirements.source_experiment,
+                    ),
+                    ("baseline_source_run_id", baseline_source_run_id),
+                ),
+            )
 
         if resolved_baseline != pinned_baseline:
             raise PrepareStageError(

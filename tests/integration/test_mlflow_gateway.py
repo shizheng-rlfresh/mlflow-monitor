@@ -888,7 +888,7 @@ def test_mlflow_gateway_baseline_immutability_rejection(
     assert second.lifecycle_status is LifecycleStatus.FAILED
     assert second.comparability_status is None
     assert second.error is not None
-    assert second.error.code == "prepare_baseline_override_existing_timeline"
+    assert second.error.code == "prepare_baseline_trying_to_override_existing_timeline"
     assert dict(experiment_after.tags) == experiment_tags_before
     assert experiment_after.tags["training.baseline_run_id"] == baseline_run_id
     assert monitoring_run_before.info.status == "FINISHED"
