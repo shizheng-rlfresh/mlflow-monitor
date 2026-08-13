@@ -2,6 +2,16 @@
 
 <!-- Summarize the concrete changes in this pull request. -->
 
+## Ticket or Issue
+
+<!-- Reference the ticket or issue that this pull request addresses.
+Use one of these formats:
+- GitHub issue: #123
+- Public link: [ticket-id](https://url-to-ticket-or-issue)
+- Internal ticket (no public URL): ticket-id
+
+-->
+
 ## Why
 
 <!-- Explain the problem, requirement, or ticket outcome this change addresses. -->
