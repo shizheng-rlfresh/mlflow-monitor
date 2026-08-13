@@ -1688,6 +1688,32 @@ def test_prepare_run_context_succeeds_with_existed_timeline_and_no_baseline() ->
     assert timeline_state.timeline_id == "timeline-churn_model"
 
 
+def test_prepare_run_context_rejects_empty_baseline_for_initialized_timeline() -> None:
+    """An explicit empty baseline should not be treated as an omitted baseline."""
+    gateway = make_gateway_with_timeline().gateway
+
+    with pytest.raises(PrepareStageError) as exc_info:
+        prepare_test_context(
+            subject_id="churn_model",
+            compiled_invocation=make_compiled_invocation(
+                source_run_id="train-run-123",
+                source_experiment="training/churn",
+                required_metrics=("f1", "auc"),
+                required_artifacts=("metrics.json",),
+            ),
+            gateway=gateway,
+            baseline_source_run_id="",
+        )
+
+    error = exc_info.value
+    assert error.code == "prepare_invalid_baseline"
+    assert error.details == (
+        ("subject_id", "churn_model"),
+        ("compiled_recipe.source_requirements.source_experiment", "training/churn"),
+        ("baseline_source_run_id", ""),
+    )
+
+
 def test_prepare_run_context_succeeds_with_created_timeline_matching_baseline() -> None:
     """Prepare should succeed when provided baseline matches the existing timeline baseline."""
     gateway = make_gateway_with_timeline().gateway

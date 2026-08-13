@@ -468,7 +468,7 @@ def _resolve_baseline_for_prepare(
         )
 
     # If the timeline exists, we do not need to bootstrap the baseline.
-    if baseline_source_run_id:
+    if baseline_source_run_id is not None:
         resolved_baseline = gateway.resolve_source_run_id(
             subject_id=subject_id,
             source_experiment=compiled_recipe.source_requirements.source_experiment,
