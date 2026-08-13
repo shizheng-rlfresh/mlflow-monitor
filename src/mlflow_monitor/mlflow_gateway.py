@@ -53,7 +53,7 @@ from mlflow_monitor.gateway import (
     GatewayConfig,
     IdempotencyKey,
     MonitoringRunRecord,
-    TimelineInitializationResult,
+    TimelinePinBaselineResult,
     TimelineState,
 )
 from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflowClient
@@ -100,9 +100,9 @@ class _MonitoringRunAllocation:
 class MLflowMonitoringGateway:
     """Monitoring gateway backed by real MLflow experiments and runs.
 
-    The gateway translates protocol-level operations such as "initialize the
-    subject timeline" or "create or reuse the monitoring run for this training
-    run" into:
+    The gateway translates protocol-level operations such as "pin the
+    subject timeline with baseline" or "create or reuse the monitoring run
+    for this training run" into:
 
     - monitoring experiment creation/read
     - experiment-tag index maintenance
@@ -206,9 +206,9 @@ class MLflowMonitoringGateway:
             allocated=True,
         )
 
-    def initialize_timeline(
+    def pin_timeline_baseline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitializationResult:
+    ) -> TimelinePinBaselineResult:
         """Initialize the experiment-backed timeline baseline once.
 
         The monitoring experiment doubles as the subject timeline. Timeline
@@ -235,18 +235,18 @@ class MLflowMonitoringGateway:
             )
 
         if timeline_state.baseline_source_run_id is not None:
-            return TimelineInitializationResult(
+            return TimelinePinBaselineResult(
                 timeline_id=timeline_state.timeline_id,
-                created=False,
+                baseline_pinned=False,
             )
 
         experiment_id = timeline_state.timeline_id
         experiment_tags = self._mlflow.get_monitoring_experiment_tags(experiment_id)
         existing_baseline_source_run_id = experiment_tags.get(_BASELINE_TAG)
         if existing_baseline_source_run_id:
-            return TimelineInitializationResult(
+            return TimelinePinBaselineResult(
                 timeline_id=experiment_id,
-                created=False,
+                baseline_pinned=False,
             )
 
         self._set_experiment_tags(
@@ -256,9 +256,9 @@ class MLflowMonitoringGateway:
                 _NEXT_SEQUENCE_TAG: str(self._read_next_sequence_index(experiment_tags)),
             },
         )
-        return TimelineInitializationResult(
+        return TimelinePinBaselineResult(
             timeline_id=experiment_id,
-            created=True,
+            baseline_pinned=True,
         )
 
     def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:

@@ -15,7 +15,11 @@ from mlflow_monitor.errors import (
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
 )
-from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey, InMemoryMonitoringGateway
+from mlflow_monitor.gateway import (
+    GatewayConfig,
+    IdempotencyKey,
+    InMemoryMonitoringGateway,
+)
 
 
 def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:
@@ -151,7 +155,7 @@ def test_create_or_reuse_monitoring_run_is_monotonic_per_subject() -> None:
     assert fraud_first.sequence_index == 0
 
 
-def test_initialize_timeline_is_deterministic_and_stores_baseline_reference() -> None:
+def test_pin_timeline_baseline_is_deterministic_and_stores_baseline_reference() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     first_allocation = gateway.create_or_reuse_monitoring_run(
         IdempotencyKey(
@@ -162,8 +166,8 @@ def test_initialize_timeline_is_deterministic_and_stores_baseline_reference() ->
         )
     )
 
-    first_timeline_result = gateway.initialize_timeline("churn_model", "train-run-1")
-    second_timeline_result = gateway.initialize_timeline("churn_model", "train-run-2")
+    first_timeline_result = gateway.pin_timeline_baseline("churn_model", "train-run-1")
+    second_timeline_result = gateway.pin_timeline_baseline("churn_model", "train-run-2")
     second_allocation = gateway.create_or_reuse_monitoring_run(
         IdempotencyKey(
             subject_id="churn_model",
@@ -178,34 +182,34 @@ def test_initialize_timeline_is_deterministic_and_stores_baseline_reference() ->
     assert first_allocation.sequence_index == 0
     assert first_timeline_result.timeline_id == first_allocation.timeline_id
     assert second_timeline_result.timeline_id == first_timeline_result.timeline_id
-    assert first_timeline_result.created is True
-    assert second_timeline_result.created is False
+    assert first_timeline_result.baseline_pinned is True
+    assert second_timeline_result.baseline_pinned is False
     assert second_allocation.timeline_id == first_allocation.timeline_id
     assert second_allocation.sequence_index == 1
     assert timeline_state is not None
     assert timeline_state.baseline_source_run_id == "train-run-1"
 
 
-def test_initialize_timeline_requires_an_existing_allocation() -> None:
+def test_pin_timeline_baseline_requires_an_existing_allocation() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
 
     with pytest.raises(
         GatewayConsistencyViolation,
         match="Timeline state for subject_id 'churn_model' not found.",
     ):
-        gateway.initialize_timeline("churn_model", "train-run-1")
+        gateway.pin_timeline_baseline("churn_model", "train-run-1")
 
     assert gateway.get_timeline_state("churn_model") is None
 
 
-def test_initialize_timeline_rejects_empty_baseline_source_run_id() -> None:
+def test_pin_timeline_baseline_rejects_empty_baseline_source_run_id() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
 
     with pytest.raises(
         GatewayNamespaceViolation,
         match="baseline_source_run_id must be non-empty.",
     ):
-        gateway.initialize_timeline("churn_model", "")
+        gateway.pin_timeline_baseline("churn_model", "")
 
 
 def test_set_and_resolve_active_lkg_monitoring_run_id() -> None:

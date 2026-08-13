@@ -192,7 +192,7 @@ def test_get_timeline_state_distinguishes_no_allocation_from_allocated_uninitial
         GatewayConsistencyViolation,
         match="Timeline state for subject_id 'churn_model' not found.",
     ):
-        gateway.initialize_timeline("churn_model", "train-run-1")
+        gateway.pin_timeline_baseline("churn_model", "train-run-1")
     stub_client.set_monitoring_experiment_tag.assert_not_called()
 
     stub_client.list_monitoring_runs_with_tag.return_value = (

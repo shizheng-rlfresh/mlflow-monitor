@@ -232,7 +232,7 @@ def prepare_run_context(
 
     if baseline_resolution_result.requires_bootstrap:
         # race handling
-        timeline_init_result = gateway.initialize_timeline(
+        timeline_pin_baseline_result = gateway.pin_timeline_baseline(
             subject_id,
             baseline_resolution_result.baseline_source_run_id,
         )
@@ -247,17 +247,15 @@ def prepare_run_context(
                 ),
                 details=(("subject_id", subject_id),),
             )
-        if timeline_init_result.created:
+        if timeline_pin_baseline_result.baseline_pinned:
             if (
                 timeline_state.baseline_source_run_id
                 != baseline_resolution_result.baseline_source_run_id
             ):
                 _id = subject_id
                 raise PrepareStageError(
-                    code="prepare_timeline_initialization_failed",
-                    message=(
-                        f"Timeline initialization did not materialize state for subject_id={_id}."
-                    ),
+                    code="prepare_timeline_pin_failed",
+                    message=(f"Timeline pinning did not materialize state for subject_id={_id}."),
                     details=(("subject_id", subject_id),),
                 )
         elif (

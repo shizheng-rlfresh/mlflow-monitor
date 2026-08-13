@@ -8,8 +8,8 @@ This module separates three kinds of state used by workflow:
 
 2. Timeline state
    Per-subject monitoring configuration anchored by a pinned
-   `baseline_source_run_id`. This is absent before the first monitoring run
-   and is created by `initialize_timeline()`.
+   `baseline_source_run_id`. This is absent until the first monitoring run
+   being allocated. The baseline is then pinned by `pin_timeline_baseline()`.
 
 3. Monitoring runs
    Runs owned by the monitoring timeline itself. In the in-memory gateway,
@@ -197,11 +197,11 @@ class SourceRunRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class TimelineInitializationResult:
-    """Result of timeline initialization attempt."""
+class TimelinePinBaselineResult:
+    """Result of pinning the timeline baseline attempt."""
 
     timeline_id: str
-    created: bool  # pinned baseline source run id
+    baseline_pinned: bool  # pinned baseline source run id
 
 
 class MonitoringGateway(Protocol):
@@ -218,10 +218,10 @@ class MonitoringGateway(Protocol):
         """
         ...
 
-    def initialize_timeline(
+    def pin_timeline_baseline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitializationResult:
-        """Initialize timeline state once for a subject and return timeline initialiation status."""
+    ) -> TimelinePinBaselineResult:
+        """Pin the timeline baseline for a subject and return the result."""
         ...
 
     def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
@@ -386,10 +386,10 @@ class InMemoryMonitoringGateway:
             allocated=True,
         )
 
-    def initialize_timeline(
+    def pin_timeline_baseline(
         self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelineInitializationResult:
-        """Initialize timeline state once for a subject and return timeline id.
+    ) -> TimelinePinBaselineResult:
+        """Pin the timeline baseline for a subject and return the result.
 
         Args:
             subject_id: Monitored subject identifier.
@@ -418,15 +418,15 @@ class InMemoryMonitoringGateway:
                 baseline_source_run_id=baseline_source_run_id,
             )
 
-            return TimelineInitializationResult(
+            return TimelinePinBaselineResult(
                 timeline_id=self._timeline_by_subject[subject_id].timeline_id,
-                created=True,
+                baseline_pinned=True,
             )
 
         # timeline already has a baseline source run id, nothing to do
-        return TimelineInitializationResult(
+        return TimelinePinBaselineResult(
             timeline_id=timeline_state.timeline_id,
-            created=False,
+            baseline_pinned=False,
         )
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
