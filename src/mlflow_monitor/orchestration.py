@@ -128,7 +128,9 @@ def _resolve_startup(recipe: CompiledRecipe | None) -> CompiledRecipe:
     if recipe is None:
         return SYSTEM_DEFAULT_COMPILED_RECIPE
     if not isinstance(recipe, CompiledRecipe):
-        raise TypeError("recipe must be a CompiledRecipe or None.")
+        raise TypeError(
+            f"recipe must be a CompiledRecipe or None, got {type(recipe).__name__}."
+        )
     return recipe
 
 

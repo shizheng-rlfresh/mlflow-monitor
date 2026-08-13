@@ -69,7 +69,7 @@ def make_compiled_recipe(
     recipe_version: str = "3",
     metric_names: list[str] | None = None,
 ) -> CompiledRecipe:
-    """Build one system-only compiled Recipe with configurable effective analysis."""
+    """Build a compiled Recipe with configurable identity and analysis."""
     raw = build_system_default_recipe()
     raw["identity"] = {
         "recipe_id": recipe_id,
