@@ -83,17 +83,12 @@ each green ticket commit, run focused tests plus the applicable Ruff and Pyright
 checks. Before closing a ticket, run the complete gate:
 
 ```bash
-uv sync --extra dev
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run pyright
-uv run --group doc sphinx-build -W -b html docs/site/source docs/site/build/html
-uv build
+uv sync --locked --group doc
+uv run --no-sync poe validate
 ```
 
 Release transitions and final acceptance require the complete gate with no
-omissions. Use `uv run ruff format .` only as an intentional formatting action,
+omissions. Use `uv run poe format` only as an intentional formatting action,
 never as proof that formatting was already valid.
 
 ## Branch naming
