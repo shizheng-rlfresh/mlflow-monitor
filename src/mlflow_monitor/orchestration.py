@@ -48,6 +48,8 @@ class OrchestrationState:
         source_run_id: The original run ID from the training system that produced this run.
         baseline_source_run_id: The source run ID of the baseline this run is compared against
         compiled_recipe: The execution-ready compiled Recipe for this run.
+        custom_reference_monitoring_run_id: Optional invocation-owned Reference
+            Monitoring Run identifier.
         timeline_id: The Timeline identity returned by monitoring-run allocation.
         monitoring_run_id: The unique ID of the monitoring run to be executed.
         existing_monitoring_run: The existing monitoring run record, if any.
@@ -60,6 +62,7 @@ class OrchestrationState:
     source_run_id: str
     baseline_source_run_id: str | None
     compiled_recipe: CompiledRecipe
+    custom_reference_monitoring_run_id: str | None
     timeline_id: str
     monitoring_run_id: str
     existing_monitoring_run: MonitoringRunRecord | None
@@ -74,6 +77,8 @@ def run_orchestration(
     baseline_source_run_id: str | None,
     gateway: MonitoringGateway,
     contract_checker: ContractChecker,
+    custom_reference_monitoring_run_id: str | None = None,
+    recipe: CompiledRecipe | None = None,
 ) -> MonitorRunResult:
     """Execute the orchestration for one monitoring run, including prepare and check stages.
 
@@ -83,17 +88,24 @@ def run_orchestration(
         baseline_source_run_id: The source run ID of the baseline this run is compared against
         gateway: The monitoring gateway to use for persistence during orchestration.
         contract_checker: The contract checker to use for executing the contract check stage.
+        custom_reference_monitoring_run_id: Optional invocation-owned Reference
+            Monitoring Run identifier.
+        recipe: Precompiled Recipe, or ``None`` for the system default.
 
     Returns:
         The result of the monitoring run execution, including comparability status and any findings.
 
+    Raises:
+        TypeError: If ``recipe`` is neither a ``CompiledRecipe`` nor ``None``.
+
     """  # noqa: E501
-    compiled_recipe = _resolve_startup()
+    compiled_recipe = _resolve_startup(recipe)
     state_or_result = _resolve_orchestration_state(
         subject_id=subject_id,
         source_run_id=source_run_id,
         baseline_source_run_id=baseline_source_run_id,
         compiled_recipe=compiled_recipe,
+        custom_reference_monitoring_run_id=custom_reference_monitoring_run_id,
         gateway=gateway,
     )
     if isinstance(state_or_result, MonitorRunResult):
@@ -111,9 +123,13 @@ def run_orchestration(
     )
 
 
-def _resolve_startup() -> CompiledRecipe:
-    """Return the precompiled system-default Recipe before allocation."""
-    return SYSTEM_DEFAULT_COMPILED_RECIPE
+def _resolve_startup(recipe: CompiledRecipe | None) -> CompiledRecipe:
+    """Validate and resolve the execution-ready Recipe before allocation."""
+    if recipe is None:
+        return SYSTEM_DEFAULT_COMPILED_RECIPE
+    if not isinstance(recipe, CompiledRecipe):
+        raise TypeError(f"recipe must be a CompiledRecipe or None, got {type(recipe).__name__}.")
+    return recipe
 
 
 def _resolve_orchestration_state(
@@ -122,6 +138,7 @@ def _resolve_orchestration_state(
     source_run_id: str,
     baseline_source_run_id: str | None,
     compiled_recipe: CompiledRecipe,
+    custom_reference_monitoring_run_id: str | None,
     gateway: MonitoringGateway,
 ) -> OrchestrationState | MonitorRunResult:
     """Resolve idempotency state and apply rerun short-circuit policy."""
@@ -137,6 +154,7 @@ def _resolve_orchestration_state(
         source_run_id=create_or_reuse_result.source_run_id,
         baseline_source_run_id=baseline_source_run_id,
         compiled_recipe=compiled_recipe,
+        custom_reference_monitoring_run_id=custom_reference_monitoring_run_id,
         timeline_id=create_or_reuse_result.timeline_id,
         monitoring_run_id=create_or_reuse_result.monitoring_run_id,
         existing_monitoring_run=create_or_reuse_result.existing_monitoring_run,
@@ -224,6 +242,7 @@ def _run_prepare_monitoring_run_slice(
             gateway=gateway,
             source_run_id=state.source_run_id,
             baseline_source_run_id=state.baseline_source_run_id,
+            custom_reference_monitoring_run_id=state.custom_reference_monitoring_run_id,
         )
     except _OWNED_FAILURES as exc:
         gateway.upsert_monitoring_run(

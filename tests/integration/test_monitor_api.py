@@ -11,6 +11,8 @@ from mlflow import MlflowClient
 
 from mlflow_monitor import monitor
 from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus, MonitoringRunReference
+from mlflow_monitor.recipe import build_system_default_recipe
+from mlflow_monitor.recipe_compiler import compile_recipe
 
 
 def test_monitor_run_defaults_to_real_mlflow_gateway(
@@ -143,3 +145,65 @@ def test_monitor_run_warn_outcome_via_environment_mismatch(
     assert payload["monitoring_run_id"] == result.monitoring_run_id
     assert payload["lifecycle_status"] == "checked"
     assert payload["comparability_status"] == "warn"
+
+
+def test_monitor_run_persists_supplied_compiled_recipe_identity(
+    tracking_uri: str,
+    artifact_root_uri: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    create_training_run,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    baseline_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="baseline",
+        metrics={"f1": 0.87},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    current_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="current-custom-recipe",
+        metrics={"f1": 0.91},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    recipe = build_system_default_recipe()
+    recipe["identity"] = {
+        "recipe_id": "custom-churn",
+        "recipe_version": "7",
+    }
+    compiled_recipe = compile_recipe(recipe)
+
+    previous_tracking_uri = mlflow.get_tracking_uri()
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", tracking_uri)
+    mlflow.set_tracking_uri(tracking_uri)
+    try:
+        result = monitor.run(
+            subject_id="churn_model",
+            source_run_id=current_run_id,
+            baseline_source_run_id=baseline_run_id,
+            recipe=compiled_recipe,
+        )
+    finally:
+        mlflow.set_tracking_uri(previous_tracking_uri)
+
+    monitoring_run = raw.get_run(result.monitoring_run_id)
+
+    assert result.lifecycle_status is LifecycleStatus.CHECKED
+    assert monitoring_run.data.tags["monitoring.recipe_id"] == "custom-churn"
+    assert monitoring_run.data.tags["monitoring.recipe_version"] == "7"
