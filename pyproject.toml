@@ -8,27 +8,14 @@ version = "0.2.0.dev0"
 description = "ML monitoring as a first-class workflow, built on MLflow."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "mlflow>=3.15.1",
-]
-
-[project.optional-dependencies]
-dev = [
-    "ruff",
-    "pytest",
-    "pyright",
-]
+dependencies = ["mlflow>=3.15.1"]
 
 [project.scripts]
 mlflow-monitor = "mlflow_monitor.cli:main"
 
 [dependency-groups]
-doc = [
-    "sphinx",
-    "myst-parser",
-    "furo",
-    "sphinxcontrib-mermaid",
-]
+dev = ["ruff", "pytest", "pyright", "poethepoet"]
+doc = ["sphinx", "myst-parser", "furo", "sphinxcontrib-mermaid"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mlflow_monitor"]
@@ -39,13 +26,13 @@ src = ["src"]
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "UP",  # pyupgrade
-    "B",   # flake8-bugbear
-    "D",   # pydocstyle
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "UP", # pyupgrade
+    "B",  # flake8-bugbear
+    "D",  # pydocstyle
 ]
 ignore = []
 
@@ -54,9 +41,7 @@ ignore = []
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = [
-    "D",
-]
+"tests/**/*.py" = ["D"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["mlflow_monitor"]
@@ -70,3 +55,16 @@ addopts = "-v"
 include = ["src"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
+
+[tool.poe]
+executor = "simple"
+
+[tool.poe.tasks]
+test = "pytest"
+lint = "ruff check ."
+format-check = "ruff format --check ."
+format = "ruff format ."
+typecheck = "pyright"
+docs = "sphinx-build -W -b html docs/site/source docs/site/build/html"
+build = "uv build"
+validate = ["test", "lint", "format-check", "typecheck", "docs", "build"]
