@@ -26,6 +26,14 @@ class _JsonArtifactGateway(Protocol):
         """Write missing content or validate an identical existing artifact."""
         ...
 
+    def read_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+    ) -> dict[str, object] | None:
+        """Read exact-path content or return None when it is missing."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class _GatewayHarness:
@@ -100,6 +108,40 @@ def test_json_artifact_contract_writes_missing_accepts_identical_and_rejects_dif
         monitoring_run_id=monitoring_run_id,
         data=original,
         path=path,
+    )
+
+
+def test_json_artifact_contract_reads_exact_path_and_distinguishes_missing(
+    json_artifact_gateway: _GatewayHarness,
+) -> None:
+    monitoring_run_id = json_artifact_gateway.allocate("source-run-1")
+    path = "state/prepared_context.json"
+    payload = {"z": 1, "a": {"value": "prepared"}}
+
+    assert (
+        json_artifact_gateway.gateway.read_monitoring_run_json_artifact(
+            monitoring_run_id,
+            path,
+        )
+        is None
+    )
+
+    json_artifact_gateway.gateway.write_monitoring_run_json_artifact(
+        monitoring_run_id=monitoring_run_id,
+        data=payload,
+        path=path,
+    )
+
+    assert json_artifact_gateway.gateway.read_monitoring_run_json_artifact(
+        monitoring_run_id,
+        path,
+    ) == {"a": {"value": "prepared"}, "z": 1}
+    assert (
+        json_artifact_gateway.gateway.read_monitoring_run_json_artifact(
+            monitoring_run_id,
+            "outputs/prepared_context.json",
+        )
+        is None
     )
 
 
