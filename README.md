@@ -41,7 +41,7 @@ MVP snapshot and are not implied by the `v0.1.0` release.
 git clone https://github.com/shizheng-rlfresh/mlflow-monitor.git
 cd mlflow-monitor
 git checkout v0.1.0
-uv sync
+uv sync --no-dev
 ```
 
 Then follow the tagged [MVP Demo walkthrough](https://github.com/shizheng-rlfresh/mlflow-monitor/blob/v0.1.0/demo/README.md).
@@ -53,8 +53,7 @@ The permanent in-repository release pointer is
 ```bash
 git clone https://github.com/shizheng-rlfresh/mlflow-monitor.git
 cd mlflow-monitor
-git switch main
-uv sync
+uv sync --no-dev
 ```
 
 The Python API remains the primary programmatic entry point while v0 develops:
@@ -88,14 +87,16 @@ documents.
 
 Use Python 3.12 or newer and `uv`:
 
+Install dependencies
+
 ```bash
-uv sync --extra dev
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run pyright
-uv run --group doc sphinx-build -W -b html docs/site/source docs/site/build/html
-uv build
+uv sync --group doc
+```
+
+Run full suite of validations (see `pyproject.toml` for details)
+
+```bash
+uv run --no-sync poe validate
 ```
 
 ## License
