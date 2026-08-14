@@ -1,3 +1,5 @@
+![Documentation Status](https://app.readthedocs.org/projects/mlflow-monitor/badge/?version=latest&style=flat)
+
 # MLflow-Monitor
 
 ML monitoring as a first-class workflow, built on MLflow.
