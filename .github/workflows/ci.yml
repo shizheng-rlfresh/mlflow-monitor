@@ -33,7 +33,7 @@ jobs:
       - name: Run Ruff linting
         run: uv run --no-sync poe lint
 
-      - name: Check Ruff format checking
+      - name: Check Ruff formatting
         run: uv run --no-sync poe format-check
 
       - name: Run Pyright type checking
