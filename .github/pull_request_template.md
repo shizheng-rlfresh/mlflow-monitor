@@ -40,7 +40,8 @@ Give reviewers only the context needed for this diff.
 
 <!-- Check only commands that were run successfully (do not change the commands). Explain any omissions below. -->
 
+- [ ] `uv sync --locked --group doc`
+- [ ] `uv run --no-sync poe validate`
 - [ ] Matching `docs/site/` content is updated, or no developer-doc change is required
-- [ ] `uv run --locked --group doc poe validate`
 
 <!-- Validation omissions, if any: -->
