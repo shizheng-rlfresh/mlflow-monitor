@@ -137,7 +137,7 @@ class PreparedContext:
     references: tuple[MonitoringRunReference, ...]
 
     def __post_init__(self) -> None:
-        """Freeze the ordered resolved references after a defensive copy."""
+        """Freeze the ordered resolved references."""
         object.__setattr__(self, "references", tuple(self.references))
 
     @property
