@@ -300,13 +300,9 @@ def hydrate_prepared_context(
         )
 
     contract = _hydrate_prepared_contract(raw.get("contract"))
-    expected_contract_identity = (
-        compiled_recipe.effective_plan.contract.contract_id,
-        compiled_recipe.effective_plan.contract.contract_version,
-    )
-    if (contract.contract_id, contract.contract_version) != expected_contract_identity:
+    if contract != compiled_recipe.contract:
         raise _prepared_context_inconsistent(
-            reason="contract_identity_mismatch",
+            reason="contract_mismatch",
             field="contract",
         )
 

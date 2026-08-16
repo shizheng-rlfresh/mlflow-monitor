@@ -719,6 +719,33 @@ def test_prepared_replay_rejects_conflicting_persisted_identity() -> None:
     assert exc_info.value.code == "prepared_context_inconsistent"
 
 
+def test_prepared_replay_rejects_changed_contract_definition_for_same_identity() -> None:
+    gateway = PreparedReplayGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+    monitoring_run_id = leave_monitoring_run_prepared(gateway)
+
+    prepared_context = read_prepared_context(gateway, monitoring_run_id)
+    assert prepared_context is not None
+    corrupted_context = dict(prepared_context)
+    persisted_contract = corrupted_context["contract"]
+    assert isinstance(persisted_contract, dict)
+    corrupted_contract = dict(persisted_contract)
+    corrupted_contract["execution_contract_ref"] = None
+    corrupted_context["contract"] = corrupted_contract
+    gateway.prepared_context_override = corrupted_context
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id=None,
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
+
+
 def test_prepared_replay_rejects_different_effective_plan_for_same_recipe_identity() -> None:
     gateway = PreparedReplayGateway(GatewayConfig())
     add_default_source_runs(gateway)
