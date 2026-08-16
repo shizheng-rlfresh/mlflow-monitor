@@ -863,7 +863,18 @@ class InMemoryMonitoringGateway:
         if existing_artifact_encoded is None:
             return None
 
-        return json.loads(existing_artifact_encoded)
+        try:
+            existing_artifact_decoded = json.loads(existing_artifact_encoded)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(existing_artifact_decoded, dict):
+            raise ValueError("Monitoring run JSON artifact {path!r} must contain a JSON object.")
+
+        # validate nested values, including ensuring no infinite or NaN values.
+        canonical_json(existing_artifact_decoded)
+
+        return existing_artifact_decoded
 
     def write_monitoring_run_json_artifact(
         self,
