@@ -14,6 +14,7 @@ the gateway owns all persistence-specific mechanics.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from mlflow_monitor.contract_checker import (
@@ -23,19 +24,21 @@ from mlflow_monitor.contract_checker import (
 from mlflow_monitor.domain import (
     Contract,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
     Run,
 )
 from mlflow_monitor.errors import (
     CheckStageError,
+    GatewayConsistencyViolation,
     InvalidRunTransition,
     InvariantViolation,
     PrepareStageError,
 )
 from mlflow_monitor.gateway import MonitoringGateway, TimelineState
 from mlflow_monitor.invariant import validate_contract_check_result
-from mlflow_monitor.recipe_compiler import CompiledRecipe
+from mlflow_monitor.recipe_compiler import CompiledRecipe, EffectiveRecipePlan
 
 _ALLOWED_TRANSITIONS = {
     LifecycleStatus.CREATED: {
@@ -58,6 +61,41 @@ _ALLOWED_TRANSITIONS = {
     LifecycleStatus.FAILED: set(),
 }
 
+PREPARED_CONTEXT_ARTIFACT_PATH = "state/prepared_context.json"
+_PREPARED_CONTEXT_ARTIFACT_SCHEMA_VERSION = "v0"
+_PREPARED_CONTEXT_FIELDS = frozenset(
+    {
+        "artifact_schema_version",
+        "monitoring_run_id",
+        "source_run_id",
+        "subject_id",
+        "timeline_id",
+        "sequence_index",
+        "baseline_source_run_id",
+        "effective_recipe",
+        "contract",
+        "references",
+    }
+)
+_PREPARED_CONTRACT_FIELDS = frozenset(
+    {
+        "contract_id",
+        "contract_version",
+        "schema_contract_ref",
+        "feature_contract_ref",
+        "metric_contract_ref",
+        "data_scope_contract_ref",
+        "execution_contract_ref",
+    }
+)
+_PREPARED_REFERENCE_FIELDS = frozenset({"kind", "monitoring_run_id", "source_run_id"})
+_REFERENCE_ORDER = {
+    DiffReferenceKind.BASELINE: 0,
+    DiffReferenceKind.PREVIOUS: 1,
+    DiffReferenceKind.LKG: 2,
+    DiffReferenceKind.CUSTOM: 3,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class BaselineResolutionResult:
@@ -77,7 +115,6 @@ class PreparedContext:
     """Resolved prepare-stage context required before contract checking.
 
     Attributes:
-        artifact_schema_version: Version of the prepared context artifact schema.
         monitoring_run_id: Stable monitoring run identifier.
         source_run_id: Resolved source training run id.
         subject_id: Stable monitored subject identifier.
@@ -89,16 +126,332 @@ class PreparedContext:
         references: Tuple of resolved monitoring run references.
     """
 
-    artifact_schema_version: str
     monitoring_run_id: str
     source_run_id: str
     subject_id: str
     timeline_id: str
     sequence_index: int
-    baseline_source_run_id: str | None
-    effective_recipe: CompiledRecipe
+    baseline_source_run_id: str
+    effective_recipe: EffectiveRecipePlan
     contract: Contract
     references: tuple[MonitoringRunReference, ...]
+
+    def __post_init__(self) -> None:
+        """Freeze the ordered resolved references after a defensive copy."""
+        object.__setattr__(self, "references", tuple(self.references))
+
+    @property
+    def recipe_id(self) -> str:
+        """Return the normalized Recipe identifier."""
+        return self.effective_recipe.identity.recipe_id
+
+    @property
+    def recipe_version(self) -> str:
+        """Return the normalized Recipe version."""
+        return self.effective_recipe.identity.recipe_version
+
+    @property
+    def contract_id(self) -> str:
+        """Return the resolved Contract identifier."""
+        return self.contract.contract_id
+
+    @property
+    def source_experiment(self) -> str | None:
+        """Return the normalized optional Source Training Run experiment filter."""
+        return self.effective_recipe.source_requirements.source_experiment
+
+    @property
+    def required_metrics(self) -> tuple[str, ...]:
+        """Return normalized required metric names."""
+        return self.effective_recipe.source_requirements.required_metric_names
+
+    @property
+    def required_artifacts(self) -> tuple[str, ...]:
+        """Return normalized required artifact paths."""
+        return self.effective_recipe.source_requirements.required_artifact_paths
+
+    @property
+    def previous_monitoring_run_id(self) -> str | None:
+        """Return the frozen previous Monitoring Run identifier, when resolved."""
+        return self._reference_monitoring_run_id(DiffReferenceKind.PREVIOUS)
+
+    @property
+    def active_lkg_monitoring_run_id(self) -> str | None:
+        """Return the frozen LKG Monitoring Run identifier, when resolved."""
+        return self._reference_monitoring_run_id(DiffReferenceKind.LKG)
+
+    @property
+    def custom_reference_monitoring_run_id(self) -> str | None:
+        """Return the frozen custom Monitoring Run identifier, when resolved."""
+        return self._reference_monitoring_run_id(DiffReferenceKind.CUSTOM)
+
+    def _reference_monitoring_run_id(self, kind: DiffReferenceKind) -> str | None:
+        """Return one resolved Monitoring Run identifier by reference kind."""
+        for reference in self.references:
+            if reference.kind is kind:
+                return reference.monitoring_run_id
+        return None
+
+
+def prepared_context_to_dict(context: PreparedContext) -> dict[str, object]:
+    """Serialize one prepared context into its canonical artifact payload.
+
+    Args:
+        context: Typed prepared context to persist.
+
+    Returns:
+        JSON-compatible prepared-context artifact content.
+    """
+    contract = context.contract
+    return {
+        "artifact_schema_version": _PREPARED_CONTEXT_ARTIFACT_SCHEMA_VERSION,
+        "monitoring_run_id": context.monitoring_run_id,
+        "source_run_id": context.source_run_id,
+        "subject_id": context.subject_id,
+        "timeline_id": context.timeline_id,
+        "sequence_index": context.sequence_index,
+        "baseline_source_run_id": context.baseline_source_run_id,
+        "effective_recipe": context.effective_recipe.to_dict(),
+        "contract": {
+            "contract_id": contract.contract_id,
+            "contract_version": contract.contract_version,
+            "schema_contract_ref": contract.schema_contract_ref,
+            "feature_contract_ref": contract.feature_contract_ref,
+            "metric_contract_ref": contract.metric_contract_ref,
+            "data_scope_contract_ref": contract.data_scope_contract_ref,
+            "execution_contract_ref": contract.execution_contract_ref,
+        },
+        "references": [reference.to_dict() for reference in context.references],
+    }
+
+
+def hydrate_prepared_context(
+    raw: Mapping[str, object] | None,
+    *,
+    compiled_recipe: CompiledRecipe,
+    monitoring_run_id: str,
+    source_run_id: str,
+    subject_id: str,
+    timeline_id: str,
+    sequence_index: int,
+) -> PreparedContext:
+    """Hydrate and validate one committed prepared-context artifact.
+
+    Args:
+        raw: Decoded prepared-context JSON object, or ``None`` when missing.
+        compiled_recipe: Caller-supplied executable Recipe whose effective plan
+            must exactly match the persisted plan.
+        monitoring_run_id: Allocated Monitoring Run identity expected in the artifact.
+        source_run_id: Immutable Source Training Run identity expected in the artifact.
+        subject_id: Subject identity expected in the artifact.
+        timeline_id: Allocated Timeline identity expected in the artifact.
+        sequence_index: Allocated Timeline sequence expected in the artifact.
+
+    Returns:
+        Typed context reconstructed without live Prepare resolution.
+
+    Raises:
+        GatewayConsistencyViolation: If the artifact is malformed or contradicts
+            the current allocation or compiled Recipe.
+    """
+    if raw is None:
+        raise _prepared_context_inconsistent(
+            reason="missing_artifact",
+            field="prepared_context",
+        )
+    _require_exact_prepared_fields(raw, _PREPARED_CONTEXT_FIELDS, section="prepared_context")
+    if raw.get("artifact_schema_version") != _PREPARED_CONTEXT_ARTIFACT_SCHEMA_VERSION:
+        raise _prepared_context_inconsistent(
+            reason="unsupported_artifact_schema_version",
+            field="artifact_schema_version",
+        )
+
+    expected_identity: tuple[tuple[str, str | int], ...] = (
+        ("monitoring_run_id", monitoring_run_id),
+        ("source_run_id", source_run_id),
+        ("subject_id", subject_id),
+        ("timeline_id", timeline_id),
+        ("sequence_index", sequence_index),
+    )
+    for field, expected in expected_identity:
+        actual = raw.get(field)
+        if isinstance(expected, int):
+            valid_type = isinstance(actual, int) and not isinstance(actual, bool)
+        else:
+            valid_type = isinstance(actual, str) and bool(actual.strip())
+        if not valid_type or actual != expected:
+            raise _prepared_context_inconsistent(
+                reason="allocation_identity_mismatch",
+                field=field,
+            )
+
+    baseline_source_run_id = _require_prepared_string(raw, "baseline_source_run_id")
+
+    effective_recipe = raw.get("effective_recipe")
+    if not isinstance(effective_recipe, Mapping):
+        raise _prepared_context_inconsistent(
+            reason="invalid_field_type",
+            field="effective_recipe",
+        )
+    if dict(effective_recipe) != compiled_recipe.effective_plan.to_dict():
+        raise _prepared_context_inconsistent(
+            reason="effective_recipe_mismatch",
+            field="effective_recipe",
+        )
+
+    contract = _hydrate_prepared_contract(raw.get("contract"))
+    expected_contract_identity = (
+        compiled_recipe.effective_plan.contract.contract_id,
+        compiled_recipe.effective_plan.contract.contract_version,
+    )
+    if (contract.contract_id, contract.contract_version) != expected_contract_identity:
+        raise _prepared_context_inconsistent(
+            reason="contract_identity_mismatch",
+            field="contract",
+        )
+
+    references = _hydrate_prepared_references(
+        raw.get("references"),
+        baseline_source_run_id=baseline_source_run_id,
+    )
+    return PreparedContext(
+        monitoring_run_id=monitoring_run_id,
+        source_run_id=source_run_id,
+        subject_id=subject_id,
+        timeline_id=timeline_id,
+        sequence_index=sequence_index,
+        baseline_source_run_id=baseline_source_run_id,
+        effective_recipe=compiled_recipe.effective_plan,
+        contract=contract,
+        references=references,
+    )
+
+
+def _hydrate_prepared_contract(raw: object) -> Contract:
+    """Hydrate the complete Contract frozen in prepared state."""
+    if not isinstance(raw, Mapping):
+        raise _prepared_context_inconsistent(reason="invalid_field_type", field="contract")
+    _require_exact_prepared_fields(raw, _PREPARED_CONTRACT_FIELDS, section="contract")
+    return Contract(
+        contract_id=_require_prepared_string(raw, "contract_id"),
+        contract_version=_require_prepared_string(raw, "contract_version"),
+        schema_contract_ref=_require_prepared_optional_string(raw, "schema_contract_ref"),
+        feature_contract_ref=_require_prepared_optional_string(raw, "feature_contract_ref"),
+        metric_contract_ref=_require_prepared_optional_string(raw, "metric_contract_ref"),
+        data_scope_contract_ref=_require_prepared_optional_string(
+            raw,
+            "data_scope_contract_ref",
+        ),
+        execution_contract_ref=_require_prepared_optional_string(raw, "execution_contract_ref"),
+    )
+
+
+def _hydrate_prepared_references(
+    raw: object,
+    *,
+    baseline_source_run_id: str,
+) -> tuple[MonitoringRunReference, ...]:
+    """Hydrate canonical resolved Monitoring Run references."""
+    if not isinstance(raw, list):
+        raise _prepared_context_inconsistent(reason="invalid_field_type", field="references")
+
+    references: list[MonitoringRunReference] = []
+    for index, item in enumerate(raw):
+        field = f"references[{index}]"
+        if not isinstance(item, Mapping):
+            raise _prepared_context_inconsistent(reason="invalid_field_type", field=field)
+        _require_exact_prepared_fields(item, _PREPARED_REFERENCE_FIELDS, section=field)
+        kind = item.get("kind")
+        monitoring_run_id = item.get("monitoring_run_id")
+        source_run_id = item.get("source_run_id")
+        if not isinstance(kind, str):
+            raise _prepared_context_inconsistent(reason="invalid_field_type", field=f"{field}.kind")
+        if monitoring_run_id is not None and not isinstance(monitoring_run_id, str):
+            raise _prepared_context_inconsistent(
+                reason="invalid_field_type",
+                field=f"{field}.monitoring_run_id",
+            )
+        if not isinstance(source_run_id, str):
+            raise _prepared_context_inconsistent(
+                reason="invalid_field_type",
+                field=f"{field}.source_run_id",
+            )
+        try:
+            reference = MonitoringRunReference(
+                kind=DiffReferenceKind(kind),
+                monitoring_run_id=monitoring_run_id,
+                source_run_id=source_run_id,
+            )
+        except ValueError as exc:
+            raise _prepared_context_inconsistent(
+                reason="invalid_reference",
+                field=field,
+            ) from exc
+        references.append(reference)
+
+    if not references or references[0] != MonitoringRunReference(
+        kind=DiffReferenceKind.BASELINE,
+        monitoring_run_id=None,
+        source_run_id=baseline_source_run_id,
+    ):
+        raise _prepared_context_inconsistent(
+            reason="baseline_reference_mismatch",
+            field="references",
+        )
+
+    reference_kinds = tuple(reference.kind for reference in references)
+    if (
+        len(reference_kinds) != len(set(reference_kinds))
+        or tuple(sorted(reference_kinds, key=_REFERENCE_ORDER.__getitem__)) != reference_kinds
+    ):
+        raise _prepared_context_inconsistent(
+            reason="noncanonical_references",
+            field="references",
+        )
+    return tuple(references)
+
+
+def _require_exact_prepared_fields(
+    raw: Mapping[str, object],
+    expected: frozenset[str],
+    *,
+    section: str,
+) -> None:
+    """Require one prepared-artifact mapping to have exactly its canonical fields."""
+    if set(raw) != expected:
+        raise _prepared_context_inconsistent(reason="invalid_fields", field=section)
+
+
+def _require_prepared_string(raw: Mapping[str, object], field: str) -> str:
+    """Return one required nonempty string from a prepared artifact mapping."""
+    value = raw.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise _prepared_context_inconsistent(reason="invalid_field_type", field=field)
+    return value
+
+
+def _require_prepared_optional_string(
+    raw: Mapping[str, object],
+    field: str,
+) -> str | None:
+    """Return one optional string from a prepared artifact mapping."""
+    value = raw.get(field)
+    if value is not None and not isinstance(value, str):
+        raise _prepared_context_inconsistent(reason="invalid_field_type", field=field)
+    return value
+
+
+def _prepared_context_inconsistent(
+    *,
+    reason: str,
+    field: str,
+) -> GatewayConsistencyViolation:
+    """Build the stable failure raised for invalid persisted prepared state."""
+    return GatewayConsistencyViolation(
+        code="prepared_context_inconsistent",
+        message="Persisted prepared context is missing, malformed, or inconsistent.",
+        details=(("reason", reason), ("field", field)),
+    )
 
 
 def transition_run(run: Run, to_status: LifecycleStatus) -> Run:
@@ -133,6 +486,7 @@ def prepare_run_context(
     compiled_recipe: CompiledRecipe,
     gateway: MonitoringGateway,
     source_run_id: str,
+    sequence_index: int,
     baseline_source_run_id: str | None = None,
     custom_reference_monitoring_run_id: str | None = None,
 ) -> PreparedContext:
@@ -144,6 +498,7 @@ def prepare_run_context(
         compiled_recipe: Execution-ready compiled Recipe.
         gateway: Gateway used for timeline and source-run reads.
         source_run_id: Invocation-owned Source Training Run identifier.
+        sequence_index: Stable allocation order within the Timeline.
         baseline_source_run_id: Optional baseline source run id used to bootstrap (pin)
             timeline baseline, or to explicitly confirm the baseline for an existing timeline.
         custom_reference_monitoring_run_id: Optional invocation-owned Monitoring
@@ -294,39 +649,85 @@ def prepare_run_context(
             details=(("subject_id", subject_id),),
         )
 
+    references = [
+        MonitoringRunReference(
+            kind=DiffReferenceKind.BASELINE,
+            monitoring_run_id=None,
+            source_run_id=timeline_state.baseline_source_run_id,
+        )
+    ]
+
     timeline_runs = gateway.list_timeline_monitoring_runs(subject_id, exclude_failed=True)
-    previous_monitoring_run_id = timeline_runs[-1].monitoring_run_id if timeline_runs else None
+    if timeline_runs:
+        previous = timeline_runs[-1]
+        references.append(
+            MonitoringRunReference(
+                kind=DiffReferenceKind.PREVIOUS,
+                monitoring_run_id=previous.monitoring_run_id,
+                source_run_id=previous.source_run_id,
+            )
+        )
+
+    active_lkg_monitoring_run_id = gateway.resolve_active_lkg_monitoring_run_id(subject_id)
+    if active_lkg_monitoring_run_id is not None:
+        references.append(
+            _hydrate_monitoring_run_reference(
+                kind=DiffReferenceKind.LKG,
+                subject_id=subject_id,
+                monitoring_run_id=active_lkg_monitoring_run_id,
+                gateway=gateway,
+            )
+        )
+
+    if custom_reference_monitoring_run_id is not None:
+        references.append(
+            _hydrate_monitoring_run_reference(
+                kind=DiffReferenceKind.CUSTOM,
+                subject_id=subject_id,
+                monitoring_run_id=custom_reference_monitoring_run_id,
+                gateway=gateway,
+            )
+        )
 
     return PreparedContext(
-        artifact_schema_version="v0",
         monitoring_run_id=monitoring_run_id,
         source_run_id=resolved_source_run_id,
         subject_id=subject_id,
         timeline_id=timeline_state.timeline_id,
-        sequence_index=0,
+        sequence_index=sequence_index,
         baseline_source_run_id=timeline_state.baseline_source_run_id,
-        effective_recipe=compiled_recipe,
+        effective_recipe=compiled_recipe.effective_plan,
         contract=compiled_recipe.contract,
-        references=,
+        references=tuple(references),
     )
 
-    # return PreparedContext(
-    #     monitoring_run_id=monitoring_run_id,
-    #     subject_id=subject_id,
-    #     recipe_id=compiled_recipe.identity.recipe_id,
-    #     recipe_version=compiled_recipe.identity.recipe_version,
-    #     contract_id=compiled_recipe.contract.contract_id,
-    #     source_experiment=compiled_recipe.source_requirements.source_experiment,
-    #     timeline_id=timeline_state.timeline_id,
-    #     baseline_source_run_id=timeline_state.baseline_source_run_id,
-    #     previous_monitoring_run_id=previous_monitoring_run_id,
-    #     active_lkg_monitoring_run_id=gateway.resolve_active_lkg_monitoring_run_id(subject_id),
-    #     custom_reference_monitoring_run_id=custom_reference_monitoring_run_id,
-    #     source_run_id=resolved_source_run_id,
-    #     contract=compiled_recipe.contract,
-    #     required_metrics=compiled_recipe.source_requirements.required_metric_names,
-    #     required_artifacts=compiled_recipe.source_requirements.required_artifact_paths,
-    # )
+
+def _hydrate_monitoring_run_reference(
+    *,
+    kind: DiffReferenceKind,
+    subject_id: str,
+    monitoring_run_id: str,
+    gateway: MonitoringGateway,
+) -> MonitoringRunReference:
+    """Freeze a complete reference pair from a resolved Monitoring Run pointer."""
+    record = gateway.get_monitoring_run(subject_id, monitoring_run_id)
+    if record is None:
+        raise GatewayConsistencyViolation(
+            code="monitoring_reference_inconsistent",
+            message=(
+                "Monitoring reference could not be hydrated for "
+                f"monitoring_run_id={monitoring_run_id!r}."
+            ),
+            details=(
+                ("kind", kind.value),
+                ("monitoring_run_id", monitoring_run_id),
+            ),
+        )
+    return MonitoringRunReference(
+        kind=kind,
+        monitoring_run_id=record.monitoring_run_id,
+        source_run_id=record.source_run_id,
+    )
 
 
 def execute_contract_check(

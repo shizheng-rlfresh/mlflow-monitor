@@ -7,13 +7,10 @@ from dataclasses import dataclass
 from mlflow_monitor.contract_checker import ContractChecker
 from mlflow_monitor.domain import (
     ContractCheckResult,
-    DiffReferenceKind,
     LifecycleStatus,
-    MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
     CheckStageError,
-    GatewayConsistencyViolation,
     PrepareStageError,
     TerminalRunRetryError,
 )
@@ -28,9 +25,12 @@ from mlflow_monitor.recipe_compiler import (
 )
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 from mlflow_monitor.workflow import (
+    PREPARED_CONTEXT_ARTIFACT_PATH,
     PreparedContext,
     execute_contract_check,
+    hydrate_prepared_context,
     prepare_run_context,
+    prepared_context_to_dict,
 )
 
 _OWNED_FAILURES = (
@@ -234,6 +234,24 @@ def _run_prepare_monitoring_run_slice(
             sequence_index=state.sequence_index,
         )
 
+    if (
+        state.existing_monitoring_run is not None
+        and state.existing_monitoring_run.lifecycle_status is LifecycleStatus.PREPARED
+    ):
+        raw_prepared_context = gateway.read_monitoring_run_json_artifact(
+            state.monitoring_run_id,
+            PREPARED_CONTEXT_ARTIFACT_PATH,
+        )
+        return hydrate_prepared_context(
+            raw_prepared_context,
+            compiled_recipe=state.compiled_recipe,
+            monitoring_run_id=state.monitoring_run_id,
+            source_run_id=state.source_run_id,
+            subject_id=state.subject_id,
+            timeline_id=state.timeline_id,
+            sequence_index=state.sequence_index,
+        )
+
     try:
         prepared_context = prepare_run_context(
             monitoring_run_id=state.monitoring_run_id,
@@ -241,6 +259,7 @@ def _run_prepare_monitoring_run_slice(
             compiled_recipe=state.compiled_recipe,
             gateway=gateway,
             source_run_id=state.source_run_id,
+            sequence_index=state.sequence_index,
             baseline_source_run_id=state.baseline_source_run_id,
             custom_reference_monitoring_run_id=state.custom_reference_monitoring_run_id,
         )
@@ -264,6 +283,12 @@ def _run_prepare_monitoring_run_slice(
             result=result,
         )
         return result
+
+    gateway.write_monitoring_run_json_artifact(
+        monitoring_run_id=state.monitoring_run_id,
+        data=prepared_context_to_dict(prepared_context),
+        path=PREPARED_CONTEXT_ARTIFACT_PATH,
+    )
 
     if (
         state.existing_monitoring_run is None
@@ -336,7 +361,7 @@ def _run_check_monitoring_run_slice(
         lifecycle_status=LifecycleStatus.CHECKED,
         sequence_index=state.sequence_index,
         contract_check_result=contract_check_result,
-        references=_build_monitoring_run_references(prepared_context, gateway),
+        references=prepared_context.references,
     )
     result = _build_success_monitoring_run_result(
         subject_id=state.subject_id,
@@ -344,7 +369,6 @@ def _run_check_monitoring_run_slice(
         timeline_id=state.timeline_id,
         prepared_context=prepared_context,
         contract_check_result=contract_check_result,
-        gateway=gateway,
     )
     gateway.finalize_monitoring_run_result(
         monitoring_run_id=state.monitoring_run_id,
@@ -360,7 +384,6 @@ def _build_success_monitoring_run_result(
     timeline_id: str,
     prepared_context,
     contract_check_result: ContractCheckResult,
-    gateway: MonitoringGateway,
 ) -> MonitorRunResult:
     """Build the canonical success result for one checked monitoring run.
 
@@ -370,7 +393,6 @@ def _build_success_monitoring_run_result(
         timeline_id: The Timeline identity returned by monitoring-run allocation.
         prepared_context: The prepared context produced by the prepare stage for this run.
         contract_check_result: The result of the contract check stage for this run.
-        gateway: The monitoring gateway to use for retrieving any additional information needed.
 
     Returns:
         The canonical success result for this run, including comparability status and any findings.
@@ -384,7 +406,7 @@ def _build_success_monitoring_run_result(
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        references=_build_monitoring_run_references(prepared_context, gateway),
+        references=prepared_context.references,
         error=None,
     )
 
@@ -459,84 +481,6 @@ def _build_failure_monitoring_run_result(
             stage=stage,
             details=_error_details(error),
         ),
-    )
-
-
-def _build_monitoring_run_references(
-    prepared_context,
-    gateway: MonitoringGateway,
-) -> tuple[MonitoringRunReference, ...]:
-    """Build ordered typed references for persistence.
-
-    Args:
-        prepared_context: The prepared context produced by the prepare stage for this run.
-        gateway: Gateway used to hydrate source identity for monitoring-run references.
-
-    Returns:
-        Ordered typed references used during contract check.
-    """
-    references = [
-        MonitoringRunReference(
-            kind=DiffReferenceKind.BASELINE,
-            monitoring_run_id=None,
-            source_run_id=prepared_context.baseline_source_run_id,
-        )
-    ]
-    if prepared_context.previous_monitoring_run_id is not None:
-        references.append(
-            _hydrate_monitoring_run_reference(
-                kind=DiffReferenceKind.PREVIOUS,
-                subject_id=prepared_context.subject_id,
-                monitoring_run_id=prepared_context.previous_monitoring_run_id,
-                gateway=gateway,
-            )
-        )
-    if prepared_context.active_lkg_monitoring_run_id is not None:
-        references.append(
-            _hydrate_monitoring_run_reference(
-                kind=DiffReferenceKind.LKG,
-                subject_id=prepared_context.subject_id,
-                monitoring_run_id=prepared_context.active_lkg_monitoring_run_id,
-                gateway=gateway,
-            )
-        )
-    if prepared_context.custom_reference_monitoring_run_id is not None:
-        references.append(
-            _hydrate_monitoring_run_reference(
-                kind=DiffReferenceKind.CUSTOM,
-                subject_id=prepared_context.subject_id,
-                monitoring_run_id=prepared_context.custom_reference_monitoring_run_id,
-                gateway=gateway,
-            )
-        )
-    return tuple(references)
-
-
-def _hydrate_monitoring_run_reference(
-    *,
-    kind: DiffReferenceKind,
-    subject_id: str,
-    monitoring_run_id: str,
-    gateway: MonitoringGateway,
-) -> MonitoringRunReference:
-    """Hydrate a complete reference pair from a monitoring-run pointer."""
-    record = gateway.get_monitoring_run(subject_id, monitoring_run_id)
-    if record is None:
-        raise GatewayConsistencyViolation(
-            code="monitoring_reference_inconsistent",
-            message=(
-                "Monitoring reference could not be hydrated for "
-                f"monitoring_run_id={monitoring_run_id!r}."
-            ),
-            details=(
-                ("kind", kind.value),
-                ("monitoring_run_id", monitoring_run_id),
-            ),
-        )
-    return MonitoringRunReference(
-        kind=kind,
-        monitoring_run_id=record.monitoring_run_id,
-        source_run_id=record.source_run_id,
     )
 
 

@@ -13,6 +13,7 @@ from mlflow_monitor.domain import (
     ContractCheckReason,
     ContractCheckResult,
     LifecycleStatus,
+    MonitoringRunReference,
     Run,
 )
 from mlflow_monitor.errors import CheckStageError, InvalidRunTransition, PrepareStageError
@@ -130,6 +131,7 @@ def prepare_test_context(
         compiled_recipe=compiled_recipe,
         gateway=gateway,
         source_run_id=effective_source_run_id,
+        sequence_index=allocation.sequence_index,
         baseline_source_run_id=baseline_source_run_id,
         custom_reference_monitoring_run_id=custom_reference_monitoring_run_id,
     )
@@ -367,22 +369,23 @@ def make_prepared_context(
     baseline_source_run_id: str = "train-run-baseline",
 ) -> PreparedContext:
     """Build a prepared context aligned with the common workflow test subject."""
+    compiled_recipe = compile_recipe()
     return PreparedContext(
         monitoring_run_id="monitoring-run-1",
-        subject_id="churn_model",
-        recipe_id="default",
-        recipe_version="v0",
-        contract_id=contract.contract_id,
-        source_experiment="training/churn",
-        timeline_id="timeline-churn_model",
-        baseline_source_run_id=baseline_source_run_id,
-        previous_monitoring_run_id=None,
-        active_lkg_monitoring_run_id=None,
-        custom_reference_monitoring_run_id=None,
         source_run_id=source_run_id,
+        subject_id="churn_model",
+        timeline_id="timeline-churn_model",
+        sequence_index=0,
+        baseline_source_run_id=baseline_source_run_id,
+        effective_recipe=compiled_recipe.effective_plan,
         contract=contract,
-        required_metrics=("f1", "auc"),
-        required_artifacts=("metrics.json",),
+        references=(
+            MonitoringRunReference(
+                kind="baseline",
+                monitoring_run_id=None,
+                source_run_id=baseline_source_run_id,
+            ),
+        ),
     )
 
 
@@ -552,7 +555,7 @@ def test_execute_contract_check_returns_warn_result_for_environment_mismatch() -
     """Check should return the canonical warning result for env mismatch."""
     contract = Contract(
         contract_id="env_repro",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref=None,
         metric_contract_ref=None,
