@@ -865,11 +865,13 @@ class InMemoryMonitoringGateway:
 
         try:
             existing_artifact_decoded = json.loads(existing_artifact_encoded)
-        except json.JSONDecodeError:
-            return None
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Monitoring run JSON artifact {path!r} contains invalid JSON."
+            ) from exc
 
         if not isinstance(existing_artifact_decoded, dict):
-            raise ValueError("Monitoring run JSON artifact {path!r} must contain a JSON object.")
+            raise ValueError(f"Monitoring run JSON artifact {path!r} must contain a JSON object.")
 
         # validate nested values, including ensuring no infinite or NaN values.
         canonical_json(existing_artifact_decoded)
