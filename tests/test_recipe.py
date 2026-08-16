@@ -65,7 +65,7 @@ def test_parse_recipe_builds_immutable_typed_recipe() -> None:
     assert recipe.contract.contract_version == "v0"
     assert recipe.analysis.metric_names == ("accuracy", "latency_p95")
     assert len(recipe.analysis.finding_policy_bindings or ()) == 1
-    binding = (recipe.analysis.finding_policy_bindings or ())[0]
+    binding = (recipe.analysis.finding_policy_bindings or ())[0]  # pyright: ignore[reportGeneralTypeIssues]
     assert binding.finding_policy_id == "relative-regression"
     assert binding.parameters == {
         "labels": ("quality", "regression"),

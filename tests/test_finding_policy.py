@@ -31,6 +31,8 @@ class _ExamplePolicy:
         parameters: Mapping[str, JSONValue],
     ) -> FrozenFindingPolicyParameters:
         threshold = parameters.get("threshold", 0.05)
+        if not isinstance(threshold, (int, float)):
+            raise TypeError("threshold must be a number")
         return MappingProxyType({"threshold": threshold})
 
     def evaluate(

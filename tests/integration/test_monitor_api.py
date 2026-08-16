@@ -10,7 +10,12 @@ import pytest
 from mlflow import MlflowClient
 
 from mlflow_monitor import monitor
-from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus, MonitoringRunReference
+from mlflow_monitor.domain import (
+    ComparabilityStatus,
+    DiffReferenceKind,
+    LifecycleStatus,
+    MonitoringRunReference,
+)
 from mlflow_monitor.recipe import build_system_default_recipe
 from mlflow_monitor.recipe_compiler import compile_recipe
 
@@ -69,7 +74,7 @@ def test_monitor_run_defaults_to_real_mlflow_gateway(
     assert result.comparability_status is ComparabilityStatus.PASS
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id=baseline_run_id,
         ),
@@ -114,7 +119,7 @@ def test_monitor_run_defaults_to_real_mlflow_gateway(
         },
         "references": [
             {
-                "kind": "baseline",
+                "kind": DiffReferenceKind.BASELINE,
                 "monitoring_run_id": None,
                 "source_run_id": baseline_run_id,
             }

@@ -18,6 +18,7 @@ from mlflow_monitor.domain import (
     ComparabilityStatus,
     Contract,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
 )
@@ -214,7 +215,7 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     assert result.timeline_id == experiment.experiment_id
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id=baseline_run_id,
         ),
@@ -471,12 +472,12 @@ def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
     assert experiment is not None
     assert second.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id=baseline_run_id,
         ),
         MonitoringRunReference(
-            kind="previous",
+            kind=DiffReferenceKind.PREVIOUS,
             monitoring_run_id=first.monitoring_run_id,
             source_run_id=first_current_run_id,
         ),

@@ -12,6 +12,7 @@ from mlflow_monitor.domain import (
     Contract,
     ContractCheckReason,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
     Run,
@@ -381,7 +382,7 @@ def make_prepared_context(
         contract=contract,
         references=(
             MonitoringRunReference(
-                kind="baseline",
+                kind=DiffReferenceKind.BASELINE,
                 monitoring_run_id=None,
                 source_run_id=baseline_source_run_id,
             ),

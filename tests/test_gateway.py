@@ -7,6 +7,7 @@ from mlflow_monitor.domain import (
     ComparabilityStatus,
     ContractCheckReason,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
 )
@@ -69,7 +70,8 @@ def test_create_or_reuse_result_requires_nonempty_timeline_id(
         CreateOrReuseMonitoringRunResult(
             monitoring_run_id="monitoring-run-1",
             source_run_id="train-run-1",
-            timeline_id=timeline_id,
+            # delibrately passing null
+            timeline_id=timeline_id,  # pyright: ignore[reportArgumentType]
             sequence_index=0,
             existing_monitoring_run=None,
             allocated=True,
@@ -639,12 +641,12 @@ def test_upsert_monitoring_run_stores_references() -> None:
         contract_check_result=result,
         references=(
             MonitoringRunReference(
-                kind="baseline",
+                kind=DiffReferenceKind.BASELINE,
                 monitoring_run_id=None,
                 source_run_id="train-run-baseline",
             ),
             MonitoringRunReference(
-                kind="lkg",
+                kind=DiffReferenceKind.LKG,
                 monitoring_run_id="monitoring-run-lkg",
                 source_run_id="train-run-lkg",
             ),
@@ -657,12 +659,12 @@ def test_upsert_monitoring_run_stores_references() -> None:
     assert stored.source_run_id == "train-run-1"
     assert stored.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
         MonitoringRunReference(
-            kind="lkg",
+            kind=DiffReferenceKind.LKG,
             monitoring_run_id="monitoring-run-lkg",
             source_run_id="train-run-lkg",
         ),
@@ -725,7 +727,7 @@ def test_upsert_monitoring_run_rejects_conflicting_reference_pair() -> None:
             sequence_index=1,
             references=(
                 MonitoringRunReference(
-                    kind="previous",
+                    kind=DiffReferenceKind.PREVIOUS,
                     monitoring_run_id="monitoring-run-previous",
                     source_run_id="train-run-claimed-reference",
                 ),
@@ -762,12 +764,12 @@ def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_statu
         contract_check_result=result,
         references=(
             MonitoringRunReference(
-                kind="baseline",
+                kind=DiffReferenceKind.BASELINE,
                 monitoring_run_id=None,
                 source_run_id="train-run-baseline",
             ),
             MonitoringRunReference(
-                kind="lkg",
+                kind=DiffReferenceKind.LKG,
                 monitoring_run_id="monitoring-run-lkg",
                 source_run_id="train-run-lkg",
             ),
@@ -790,12 +792,12 @@ def test_upsert_monitoring_run_preserves_check_outputs_when_only_lifecycle_statu
     assert stored.contract_check_result == result
     assert stored.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
         MonitoringRunReference(
-            kind="lkg",
+            kind=DiffReferenceKind.LKG,
             monitoring_run_id="monitoring-run-lkg",
             source_run_id="train-run-lkg",
         ),

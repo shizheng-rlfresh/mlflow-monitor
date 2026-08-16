@@ -14,6 +14,7 @@ from mlflow_monitor.domain import (
     ComparabilityStatus,
     ContractCheckReason,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
 )
@@ -476,7 +477,7 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
     assert result.timeline_id == "timeline-churn_model"
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
@@ -530,22 +531,22 @@ def test_run_orchestration_persists_complete_prepared_context() -> None:
 
     expected_references = (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
         MonitoringRunReference(
-            kind="previous",
+            kind=DiffReferenceKind.PREVIOUS,
             monitoring_run_id=first.monitoring_run_id,
             source_run_id="train-run-current",
         ),
         MonitoringRunReference(
-            kind="lkg",
+            kind=DiffReferenceKind.LKG,
             monitoring_run_id=first.monitoring_run_id,
             source_run_id="train-run-current",
         ),
         MonitoringRunReference(
-            kind="custom",
+            kind=DiffReferenceKind.CUSTOM,
             monitoring_run_id=first.monitoring_run_id,
             source_run_id="train-run-current",
         ),
@@ -833,12 +834,12 @@ def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
     assert second.lifecycle_status is LifecycleStatus.CHECKED
     assert second.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
         MonitoringRunReference(
-            kind="previous",
+            kind=DiffReferenceKind.PREVIOUS,
             monitoring_run_id=first.monitoring_run_id,
             source_run_id="train-run-current",
         ),
@@ -1301,7 +1302,7 @@ def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> N
     assert second.comparability_status is ComparabilityStatus.PASS
     assert second.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
@@ -1337,12 +1338,12 @@ def test_run_orchestration_checked_rerun_preserves_references() -> None:
 
     assert first.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
         MonitoringRunReference(
-            kind="lkg",
+            kind=DiffReferenceKind.LKG,
             monitoring_run_id="monitoring-run-lkg",
             source_run_id="train-run-lkg",
         ),
@@ -1610,7 +1611,8 @@ def test_public_run_rejects_uncompiled_recipe_without_allocating(recipe_input: o
             subject_id="churn_model",
             source_run_id="train-run-current",
             baseline_source_run_id="train-run-baseline",
-            recipe=recipe_input,
+            # delibrately passing wrong type for test
+            recipe=recipe_input,  # pyright: ignore[reportArgumentType]
             gateway=gateway,
         )
 
@@ -1649,17 +1651,17 @@ def test_public_run_adds_invocation_owned_custom_reference() -> None:
     assert result.lifecycle_status is LifecycleStatus.CHECKED
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
         MonitoringRunReference(
-            kind="previous",
+            kind=DiffReferenceKind.PREVIOUS,
             monitoring_run_id=reference_allocation.monitoring_run_id,
             source_run_id="train-run-reference",
         ),
         MonitoringRunReference(
-            kind="custom",
+            kind=DiffReferenceKind.CUSTOM,
             monitoring_run_id=reference_allocation.monitoring_run_id,
             source_run_id="train-run-reference",
         ),
