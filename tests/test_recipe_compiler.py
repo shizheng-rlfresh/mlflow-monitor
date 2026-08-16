@@ -217,7 +217,7 @@ def test_compile_recipe_zero_configuration_expands_system_defaults() -> None:
         },
     }
     assert compiled.contract.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
-    assert compiled.contract.version == "v0"
+    assert compiled.contract.contract_version == "v0"
     assert len(compiled.finding_policy_bindings) == 1
     binding = compiled.finding_policy_bindings[0]
     assert binding.finding_policy_id == SYSTEM_COMPATIBILITY_FINDING_POLICY_ID

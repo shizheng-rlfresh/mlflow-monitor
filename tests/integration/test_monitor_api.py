@@ -105,7 +105,7 @@ def test_monitor_run_defaults_to_real_mlflow_gateway(
         "effective_recipe": compiled_recipe.effective_plan.to_dict(),
         "contract": {
             "contract_id": contract.contract_id,
-            "contract_version": contract.version,
+            "contract_version": contract.contract_version,
             "schema_contract_ref": contract.schema_contract_ref,
             "feature_contract_ref": contract.feature_contract_ref,
             "metric_contract_ref": contract.metric_contract_ref,

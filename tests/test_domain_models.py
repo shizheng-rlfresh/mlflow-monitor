@@ -26,7 +26,7 @@ def test_canonical_entities_can_be_constructed() -> None:
     """Test that domain entities can be constructed with expected fields and types."""
     contract = Contract(
         contract_id="default",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref=None,
         metric_contract_ref=None,
@@ -141,7 +141,7 @@ def test_relationship_shapes_match_cast() -> None:
     """Test that related entities can be associated with correct field types."""
     contract = Contract(
         contract_id="default",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref=None,
         metric_contract_ref=None,

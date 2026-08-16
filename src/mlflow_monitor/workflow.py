@@ -20,7 +20,13 @@ from mlflow_monitor.contract_checker import (
     ContractChecker,
     make_contract_evaluation_context,
 )
-from mlflow_monitor.domain import Contract, ContractCheckResult, LifecycleStatus, Run
+from mlflow_monitor.domain import (
+    Contract,
+    ContractCheckResult,
+    LifecycleStatus,
+    MonitoringRunReference,
+    Run,
+)
 from mlflow_monitor.errors import (
     CheckStageError,
     InvalidRunTransition,
@@ -71,38 +77,28 @@ class PreparedContext:
     """Resolved prepare-stage context required before contract checking.
 
     Attributes:
+        artifact_schema_version: Version of the prepared context artifact schema.
         monitoring_run_id: Stable monitoring run identifier.
-        subject_id: Stable monitored subject identifier.
-        recipe_id: Stable recipe identifier.
-        recipe_version: Stable recipe version.
-        contract_id: Stable contract identifier.
-        source_experiment: Optional source experiment name.
-        timeline_id: Stable timeline identifier.
-        baseline_source_run_id: Resolved baseline source run id.
-        previous_monitoring_run_id: Resolved previous monitoring run id.
-        active_lkg_monitoring_run_id: Resolved active LKG monitoring run id.
-        custom_reference_monitoring_run_id: Resolved custom reference monitoring run id.
         source_run_id: Resolved source training run id.
+        subject_id: Stable monitored subject identifier.
+        timeline_id: Stable timeline identifier.
+        sequence_index: Sequence index within the timeline.
+        baseline_source_run_id: Resolved baseline source run id.
+        effective_recipe: Resolved effective compiled Recipe.
         contract: Resolved contract.
-        required_metrics: Sequence of required metric names.
-        required_artifacts: Sequence of required artifact names.
+        references: Tuple of resolved monitoring run references.
     """
 
+    artifact_schema_version: str
     monitoring_run_id: str
-    subject_id: str
-    recipe_id: str
-    recipe_version: str
-    contract_id: str
-    source_experiment: str | None
-    timeline_id: str
-    baseline_source_run_id: str
-    previous_monitoring_run_id: str | None
-    active_lkg_monitoring_run_id: str | None
-    custom_reference_monitoring_run_id: str | None
     source_run_id: str
+    subject_id: str
+    timeline_id: str
+    sequence_index: int
+    baseline_source_run_id: str | None
+    effective_recipe: CompiledRecipe
     contract: Contract
-    required_metrics: tuple[str, ...]
-    required_artifacts: tuple[str, ...]
+    references: tuple[MonitoringRunReference, ...]
 
 
 def transition_run(run: Run, to_status: LifecycleStatus) -> Run:
@@ -302,22 +298,35 @@ def prepare_run_context(
     previous_monitoring_run_id = timeline_runs[-1].monitoring_run_id if timeline_runs else None
 
     return PreparedContext(
+        artifact_schema_version="v0",
         monitoring_run_id=monitoring_run_id,
-        subject_id=subject_id,
-        recipe_id=compiled_recipe.identity.recipe_id,
-        recipe_version=compiled_recipe.identity.recipe_version,
-        contract_id=compiled_recipe.contract.contract_id,
-        source_experiment=compiled_recipe.source_requirements.source_experiment,
-        timeline_id=timeline_state.timeline_id,
-        baseline_source_run_id=timeline_state.baseline_source_run_id,
-        previous_monitoring_run_id=previous_monitoring_run_id,
-        active_lkg_monitoring_run_id=gateway.resolve_active_lkg_monitoring_run_id(subject_id),
-        custom_reference_monitoring_run_id=custom_reference_monitoring_run_id,
         source_run_id=resolved_source_run_id,
+        subject_id=subject_id,
+        timeline_id=timeline_state.timeline_id,
+        sequence_index=0,
+        baseline_source_run_id=timeline_state.baseline_source_run_id,
+        effective_recipe=compiled_recipe,
         contract=compiled_recipe.contract,
-        required_metrics=compiled_recipe.source_requirements.required_metric_names,
-        required_artifacts=compiled_recipe.source_requirements.required_artifact_paths,
+        references=,
     )
+
+    # return PreparedContext(
+    #     monitoring_run_id=monitoring_run_id,
+    #     subject_id=subject_id,
+    #     recipe_id=compiled_recipe.identity.recipe_id,
+    #     recipe_version=compiled_recipe.identity.recipe_version,
+    #     contract_id=compiled_recipe.contract.contract_id,
+    #     source_experiment=compiled_recipe.source_requirements.source_experiment,
+    #     timeline_id=timeline_state.timeline_id,
+    #     baseline_source_run_id=timeline_state.baseline_source_run_id,
+    #     previous_monitoring_run_id=previous_monitoring_run_id,
+    #     active_lkg_monitoring_run_id=gateway.resolve_active_lkg_monitoring_run_id(subject_id),
+    #     custom_reference_monitoring_run_id=custom_reference_monitoring_run_id,
+    #     source_run_id=resolved_source_run_id,
+    #     contract=compiled_recipe.contract,
+    #     required_metrics=compiled_recipe.source_requirements.required_metric_names,
+    #     required_artifacts=compiled_recipe.source_requirements.required_artifact_paths,
+    # )
 
 
 def execute_contract_check(

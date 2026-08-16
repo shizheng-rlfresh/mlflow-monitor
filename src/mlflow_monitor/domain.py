@@ -199,7 +199,7 @@ class Contract:
 
     Attributes:
         contract_id: Unique identifier for the contract.
-        version: Version string for the contract schema.
+        contract_version: Version string for the contract schema.
         schema_contract_ref: Optional reference to a schema contract defining expected data shapes.
         feature_contract_ref: Optional reference to a feature contract defining expected features.
         metric_contract_ref: Optional reference to a metric contract defining expected metrics.
@@ -208,7 +208,7 @@ class Contract:
     """  # noqa: E501
 
     contract_id: str
-    version: str
+    contract_version: str
     schema_contract_ref: str | None
     feature_contract_ref: str | None
     metric_contract_ref: str | None

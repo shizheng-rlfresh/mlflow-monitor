@@ -21,7 +21,7 @@ from mlflow_monitor.invariant import (
 
 CONTRACT = Contract(
     contract_id="default",
-    version="v0",
+    contract_version="v0",
     schema_contract_ref=None,
     feature_contract_ref=None,
     metric_contract_ref=None,
