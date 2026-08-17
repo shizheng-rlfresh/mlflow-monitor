@@ -2,8 +2,8 @@
 
 This module contains backend-agnostic workflow logic for two responsibilities:
 
-1. Lifecycle transitions for monitoring runs.
-2. Prepare-stage context resolution before contract checking begins.
+1. Prepare-stage context resolution before contract checking begins.
+2. Contract checking and evaluation after prepare-stage context resolution.
 
 Prepare-stage resolution combines caller inputs (run identity, compiled plan,
 resolved contract, optional first-run baseline input) with gateway-resolved
