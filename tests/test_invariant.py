@@ -4,23 +4,12 @@ import pytest
 
 from mlflow_monitor.domain import (
     ComparabilityStatus,
-    Contract,
     ContractCheckReason,
     ContractCheckResult,
 )
 from mlflow_monitor.errors import InvariantViolation
 from mlflow_monitor.invariant import (
     validate_contract_check_result,
-)
-
-CONTRACT = Contract(
-    contract_id="default",
-    contract_version="v0",
-    schema_contract_ref=None,
-    feature_contract_ref=None,
-    metric_contract_ref=None,
-    data_scope_contract_ref=None,
-    execution_contract_ref=None,
 )
 
 

@@ -25,7 +25,6 @@ from mlflow_monitor.domain import (
     Contract,
     ContractCheckResult,
     DiffReferenceKind,
-    LifecycleStatus,
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
@@ -39,27 +38,6 @@ from mlflow_monitor.gateway import MonitoringGateway, TimelineState
 from mlflow_monitor.invariant import validate_contract_check_result
 from mlflow_monitor.recipe_compiler import CompiledRecipe, EffectiveRecipePlan
 from mlflow_monitor.utils import canonical_json
-
-_ALLOWED_TRANSITIONS = {
-    LifecycleStatus.CREATED: {
-        LifecycleStatus.PREPARED,
-        LifecycleStatus.FAILED,
-    },
-    LifecycleStatus.PREPARED: {
-        LifecycleStatus.CHECKED,
-        LifecycleStatus.FAILED,
-    },
-    LifecycleStatus.CHECKED: {
-        LifecycleStatus.ANALYZED,
-        LifecycleStatus.FAILED,
-    },
-    LifecycleStatus.ANALYZED: {
-        LifecycleStatus.CLOSED,
-        LifecycleStatus.FAILED,
-    },
-    LifecycleStatus.CLOSED: set(),
-    LifecycleStatus.FAILED: set(),
-}
 
 PREPARED_CONTEXT_ARTIFACT_PATH = "state/prepared_context.json"
 _PREPARED_CONTEXT_ARTIFACT_SCHEMA_VERSION = "v0"

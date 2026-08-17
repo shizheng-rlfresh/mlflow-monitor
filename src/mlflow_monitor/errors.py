@@ -22,19 +22,6 @@ class InvariantViolation(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class InvalidRunTransition(ValueError):
-    """Raised when workflow code requests an illegal lifecycle transition."""
-
-    from_status: str
-    to_status: str
-    message: str
-
-    def __str__(self) -> str:
-        """Return the error message when the exception is converted to a string."""
-        return self.message
-
-
-@dataclass(frozen=True, slots=True)
 class GatewayNamespaceViolation(ValueError):
     """Raised when a gateway operation violates namespace constraints."""
 
