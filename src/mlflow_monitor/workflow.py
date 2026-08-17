@@ -27,7 +27,6 @@ from mlflow_monitor.domain import (
     DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
-    Run,
 )
 from mlflow_monitor.errors import (
     PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
