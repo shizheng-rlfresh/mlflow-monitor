@@ -40,6 +40,7 @@ from mlflow_monitor.errors import (
 from mlflow_monitor.gateway import MonitoringGateway, TimelineState
 from mlflow_monitor.invariant import validate_contract_check_result
 from mlflow_monitor.recipe_compiler import CompiledRecipe, EffectiveRecipePlan
+from mlflow_monitor.utils import canonical_json
 
 _ALLOWED_TRANSITIONS = {
     LifecycleStatus.CREATED: {
@@ -294,7 +295,17 @@ def hydrate_prepared_context(
             reason="invalid_field_type",
             field="effective_recipe",
         )
-    if dict(effective_recipe) != compiled_recipe.effective_plan.to_dict():
+
+    try:
+        persisted = canonical_json(dict(effective_recipe))
+        expected = canonical_json(compiled_recipe.effective_plan.to_dict())
+    except (TypeError, ValueError) as exc:
+        raise _prepared_context_inconsistent(
+            reason="invalide_field_type",
+            field="effective_recipe",
+        ) from exc
+
+    if persisted != expected:
         raise _prepared_context_inconsistent(
             reason="effective_recipe_mismatch",
             field="effective_recipe",
