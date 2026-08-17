@@ -10,7 +10,12 @@ import pytest
 from mlflow import MlflowClient
 
 from mlflow_monitor import monitor
-from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus, MonitoringRunReference
+from mlflow_monitor.domain import (
+    ComparabilityStatus,
+    DiffReferenceKind,
+    LifecycleStatus,
+    MonitoringRunReference,
+)
 from mlflow_monitor.recipe import build_system_default_recipe
 from mlflow_monitor.recipe_compiler import compile_recipe
 
@@ -69,7 +74,7 @@ def test_monitor_run_defaults_to_real_mlflow_gateway(
     assert result.comparability_status is ComparabilityStatus.PASS
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id=baseline_run_id,
         ),
@@ -83,6 +88,43 @@ def test_monitor_run_defaults_to_real_mlflow_gateway(
     payload = json.loads((artifact_dir / "result.json").read_text())
     assert payload["monitoring_run_id"] == result.monitoring_run_id
     assert payload["lifecycle_status"] == "checked"
+
+    prepared_path = Path(
+        raw.download_artifacts(
+            result.monitoring_run_id,
+            "state/prepared_context.json",
+        )
+    )
+    prepared_payload = json.loads(prepared_path.read_text())
+    compiled_recipe = compile_recipe()
+    contract = compiled_recipe.contract
+
+    assert prepared_payload == {
+        "artifact_schema_version": "v0",
+        "monitoring_run_id": result.monitoring_run_id,
+        "source_run_id": current_run_id,
+        "subject_id": "churn_model",
+        "timeline_id": experiment.experiment_id,
+        "sequence_index": 0,
+        "baseline_source_run_id": baseline_run_id,
+        "effective_recipe": compiled_recipe.effective_plan.to_dict(),
+        "contract": {
+            "contract_id": contract.contract_id,
+            "contract_version": contract.contract_version,
+            "schema_contract_ref": contract.schema_contract_ref,
+            "feature_contract_ref": contract.feature_contract_ref,
+            "metric_contract_ref": contract.metric_contract_ref,
+            "data_scope_contract_ref": contract.data_scope_contract_ref,
+            "execution_contract_ref": contract.execution_contract_ref,
+        },
+        "references": [
+            {
+                "kind": DiffReferenceKind.BASELINE,
+                "monitoring_run_id": None,
+                "source_run_id": baseline_run_id,
+            }
+        ],
+    }
 
 
 def test_monitor_run_warn_outcome_via_environment_mismatch(

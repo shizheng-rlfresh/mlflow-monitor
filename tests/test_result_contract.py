@@ -2,7 +2,12 @@
 
 import pytest
 
-from mlflow_monitor.domain import ComparabilityStatus, LifecycleStatus, MonitoringRunReference
+from mlflow_monitor.domain import (
+    ComparabilityStatus,
+    DiffReferenceKind,
+    LifecycleStatus,
+    MonitoringRunReference,
+)
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 
 
@@ -19,7 +24,7 @@ def test_monitor_run_result_success_envelope_construction() -> None:
         diff_ids=("diff-1",),
         references=(
             MonitoringRunReference(
-                kind="baseline",
+                kind=DiffReferenceKind.BASELINE,
                 monitoring_run_id=None,
                 source_run_id="train-run-1",
             ),
@@ -36,7 +41,7 @@ def test_monitor_run_result_success_envelope_construction() -> None:
     assert result.diff_ids == ("diff-1",)
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-1",
         ),
@@ -77,7 +82,8 @@ def test_monitor_run_result_requires_nonempty_timeline_id(timeline_id: str | Non
         MonitorRunResult(
             monitoring_run_id="monitoring-run-2",
             subject_id="churn_model",
-            timeline_id=timeline_id,
+            # passing null for test
+            timeline_id=timeline_id,  # pyright: ignore[reportArgumentType]
             lifecycle_status=LifecycleStatus.FAILED,
             comparability_status=None,
             summary=None,
@@ -111,7 +117,7 @@ def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
         diff_ids=("diff-2",),
         references=(
             MonitoringRunReference(
-                kind="baseline",
+                kind=DiffReferenceKind.BASELINE,
                 monitoring_run_id=None,
                 source_run_id="train-run-2",
             ),
@@ -131,7 +137,7 @@ def test_monitor_run_result_to_dict_serializes_enums_and_error() -> None:
     }
     assert serialized["references"] == [
         {
-            "kind": "baseline",
+            "kind": "baseline",  # This remains a string in the serialized dict
             "monitoring_run_id": None,
             "source_run_id": "train-run-2",
         }
@@ -238,7 +244,7 @@ def test_monitor_run_result_collections_are_immutable_after_construction() -> No
     summary = {"status": "ok"}
     references = [
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-1",
         )
@@ -260,7 +266,7 @@ def test_monitor_run_result_collections_are_immutable_after_construction() -> No
     summary["status"] = "mutated"
     references.append(
         MonitoringRunReference(
-            kind="lkg",
+            kind=DiffReferenceKind.LKG,
             monitoring_run_id="monitoring-run-1",
             source_run_id="train-run-lkg",
         )
@@ -271,7 +277,7 @@ def test_monitor_run_result_collections_are_immutable_after_construction() -> No
     assert result.summary == {"status": "ok"}
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-1",
         ),

@@ -12,10 +12,17 @@ from mlflow_monitor.domain import (
     Contract,
     ContractCheckReason,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
+    MonitoringRunReference,
     Run,
 )
-from mlflow_monitor.errors import CheckStageError, InvalidRunTransition, PrepareStageError
+from mlflow_monitor.errors import (
+    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+    CheckStageError,
+    InvalidRunTransition,
+    PrepareStageError,
+)
 from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
@@ -130,6 +137,7 @@ def prepare_test_context(
         compiled_recipe=compiled_recipe,
         gateway=gateway,
         source_run_id=effective_source_run_id,
+        sequence_index=allocation.sequence_index,
         baseline_source_run_id=baseline_source_run_id,
         custom_reference_monitoring_run_id=custom_reference_monitoring_run_id,
     )
@@ -367,22 +375,23 @@ def make_prepared_context(
     baseline_source_run_id: str = "train-run-baseline",
 ) -> PreparedContext:
     """Build a prepared context aligned with the common workflow test subject."""
+    compiled_recipe = compile_recipe()
     return PreparedContext(
         monitoring_run_id="monitoring-run-1",
-        subject_id="churn_model",
-        recipe_id="default",
-        recipe_version="v0",
-        contract_id=contract.contract_id,
-        source_experiment="training/churn",
-        timeline_id="timeline-churn_model",
-        baseline_source_run_id=baseline_source_run_id,
-        previous_monitoring_run_id=None,
-        active_lkg_monitoring_run_id=None,
-        custom_reference_monitoring_run_id=None,
         source_run_id=source_run_id,
+        subject_id="churn_model",
+        timeline_id="timeline-churn_model",
+        sequence_index=0,
+        baseline_source_run_id=baseline_source_run_id,
+        effective_recipe=compiled_recipe.effective_plan,
         contract=contract,
-        required_metrics=("f1", "auc"),
-        required_artifacts=("metrics.json",),
+        references=(
+            MonitoringRunReference(
+                kind=DiffReferenceKind.BASELINE,
+                monitoring_run_id=None,
+                source_run_id=baseline_source_run_id,
+            ),
+        ),
     )
 
 
@@ -552,7 +561,7 @@ def test_execute_contract_check_returns_warn_result_for_environment_mismatch() -
     """Check should return the canonical warning result for env mismatch."""
     contract = Contract(
         contract_id="env_repro",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref=None,
         metric_contract_ref=None,
@@ -1565,7 +1574,7 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
         )
 
     error = exc_info.value
-    assert error.code == "prepare_baseline_override_existing_timeline"
+    assert error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", BASELINE.source_run_id),
@@ -1787,7 +1796,7 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
         )
 
     error = exc_info.value
-    assert error.code == "prepare_baseline_override_existing_timeline"
+    assert error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", "train-run-other"),

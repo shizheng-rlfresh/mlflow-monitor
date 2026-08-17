@@ -18,9 +18,11 @@ from mlflow_monitor.domain import (
     ComparabilityStatus,
     Contract,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
 )
+from mlflow_monitor.errors import PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
@@ -59,6 +61,18 @@ class ExplodingContractChecker:
     ) -> ContractCheckResult:
         _ = (contract, context)
         raise AssertionError("idempotent replay must not re-run check")
+
+
+class InterruptingContractChecker:
+    """Simulate process interruption after Prepare commits and before Check."""
+
+    def check(
+        self,
+        contract: Contract,
+        context: ContractEvaluationContext,
+    ) -> ContractCheckResult:
+        _ = (contract, context)
+        raise RuntimeError("simulated interruption during check")
 
 
 def test_mlflow_gateway_repairs_zero_tag_orphan_before_next_allocation(
@@ -202,7 +216,7 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     assert result.timeline_id == experiment.experiment_id
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id=baseline_run_id,
         ),
@@ -308,6 +322,80 @@ def test_mlflow_gateway_checked_replay_repairs_incomplete_terminal_finalization(
     assert payload["comparability_status"] == "pass"
 
 
+def test_mlflow_gateway_replays_prepared_context_after_check_interruption(
+    tracking_uri: str,
+    artifact_root_uri: str,
+    create_training_run: Callable[..., str],
+) -> None:
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    baseline_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="baseline",
+        metrics={"f1": 0.87},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    current_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="current",
+        metrics={"f1": 0.91},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
+    gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated interruption during check"):
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id=current_run_id,
+            baseline_source_run_id=baseline_run_id,
+            gateway=gateway,
+            contract_checker=InterruptingContractChecker(),
+        )
+
+    experiment = raw.get_experiment_by_name("mlflow_monitor/churn_model")
+    assert experiment is not None
+    monitoring_run_id = experiment.tags[f"training.{current_run_id}.monitoring_run_id"]
+    prepared_run = raw.get_run(monitoring_run_id)
+    assert prepared_run.data.tags["monitoring.lifecycle_status"] == "prepared"
+    prepared_path = Path(raw.download_artifacts(monitoring_run_id, "state/prepared_context.json"))
+    prepared_payload = json.loads(prepared_path.read_text())
+    assert prepared_payload["monitoring_run_id"] == monitoring_run_id
+    assert prepared_payload["source_run_id"] == current_run_id
+
+    replay_gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+    replay = run_orchestration(
+        subject_id="churn_model",
+        source_run_id=current_run_id,
+        baseline_source_run_id=None,
+        gateway=replay_gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert replay.monitoring_run_id == monitoring_run_id
+    assert replay.lifecycle_status is LifecycleStatus.CHECKED
+
+
 def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
     tracking_uri: str,
     artifact_root_uri: str,
@@ -385,12 +473,12 @@ def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
     assert experiment is not None
     assert second.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id=baseline_run_id,
         ),
         MonitoringRunReference(
-            kind="previous",
+            kind=DiffReferenceKind.PREVIOUS,
             monitoring_run_id=first.monitoring_run_id,
             source_run_id=first_current_run_id,
         ),
@@ -888,7 +976,7 @@ def test_mlflow_gateway_baseline_immutability_rejection(
     assert second.lifecycle_status is LifecycleStatus.FAILED
     assert second.comparability_status is None
     assert second.error is not None
-    assert second.error.code == "prepare_baseline_override_existing_timeline"
+    assert second.error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert dict(experiment_after.tags) == experiment_tags_before
     assert experiment_after.tags["training.baseline_run_id"] == baseline_run_id
     assert monitoring_run_before.info.status == "FINISHED"

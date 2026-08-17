@@ -18,7 +18,7 @@ from mlflow_monitor.errors import ContractResolutionError
 
 system_default_permissive_contract = Contract(
     contract_id=SYSTEM_DEFAULT_CONTRACT_ID,
-    version="v0",
+    contract_version="v0",
     schema_contract_ref=SYSTEM_DEFAULT_SCHEMA_CONTRACT_REF,
     feature_contract_ref=SYSTEM_DEFAULT_FEATURE_CONTRACT_REF,
     metric_contract_ref=None,
@@ -33,7 +33,7 @@ def test_resolve_contract_v0_returns_default_permissive_contract() -> None:
 
     assert resolved == system_default_permissive_contract
     assert resolved.contract_id == SYSTEM_DEFAULT_CONTRACT_ID
-    assert resolved.version == "v0"
+    assert resolved.contract_version == "v0"
     assert resolved.schema_contract_ref is not None
     assert resolved.feature_contract_ref is not None
     assert resolved.data_scope_contract_ref is not None
@@ -57,7 +57,7 @@ def test_parse_contract_v0_rejects_non_string_optional_ref() -> None:
         parse_contract_v0(
             {
                 "contract_id": SYSTEM_DEFAULT_CONTRACT_ID,
-                "version": "v0",
+                "contract_version": "v0",
                 "schema_contract_ref": "schema",
                 "feature_contract_ref": "feature",
                 "metric_contract_ref": None,

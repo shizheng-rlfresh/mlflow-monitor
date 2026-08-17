@@ -11,7 +11,7 @@ SYSTEM_DEFAULT_EXECUTION_CONTRACT_REF = "system_default_execution"
 SYSTEM_DEFAULT_PERMISSIVE_CONTRACT_RAW = MappingProxyType(
     {
         "contract_id": SYSTEM_DEFAULT_CONTRACT_ID,
-        "version": "v0",
+        "contract_version": "v0",
         "schema_contract_ref": SYSTEM_DEFAULT_SCHEMA_CONTRACT_REF,
         "feature_contract_ref": SYSTEM_DEFAULT_FEATURE_CONTRACT_REF,
         "metric_contract_ref": None,

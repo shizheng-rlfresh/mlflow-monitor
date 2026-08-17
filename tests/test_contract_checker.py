@@ -18,7 +18,7 @@ from mlflow_monitor.domain import (
 
 CONTRACT = Contract(
     contract_id="default",
-    version="v0",
+    contract_version="v0",
     schema_contract_ref=None,
     feature_contract_ref=None,
     metric_contract_ref=None,
@@ -111,7 +111,7 @@ def test_default_contract_checker_returns_pass_when_no_checks_are_enabled() -> N
     """Concrete checker should pass when the contract enables no checks."""
     contract = Contract(
         contract_id="default_permissive",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref=None,
         metric_contract_ref=None,
@@ -150,7 +150,7 @@ def test_default_contract_checker_warns_for_execution_environment_mismatch() -> 
     """Concrete checker should warn when execution checking is enabled and env differs."""
     contract = Contract(
         contract_id="env_repro",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref=None,
         metric_contract_ref=None,
@@ -195,7 +195,7 @@ def test_default_contract_checker_fails_for_schema_mismatch() -> None:
     """Concrete checker should fail when schema checking is enabled and schema differs."""
     contract = Contract(
         contract_id="schema_exact",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref="builtin:schema_exact",
         feature_contract_ref=None,
         metric_contract_ref=None,
@@ -240,7 +240,7 @@ def test_default_contract_checker_fails_for_feature_mismatch() -> None:
     """Concrete checker should fail when feature checking is enabled and features differ."""
     contract = Contract(
         contract_id="feature_exact",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref="builtin:feature_exact",
         metric_contract_ref=None,
@@ -285,7 +285,7 @@ def test_default_contract_checker_fails_for_data_scope_mismatch() -> None:
     """Concrete checker should fail when data-scope checking is enabled and scope differs."""
     contract = Contract(
         contract_id="data_scope_exact",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref=None,
         metric_contract_ref=None,
@@ -330,7 +330,7 @@ def test_default_contract_checker_fails_when_blocking_and_warning_reasons_coexis
     """Concrete checker should fail when any blocking reason exists."""
     contract = Contract(
         contract_id="env_and_schema_exact",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref="builtin:schema_exact",
         feature_contract_ref=None,
         metric_contract_ref=None,
@@ -380,7 +380,7 @@ def test_default_contract_checker_ignores_metric_differences_for_deferred_metric
     """Concrete checker should not emit metric mismatch reasons in D-004D."""
     contract = Contract(
         contract_id="metric_exact_deferred",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref=None,
         metric_contract_ref="builtin:metric_exact",
@@ -419,7 +419,7 @@ def test_default_contract_checker_emits_reasons_in_deterministic_dimension_order
     """Concrete checker should preserve a stable reason ordering across dimensions."""
     contract = Contract(
         contract_id="all_dimensions",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref="builtin:schema_exact",
         feature_contract_ref="builtin:feature_exact",
         metric_contract_ref="builtin:metric_exact",
@@ -479,7 +479,7 @@ def test_default_contract_checker_returns_pass_when_enabled_checks_match() -> No
     """Concrete checker should pass when enabled checks find no mismatches."""
     contract = Contract(
         contract_id="env_repro",
-        version="v0",
+        contract_version="v0",
         schema_contract_ref=None,
         feature_contract_ref=None,
         metric_contract_ref=None,

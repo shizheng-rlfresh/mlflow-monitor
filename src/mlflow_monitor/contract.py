@@ -85,7 +85,7 @@ def parse_contract_v0(raw: Mapping[str, object]) -> Contract:
 
     return Contract(
         contract_id=_require_string(raw, "contract_id"),
-        version=_require_string(raw, "version"),
+        contract_version=_require_string(raw, "contract_version"),
         schema_contract_ref=_optional_string(raw, "schema_contract_ref"),
         feature_contract_ref=_optional_string(raw, "feature_contract_ref"),
         metric_contract_ref=_optional_string(raw, "metric_contract_ref"),

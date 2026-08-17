@@ -726,6 +726,27 @@ class MLflowMonitoringGateway:
         self._validate_subject_id(subject_id)
         return f"{self._config.namespace_prefix}/{subject_id}"
 
+    def read_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+    ) -> dict[str, Any] | None:
+        """Read one exact-path JSON artifact from a Monitoring Run.
+
+        Args:
+            monitoring_run_id: Monitoring Run that owns the artifact.
+            path: Exact artifact path to read.
+
+        Returns:
+            Decoded JSON object, or ``None`` when the artifact is missing.
+
+        Raises:
+            GatewayNamespaceViolation: If the target is not an allocated
+                Monitoring Run in this Gateway namespace.
+        """
+        self._validate_monitoring_run_artifact_target(monitoring_run_id)
+        return self._mlflow.read_monitoring_run_json_artifact(monitoring_run_id, path)
+
     def write_monitoring_run_json_artifact(
         self,
         monitoring_run_id: str,

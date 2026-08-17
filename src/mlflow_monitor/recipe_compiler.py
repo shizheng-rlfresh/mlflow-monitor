@@ -168,7 +168,7 @@ class CompiledRecipe:
             self.effective_plan.contract.contract_id,
             self.effective_plan.contract.contract_version,
         )
-        actual = (self.contract.contract_id, self.contract.version)
+        actual = (self.contract.contract_id, self.contract.contract_version)
         if expcted != actual:
             raise ValueError(
                 f"Mismatch between effective plan contract {expcted} and resolved contract {actual}"
@@ -232,7 +232,7 @@ class ComponentRegistry:
         object.__setattr__(
             self,
             "contracts",
-            MappingProxyType({(contract.contract_id, contract.version): contract}),
+            MappingProxyType({(contract.contract_id, contract.contract_version): contract}),
         )
         object.__setattr__(
             self,

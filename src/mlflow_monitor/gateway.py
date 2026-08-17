@@ -36,6 +36,7 @@ Lifecycle sketch:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -309,6 +310,14 @@ class MonitoringGateway(Protocol):
         result: MonitorRunResult,
     ) -> None:
         """Ensure final result payloads and terminal monitoring-run state are persisted."""
+        ...
+
+    def read_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+    ) -> dict[str, Any] | None:
+        """Read one dictionary payload from a JSON artifact on a monitoring run."""
         ...
 
     def write_monitoring_run_json_artifact(
@@ -839,6 +848,35 @@ class InMemoryMonitoringGateway:
     ) -> None:
         """No-op finalization hook for the in-memory test gateway."""
         _ = (monitoring_run_id, result)
+
+    def read_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+    ) -> dict[str, Any] | None:
+        """Read one dictionary payload from a JSON artifact on a monitoring run."""
+        self._validate_monitoring_run_artifact_target(monitoring_run_id)
+
+        existing_artifact_encoded = self._monitoring_runs_artifact_store.get(
+            (monitoring_run_id, path)
+        )
+        if existing_artifact_encoded is None:
+            return None
+
+        try:
+            existing_artifact_decoded = json.loads(existing_artifact_encoded)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Monitoring run JSON artifact {path!r} contains invalid JSON."
+            ) from exc
+
+        if not isinstance(existing_artifact_decoded, dict):
+            raise ValueError(f"Monitoring run JSON artifact {path!r} must contain a JSON object.")
+
+        # validate nested values, including ensuring no infinite or NaN values.
+        canonical_json(existing_artifact_decoded)
+
+        return existing_artifact_decoded
 
     def write_monitoring_run_json_artifact(
         self,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
 
@@ -13,10 +14,14 @@ from mlflow_monitor.domain import (
     ComparabilityStatus,
     ContractCheckReason,
     ContractCheckResult,
+    DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
 )
-from mlflow_monitor.errors import GatewayConsistencyViolation
+from mlflow_monitor.errors import (
+    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+    GatewayConsistencyViolation,
+)
 from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
@@ -28,6 +33,33 @@ from mlflow_monitor.orchestration import run_orchestration
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RECIPE_VERSION, build_system_default_recipe
 from mlflow_monitor.recipe_compiler import CompiledRecipe, ComponentRegistry, compile_recipe
 from mlflow_monitor.result_contract import MonitorRunResult
+from mlflow_monitor.utils import canonical_json
+
+_PREPARED_CONTEXT_PATH = "state/prepared_context.json"
+_USE_STORED_PREPARED_CONTEXT = object()
+
+
+class _ReadablePreparedContextGateway(Protocol):
+    """Test-facing Gateway contract for prepared-context hydration."""
+
+    def read_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+    ) -> dict[str, object] | None:
+        """Read one exact-path Monitoring Run JSON artifact."""
+        ...
+
+
+def read_prepared_context(
+    gateway: InMemoryMonitoringGateway,
+    monitoring_run_id: str,
+) -> dict[str, object] | None:
+    """Read the persisted prepared context through the planned Gateway API."""
+    return cast(_ReadablePreparedContextGateway, gateway).read_monitoring_run_json_artifact(
+        monitoring_run_id,
+        _PREPARED_CONTEXT_PATH,
+    )
 
 
 def add_default_source_runs(gateway: InMemoryMonitoringGateway) -> None:
@@ -78,6 +110,38 @@ def make_compiled_recipe(
     if metric_names is not None:
         raw["analysis"] = {"metric_names": metric_names}
     return compile_recipe(raw)
+
+
+def expected_prepared_context_payload(
+    *,
+    monitoring_run_id: str,
+    source_run_id: str,
+    sequence_index: int,
+    compiled_recipe: CompiledRecipe,
+    references: tuple[MonitoringRunReference, ...],
+) -> dict[str, object]:
+    """Build the complete V0-012 prepared-context artifact contract."""
+    contract = compiled_recipe.contract
+    return {
+        "artifact_schema_version": "v0",
+        "monitoring_run_id": monitoring_run_id,
+        "source_run_id": source_run_id,
+        "subject_id": "churn_model",
+        "timeline_id": "timeline-churn_model",
+        "sequence_index": sequence_index,
+        "baseline_source_run_id": "train-run-baseline",
+        "effective_recipe": compiled_recipe.effective_plan.to_dict(),
+        "contract": {
+            "contract_id": contract.contract_id,
+            "contract_version": contract.contract_version,
+            "schema_contract_ref": contract.schema_contract_ref,
+            "feature_contract_ref": contract.feature_contract_ref,
+            "metric_contract_ref": contract.metric_contract_ref,
+            "data_scope_contract_ref": contract.data_scope_contract_ref,
+            "execution_contract_ref": contract.execution_contract_ref,
+        },
+        "references": [reference.to_dict() for reference in references],
+    }
 
 
 class InvalidResultContractChecker:
@@ -241,6 +305,163 @@ class RecordingAllocationGateway(InMemoryMonitoringGateway):
         return super().create_or_reuse_monitoring_run(key)
 
 
+class RecordingPreparedCommitGateway(InMemoryMonitoringGateway):
+    """Record prepared artifact and lifecycle writes in call order."""
+
+    def __init__(self, config: GatewayConfig) -> None:
+        super().__init__(config)
+        self.persistence_events: list[tuple[str, object]] = []
+
+    def write_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        data: dict[str, object],
+        path: str,
+    ) -> None:
+        super().write_monitoring_run_json_artifact(monitoring_run_id, data, path)
+        self.persistence_events.append(("artifact", path))
+
+    def upsert_monitoring_run(
+        self,
+        subject_id: str,
+        monitoring_run_id: str,
+        source_run_id: str,
+        lifecycle_status: LifecycleStatus,
+        sequence_index: int,
+        contract_check_result: ContractCheckResult | None = None,
+        references: tuple[MonitoringRunReference, ...] | None = None,
+    ) -> None:
+        super().upsert_monitoring_run(
+            subject_id=subject_id,
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+            lifecycle_status=lifecycle_status,
+            sequence_index=sequence_index,
+            contract_check_result=contract_check_result,
+            references=references,
+        )
+        self.persistence_events.append(("lifecycle", lifecycle_status))
+
+
+class InterruptPreparedCommitGateway(InMemoryMonitoringGateway):
+    """Interrupt once after Prepare should have written its artifact."""
+
+    def __init__(self, config: GatewayConfig) -> None:
+        super().__init__(config)
+        self.last_allocation: CreateOrReuseMonitoringRunResult | None = None
+        self._interrupt_prepared_commit = True
+
+    def create_or_reuse_monitoring_run(
+        self, key: IdempotencyKey
+    ) -> CreateOrReuseMonitoringRunResult:
+        result = super().create_or_reuse_monitoring_run(key)
+        self.last_allocation = result
+        return result
+
+    def upsert_monitoring_run(
+        self,
+        subject_id: str,
+        monitoring_run_id: str,
+        source_run_id: str,
+        lifecycle_status: LifecycleStatus,
+        sequence_index: int,
+        contract_check_result: ContractCheckResult | None = None,
+        references: tuple[MonitoringRunReference, ...] | None = None,
+    ) -> None:
+        if lifecycle_status is LifecycleStatus.PREPARED and self._interrupt_prepared_commit:
+            self._interrupt_prepared_commit = False
+            raise RuntimeError("simulated interruption before prepared commit")
+        super().upsert_monitoring_run(
+            subject_id=subject_id,
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+            lifecycle_status=lifecycle_status,
+            sequence_index=sequence_index,
+            contract_check_result=contract_check_result,
+            references=references,
+        )
+
+    def replace_prepared_context_for_test(self, data: dict[str, object]) -> None:
+        """Replace the partial artifact to simulate contradictory persisted content."""
+        assert self.last_allocation is not None
+        self._monitoring_runs_artifact_store[
+            (self.last_allocation.monitoring_run_id, _PREPARED_CONTEXT_PATH)
+        ] = canonical_json(data)
+
+
+class PreparedReplayGateway(InMemoryMonitoringGateway):
+    """Control prepared-context reads and reject live Prepare resolution on replay."""
+
+    def __init__(self, config: GatewayConfig) -> None:
+        super().__init__(config)
+        self.block_prepare_resolution = False
+        self.prepared_context_override: object = _USE_STORED_PREPARED_CONTEXT
+        self.corrupt_timeline_id = False
+        self.last_allocation: CreateOrReuseMonitoringRunResult | None = None
+        self._allocation_in_progress = False
+
+    def create_or_reuse_monitoring_run(
+        self, key: IdempotencyKey
+    ) -> CreateOrReuseMonitoringRunResult:
+        self._allocation_in_progress = True
+        try:
+            result = super().create_or_reuse_monitoring_run(key)
+        finally:
+            self._allocation_in_progress = False
+        self.last_allocation = result
+        return result
+
+    def get_timeline_state(self, subject_id: str) -> TimelineState | None:
+        if self.block_prepare_resolution and not self._allocation_in_progress:
+            raise AssertionError("prepared replay must not reload Timeline state")
+        return super().get_timeline_state(subject_id)
+
+    def read_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        path: str,
+    ) -> dict[str, object] | None:
+        if (
+            path == _PREPARED_CONTEXT_PATH
+            and self.prepared_context_override is not _USE_STORED_PREPARED_CONTEXT
+        ):
+            if self.prepared_context_override is None:
+                return None
+            return cast(dict[str, object], self.prepared_context_override)
+
+        reader = cast(_ReadablePreparedContextGateway, super())
+        artifact = reader.read_monitoring_run_json_artifact(monitoring_run_id, path)
+        if artifact is None or path != _PREPARED_CONTEXT_PATH or not self.corrupt_timeline_id:
+            return artifact
+        corrupted = dict(artifact)
+        corrupted["timeline_id"] = "timeline-other"
+        return corrupted
+
+
+def leave_monitoring_run_prepared(
+    gateway: PreparedReplayGateway,
+    *,
+    recipe: CompiledRecipe | None = None,
+) -> str:
+    """Interrupt Check after Prepare has committed and return its Monitoring Run ID."""
+    with pytest.raises(RuntimeError, match="checker exploded"):
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id="train-run-baseline",
+            recipe=recipe,
+            gateway=gateway,
+            contract_checker=RaisingContractChecker(),
+        )
+
+    assert gateway.last_allocation is not None
+    monitoring_run_id = gateway.last_allocation.monitoring_run_id
+    stored = gateway.get_monitoring_run("churn_model", monitoring_run_id)
+    assert stored is not None
+    assert stored.lifecycle_status is LifecycleStatus.PREPARED
+    return monitoring_run_id
+
+
 def test_run_orchestration_first_run_persists_checked_state() -> None:
     gateway = make_gateway()
 
@@ -259,7 +480,7 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
     assert result.timeline_id == "timeline-churn_model"
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
@@ -275,6 +496,278 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
     assert stored.comparability_status is ComparabilityStatus.PASS
     assert stored.contract_check_result is not None
     assert stored.contract_check_result.status is ComparabilityStatus.PASS
+
+
+def test_run_orchestration_persists_complete_prepared_context() -> None:
+    gateway = make_gateway()
+    compiled_recipe = make_compiled_recipe(metric_names=["f1"])
+    first = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        recipe=compiled_recipe,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+    gateway.set_active_lkg_monitoring_run_id("churn_model", first.monitoring_run_id)
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-next",
+        source_experiment=None,
+        metrics={"f1": 0.92},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-02",
+    )
+
+    second = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-next",
+        baseline_source_run_id=None,
+        custom_reference_monitoring_run_id=first.monitoring_run_id,
+        recipe=compiled_recipe,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    expected_references = (
+        MonitoringRunReference(
+            kind=DiffReferenceKind.BASELINE,
+            monitoring_run_id=None,
+            source_run_id="train-run-baseline",
+        ),
+        MonitoringRunReference(
+            kind=DiffReferenceKind.PREVIOUS,
+            monitoring_run_id=first.monitoring_run_id,
+            source_run_id="train-run-current",
+        ),
+        MonitoringRunReference(
+            kind=DiffReferenceKind.LKG,
+            monitoring_run_id=first.monitoring_run_id,
+            source_run_id="train-run-current",
+        ),
+        MonitoringRunReference(
+            kind=DiffReferenceKind.CUSTOM,
+            monitoring_run_id=first.monitoring_run_id,
+            source_run_id="train-run-current",
+        ),
+    )
+    assert read_prepared_context(gateway, second.monitoring_run_id) == (
+        expected_prepared_context_payload(
+            monitoring_run_id=second.monitoring_run_id,
+            source_run_id="train-run-next",
+            sequence_index=1,
+            compiled_recipe=compiled_recipe,
+            references=expected_references,
+        )
+    )
+
+
+def test_prepare_writes_context_before_prepared_lifecycle_marker() -> None:
+    gateway = RecordingPreparedCommitGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+
+    run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id="train-run-baseline",
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    artifact_index = gateway.persistence_events.index(("artifact", _PREPARED_CONTEXT_PATH))
+    prepared_index = gateway.persistence_events.index(("lifecycle", LifecycleStatus.PREPARED))
+    assert artifact_index < prepared_index
+
+
+def test_created_replay_reuses_identical_partial_prepared_context() -> None:
+    gateway = InterruptPreparedCommitGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+
+    with pytest.raises(RuntimeError, match="simulated interruption before prepared commit"):
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id="train-run-baseline",
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    assert gateway.last_allocation is not None
+    monitoring_run_id = gateway.last_allocation.monitoring_run_id
+    stored = gateway.get_monitoring_run("churn_model", monitoring_run_id)
+    assert stored is not None
+    assert stored.lifecycle_status is LifecycleStatus.CREATED
+    assert read_prepared_context(gateway, monitoring_run_id) is not None
+
+    replay = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert replay.monitoring_run_id == monitoring_run_id
+    assert replay.lifecycle_status is LifecycleStatus.CHECKED
+
+
+def test_created_replay_rejects_conflicting_partial_prepared_context() -> None:
+    gateway = InterruptPreparedCommitGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+
+    with pytest.raises(RuntimeError, match="simulated interruption before prepared commit"):
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id="train-run-baseline",
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    gateway.replace_prepared_context_for_test(
+        {
+            "artifact_schema_version": "v0",
+            "monitoring_run_id": "contradictory-monitoring-run",
+            "source_run_id": "train-run-current",
+        }
+    )
+
+    with pytest.raises(GatewayConsistencyViolation):
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id=None,
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    assert gateway.last_allocation is not None
+    stored = gateway.get_monitoring_run(
+        "churn_model",
+        gateway.last_allocation.monitoring_run_id,
+    )
+    assert stored is not None
+    assert stored.lifecycle_status is LifecycleStatus.CREATED
+
+
+def test_prepared_replay_hydrates_context_without_prepare_resolution() -> None:
+    gateway = PreparedReplayGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+    monitoring_run_id = leave_monitoring_run_prepared(gateway)
+    gateway.block_prepare_resolution = True
+
+    replay = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert replay.monitoring_run_id == monitoring_run_id
+    assert replay.lifecycle_status is LifecycleStatus.CHECKED
+
+
+def test_prepared_replay_rejects_missing_prepared_context() -> None:
+    gateway = PreparedReplayGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+    leave_monitoring_run_prepared(gateway)
+    gateway.prepared_context_override = None
+
+    with pytest.raises(GatewayConsistencyViolation):
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id=None,
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+
+def test_prepared_replay_rejects_malformed_prepared_context() -> None:
+    gateway = PreparedReplayGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+    leave_monitoring_run_prepared(gateway)
+    gateway.prepared_context_override = {"artifact_schema_version": "v0"}
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id=None,
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
+
+
+def test_prepared_replay_rejects_conflicting_persisted_identity() -> None:
+    gateway = PreparedReplayGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+    leave_monitoring_run_prepared(gateway)
+    gateway.corrupt_timeline_id = True
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id=None,
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
+
+
+def test_prepared_replay_rejects_changed_contract_definition_for_same_identity() -> None:
+    gateway = PreparedReplayGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+    monitoring_run_id = leave_monitoring_run_prepared(gateway)
+
+    prepared_context = read_prepared_context(gateway, monitoring_run_id)
+    assert prepared_context is not None
+    corrupted_context = dict(prepared_context)
+    persisted_contract = corrupted_context["contract"]
+    assert isinstance(persisted_contract, dict)
+    corrupted_contract = dict(persisted_contract)
+    corrupted_contract["execution_contract_ref"] = None
+    corrupted_context["contract"] = corrupted_contract
+    gateway.prepared_context_override = corrupted_context
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id=None,
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
+
+
+def test_prepared_replay_rejects_different_effective_plan_for_same_recipe_identity() -> None:
+    gateway = PreparedReplayGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+    first_recipe = make_compiled_recipe(metric_names=[])
+    second_recipe = make_compiled_recipe(metric_names=["f1"])
+    leave_monitoring_run_prepared(gateway, recipe=first_recipe)
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id=None,
+            recipe=second_recipe,
+            gateway=gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
 
 
 def test_run_orchestration_upserts_created_when_allocation_exists_without_run_record() -> None:
@@ -344,12 +837,12 @@ def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
     assert second.lifecycle_status is LifecycleStatus.CHECKED
     assert second.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
         MonitoringRunReference(
-            kind="previous",
+            kind=DiffReferenceKind.PREVIOUS,
             monitoring_run_id=first.monitoring_run_id,
             source_run_id="train-run-current",
         ),
@@ -812,7 +1305,7 @@ def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> N
     assert second.comparability_status is ComparabilityStatus.PASS
     assert second.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
@@ -848,12 +1341,12 @@ def test_run_orchestration_checked_rerun_preserves_references() -> None:
 
     assert first.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
         MonitoringRunReference(
-            kind="lkg",
+            kind=DiffReferenceKind.LKG,
             monitoring_run_id="monitoring-run-lkg",
             source_run_id="train-run-lkg",
         ),
@@ -996,7 +1489,7 @@ def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun
     assert second.comparability_status is None
     assert second.error is not None
     assert second.error.stage == "prepare"
-    assert second.error.code == "prepare_baseline_override_existing_timeline"
+    assert second.error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert stored is not None
     assert stored.lifecycle_status is LifecycleStatus.CHECKED
     assert stored.contract_check_result is not None
@@ -1121,7 +1614,8 @@ def test_public_run_rejects_uncompiled_recipe_without_allocating(recipe_input: o
             subject_id="churn_model",
             source_run_id="train-run-current",
             baseline_source_run_id="train-run-baseline",
-            recipe=recipe_input,
+            # delibrately passing wrong type for test
+            recipe=recipe_input,  # pyright: ignore[reportArgumentType]
             gateway=gateway,
         )
 
@@ -1160,17 +1654,17 @@ def test_public_run_adds_invocation_owned_custom_reference() -> None:
     assert result.lifecycle_status is LifecycleStatus.CHECKED
     assert result.references == (
         MonitoringRunReference(
-            kind="baseline",
+            kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
         ),
         MonitoringRunReference(
-            kind="previous",
+            kind=DiffReferenceKind.PREVIOUS,
             monitoring_run_id=reference_allocation.monitoring_run_id,
             source_run_id="train-run-reference",
         ),
         MonitoringRunReference(
-            kind="custom",
+            kind=DiffReferenceKind.CUSTOM,
             monitoring_run_id=reference_allocation.monitoring_run_id,
             source_run_id="train-run-reference",
         ),
