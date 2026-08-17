@@ -15,7 +15,7 @@ the gateway owns all persistence-specific mechanics.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from mlflow_monitor.contract_checker import (
     ContractChecker,
@@ -32,7 +32,6 @@ from mlflow_monitor.errors import (
     PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
     GatewayConsistencyViolation,
-    InvalidRunTransition,
     InvariantViolation,
     PrepareStageError,
 )
@@ -459,31 +458,6 @@ def _prepared_context_inconsistent(
         message="Persisted prepared context is missing, malformed, or inconsistent.",
         details=(("reason", reason), ("field", field)),
     )
-
-
-def transition_run(run: Run, to_status: LifecycleStatus) -> Run:
-    """Return a new run with an updated lifecycle status if the move is legal.
-
-    Args:
-        run: The run whose lifecycle should advance.
-        to_status: The target lifecycle status.
-
-    Raises:
-        InvalidRunTransition: If the requested transition is not allowed in v0.
-
-    Returns:
-        A new run value with the updated lifecycle status.
-    """
-    from_status = run.lifecycle_status
-
-    if to_status not in _ALLOWED_TRANSITIONS[from_status]:
-        raise InvalidRunTransition(
-            from_status=from_status,
-            to_status=to_status,
-            message=f"Cannot transition run from {from_status} to {to_status}.",
-        )
-
-    return replace(run, lifecycle_status=to_status)
 
 
 def prepare_run_context(
