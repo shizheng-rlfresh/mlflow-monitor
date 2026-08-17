@@ -17,7 +17,12 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
     Run,
 )
-from mlflow_monitor.errors import CheckStageError, InvalidRunTransition, PrepareStageError
+from mlflow_monitor.errors import (
+    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+    CheckStageError,
+    InvalidRunTransition,
+    PrepareStageError,
+)
 from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
@@ -1569,7 +1574,7 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
         )
 
     error = exc_info.value
-    assert error.code == "prepare_baseline_override_existing_timeline"
+    assert error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", BASELINE.source_run_id),
@@ -1791,7 +1796,7 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
         )
 
     error = exc_info.value
-    assert error.code == "prepare_baseline_override_existing_timeline"
+    assert error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", "train-run-other"),

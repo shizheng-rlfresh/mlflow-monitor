@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_timeline"
+
 
 @dataclass(frozen=True, slots=True)
 class InvariantViolation(ValueError):

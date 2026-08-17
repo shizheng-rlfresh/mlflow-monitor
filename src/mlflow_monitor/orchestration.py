@@ -10,7 +10,10 @@ from mlflow_monitor.domain import (
     LifecycleStatus,
 )
 from mlflow_monitor.errors import (
+    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
+    GatewayConsistencyViolation,
+    GatewayNamespaceViolation,
     PrepareStageError,
     TerminalRunRetryError,
 )
@@ -238,11 +241,24 @@ def _run_prepare_monitoring_run_slice(
         state.existing_monitoring_run is not None
         and state.existing_monitoring_run.lifecycle_status is LifecycleStatus.PREPARED
     ):
-        raw_prepared_context = gateway.read_monitoring_run_json_artifact(
-            state.monitoring_run_id,
-            PREPARED_CONTEXT_ARTIFACT_PATH,
-        )
-        return hydrate_prepared_context(
+        try:
+            raw_prepared_context = gateway.read_monitoring_run_json_artifact(
+                state.monitoring_run_id,
+                PREPARED_CONTEXT_ARTIFACT_PATH,
+            )
+        except (GatewayConsistencyViolation, GatewayNamespaceViolation):
+            raise
+        except ValueError as exc:
+            raise GatewayConsistencyViolation(
+                code="prepared_context_inconsistent",
+                message="Persisted prepared context is missing, broken, or inconsistent.",
+                details=(
+                    ("reason", "broken_artifact"),
+                    ("field", "prepared_context"),
+                ),
+            ) from exc
+
+        prepared_context = hydrate_prepared_context(
             raw_prepared_context,
             compiled_recipe=state.compiled_recipe,
             monitoring_run_id=state.monitoring_run_id,
@@ -251,6 +267,25 @@ def _run_prepare_monitoring_run_slice(
             timeline_id=state.timeline_id,
             sequence_index=state.sequence_index,
         )
+
+        rerun_error = _validate_rerun_baseline_input(
+            subject_id=state.subject_id,
+            supplied_baseline_source_run_id=state.baseline_source_run_id,
+            expected_baseline_source_run_id=prepared_context.baseline_source_run_id,
+            source_experiment=state.compiled_recipe.source_requirements.source_experiment,
+            gateway=gateway,
+        )
+
+        if rerun_error is not None:
+            return _build_failure_monitoring_run_result(
+                subject_id=state.subject_id,
+                monitoring_run_id=state.monitoring_run_id,
+                timeline_id=state.timeline_id,
+                stage="prepare",
+                error=rerun_error,
+            )
+
+        return prepared_context
 
     try:
         prepared_context = prepare_run_context(
@@ -544,6 +579,42 @@ def _build_terminal_failed_monitoring_run_rerun_error(
     )
 
 
+def _validate_rerun_baseline_input(
+    *,
+    subject_id: str,
+    supplied_baseline_source_run_id: str | None,
+    expected_baseline_source_run_id: str | None,
+    source_experiment: str | None,
+    gateway: MonitoringGateway,
+) -> PrepareStageError | None:
+    """Validate the input for rerunning a monitoring run against a baseline."""
+    if supplied_baseline_source_run_id is None:
+        return None
+
+    resolved = gateway.resolve_source_run_id(
+        subject_id=subject_id,
+        source_experiment=source_experiment,
+        source_run_id=supplied_baseline_source_run_id,
+    )
+    if resolved == expected_baseline_source_run_id:
+        return None
+
+    return PrepareStageError(
+        code=PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+        message=(
+            f"Provided baseline_source_run_id={supplied_baseline_source_run_id!r} "
+            f"with resolved baseline_source_run_id={resolved!r} does not match "
+            f"existing timeline pinned baseline_source_run_id={expected_baseline_source_run_id!r} "
+            f"for subject_id={subject_id!r}. "
+            "Overriding an existing timeline's baseline is not allowed."
+        ),
+        details=(
+            ("subject_id", subject_id),
+            ("baseline_source_run_id", supplied_baseline_source_run_id),
+        ),
+    )
+
+
 def _validate_checked_monitoring_run_rerun_inputs(
     *,
     subject_id: str,
@@ -574,7 +645,7 @@ def _validate_checked_monitoring_run_rerun_inputs(
         return None
 
     return PrepareStageError(
-        code="prepare_baseline_override_existing_timeline",
+        code=PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
         message=(
             f"Provided baseline_source_run_id={baseline_source_run_id!r} "
             f"with resolved_baseline_source_run_id={resolved_baseline_source_run_id!r} "
