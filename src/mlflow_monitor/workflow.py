@@ -2,8 +2,8 @@
 
 This module contains backend-agnostic workflow logic for two responsibilities:
 
-1. Lifecycle transitions for monitoring runs.
-2. Prepare-stage context resolution before contract checking begins.
+1. Prepare-stage context resolution before contract checking begins.
+2. Contract checking and evaluation after prepare-stage context resolution.
 
 Prepare-stage resolution combines caller inputs (run identity, compiled plan,
 resolved contract, optional first-run baseline input) with gateway-resolved
@@ -15,7 +15,7 @@ the gateway owns all persistence-specific mechanics.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from mlflow_monitor.contract_checker import (
     ContractChecker,
@@ -25,15 +25,12 @@ from mlflow_monitor.domain import (
     Contract,
     ContractCheckResult,
     DiffReferenceKind,
-    LifecycleStatus,
     MonitoringRunReference,
-    Run,
 )
 from mlflow_monitor.errors import (
     PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
     GatewayConsistencyViolation,
-    InvalidRunTransition,
     InvariantViolation,
     PrepareStageError,
 )
@@ -41,27 +38,6 @@ from mlflow_monitor.gateway import MonitoringGateway, TimelineState
 from mlflow_monitor.invariant import validate_contract_check_result
 from mlflow_monitor.recipe_compiler import CompiledRecipe, EffectiveRecipePlan
 from mlflow_monitor.utils import canonical_json
-
-_ALLOWED_TRANSITIONS = {
-    LifecycleStatus.CREATED: {
-        LifecycleStatus.PREPARED,
-        LifecycleStatus.FAILED,
-    },
-    LifecycleStatus.PREPARED: {
-        LifecycleStatus.CHECKED,
-        LifecycleStatus.FAILED,
-    },
-    LifecycleStatus.CHECKED: {
-        LifecycleStatus.ANALYZED,
-        LifecycleStatus.FAILED,
-    },
-    LifecycleStatus.ANALYZED: {
-        LifecycleStatus.CLOSED,
-        LifecycleStatus.FAILED,
-    },
-    LifecycleStatus.CLOSED: set(),
-    LifecycleStatus.FAILED: set(),
-}
 
 PREPARED_CONTEXT_ARTIFACT_PATH = "state/prepared_context.json"
 _PREPARED_CONTEXT_ARTIFACT_SCHEMA_VERSION = "v0"
@@ -460,31 +436,6 @@ def _prepared_context_inconsistent(
         message="Persisted prepared context is missing, malformed, or inconsistent.",
         details=(("reason", reason), ("field", field)),
     )
-
-
-def transition_run(run: Run, to_status: LifecycleStatus) -> Run:
-    """Return a new run with an updated lifecycle status if the move is legal.
-
-    Args:
-        run: The run whose lifecycle should advance.
-        to_status: The target lifecycle status.
-
-    Raises:
-        InvalidRunTransition: If the requested transition is not allowed in v0.
-
-    Returns:
-        A new run value with the updated lifecycle status.
-    """
-    from_status = run.lifecycle_status
-
-    if to_status not in _ALLOWED_TRANSITIONS[from_status]:
-        raise InvalidRunTransition(
-            from_status=from_status,
-            to_status=to_status,
-            message=f"Cannot transition run from {from_status} to {to_status}.",
-        )
-
-    return replace(run, lifecycle_status=to_status)
 
 
 def prepare_run_context(

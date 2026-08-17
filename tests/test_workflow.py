@@ -7,7 +7,6 @@ import pytest
 from mlflow_monitor.contract import SYSTEM_DEFAULT_CONTRACT_ID, resolve_contract_v0
 from mlflow_monitor.contract_checker import DefaultContractChecker
 from mlflow_monitor.domain import (
-    Baseline,
     ComparabilityStatus,
     Contract,
     ContractCheckReason,
@@ -15,12 +14,10 @@ from mlflow_monitor.domain import (
     DiffReferenceKind,
     LifecycleStatus,
     MonitoringRunReference,
-    Run,
 )
 from mlflow_monitor.errors import (
     PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
-    InvalidRunTransition,
     PrepareStageError,
 )
 from mlflow_monitor.gateway import (
@@ -36,24 +33,12 @@ from mlflow_monitor.recipe_compiler import CompiledRecipe, compile_recipe
 from mlflow_monitor.workflow import (
     PreparedContext,
     execute_contract_check,
-    transition_run,
 )
 from mlflow_monitor.workflow import (
     prepare_run_context as _prepare_run_context,
 )
 
 CONTRACT = resolve_contract_v0(SYSTEM_DEFAULT_CONTRACT_ID)
-
-BASELINE = Baseline(
-    timeline_id="timeline-1",
-    source_run_id="train-run-1",
-    model_identity="model-a",
-    parameter_fingerprint="params-v1",
-    data_snapshot_ref="dataset-2026-03-01",
-    run_config_ref="config-v1",
-    metric_snapshot={"f1": 0.87},
-    environment_context={"python": "3.12"},
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,29 +286,6 @@ class AliasResolvingBaselineGateway(InMemoryMonitoringGateway):
         )
 
 
-def make_run(
-    *,
-    lifecycle_status: LifecycleStatus = LifecycleStatus.CREATED,
-    comparability_status: ComparabilityStatus = ComparabilityStatus.PASS,
-    contract_check_result: ContractCheckResult | None = None,
-) -> Run:
-    """Build a canonical run for workflow transition tests."""
-    return Run(
-        monitoring_run_id="monitoring-run-1",
-        timeline_id="timeline-1",
-        sequence_index=0,
-        subject_id="churn_model",
-        source_run_id="train-run-2",
-        baseline_source_run_id=BASELINE.source_run_id,
-        contract=CONTRACT,
-        lifecycle_status=lifecycle_status,
-        comparability_status=comparability_status,
-        contract_check_result=contract_check_result,
-        diff_ids=(),
-        finding_ids=(),
-    )
-
-
 class RaisingContractChecker:
     """Test double whose contract check execution raises an exception."""
 
@@ -395,84 +357,6 @@ def make_prepared_context(
     )
 
 
-def test_transition_run_advances_through_happy_path() -> None:
-    """Run should move through the allowed lifecycle sequence to closed."""
-    run = make_run()
-
-    run = transition_run(run, LifecycleStatus.PREPARED)
-    run = transition_run(run, LifecycleStatus.CHECKED)
-    run = transition_run(run, LifecycleStatus.ANALYZED)
-    run = transition_run(run, LifecycleStatus.CLOSED)
-
-    assert run.lifecycle_status is LifecycleStatus.CLOSED
-
-
-@pytest.mark.parametrize(
-    "from_status",
-    (
-        LifecycleStatus.CREATED,
-        LifecycleStatus.PREPARED,
-        LifecycleStatus.CHECKED,
-        LifecycleStatus.ANALYZED,
-    ),
-)
-def test_transition_run_allows_failure_from_active_states(
-    from_status: LifecycleStatus,
-) -> None:
-    """Run should be able to fail from any active non-terminal state."""
-    run = make_run(lifecycle_status=from_status)
-
-    failed_run = transition_run(run, LifecycleStatus.FAILED)
-
-    assert failed_run.lifecycle_status is LifecycleStatus.FAILED
-
-
-@pytest.mark.parametrize(
-    ("from_status", "to_status"),
-    (
-        (LifecycleStatus.CREATED, LifecycleStatus.CHECKED),
-        (LifecycleStatus.CHECKED, LifecycleStatus.PREPARED),
-        (LifecycleStatus.CLOSED, LifecycleStatus.FAILED),
-        (LifecycleStatus.FAILED, LifecycleStatus.CLOSED),
-    ),
-)
-def test_transition_run_rejects_illegal_transitions(
-    from_status: LifecycleStatus,
-    to_status: LifecycleStatus,
-) -> None:
-    """Run should reject skipped, backward, and terminal-state transitions."""
-    run = make_run(lifecycle_status=from_status)
-
-    with pytest.raises(InvalidRunTransition) as exc_info:
-        transition_run(run, to_status)
-
-    assert exc_info.value.from_status is from_status
-    assert exc_info.value.to_status is to_status
-
-
-def test_transition_run_preserves_comparability_fields() -> None:
-    """Lifecycle transitions should not alter comparability-related fields."""
-    contract_check_result = ContractCheckResult(
-        status=ComparabilityStatus.WARN,
-        reasons=(
-            ContractCheckReason(
-                code="environment_mismatch",
-                message="Python version differs.",
-                blocking=False,
-            ),
-        ),
-    )
-    run = make_run(
-        comparability_status=ComparabilityStatus.WARN,
-        contract_check_result=contract_check_result,
-    )
-
-    prepared_run = transition_run(run, LifecycleStatus.PREPARED)
-
-    assert prepared_run.comparability_status is ComparabilityStatus.WARN
-    assert prepared_run.contract_check_result == contract_check_result
-
-
 def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     """Prepare should resolve references and required source-run inputs."""
     fixture = make_gateway_with_timeline()
@@ -509,21 +393,21 @@ def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
 
 def test_prepare_run_context_bootstraps_allocated_uninitialized_timeline() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
-    for source_run_id in (BASELINE.source_run_id, "train-run-current"):
+    for source_run_id in ("train-run-1", "train-run-current"):
         gateway.add_source_run(
             subject_id="churn_model",
             source_run_id=source_run_id,
             source_experiment="training/churn",
-            metrics=BASELINE.metric_snapshot,
+            metrics={"f1": 0.87},
             artifacts=("metrics.json",),
-            environment=BASELINE.environment_context,
+            environment={"python": "3.12"},
             features=("age", "income"),
             schema={"age": "int", "income": "float"},
             data_scope="validation:2026-03-01",
         )
     compiled_invocation = make_compiled_invocation(
         source_run_id="train-run-current",
-        required_metrics=tuple(BASELINE.metric_snapshot),
+        required_metrics=("f1",),
         custom_reference_monitoring_run_id=None,
     )
     compiled_recipe = compiled_invocation.compiled_recipe
@@ -546,7 +430,7 @@ def test_prepare_run_context_bootstraps_allocated_uninitialized_timeline() -> No
         subject_id="churn_model",
         compiled_invocation=compiled_invocation,
         gateway=gateway,
-        baseline_source_run_id=BASELINE.source_run_id,
+        baseline_source_run_id="train-run-1",
     )
     bootstrapped_timeline_state = gateway.get_timeline_state("churn_model")
 
@@ -554,7 +438,7 @@ def test_prepare_run_context_bootstraps_allocated_uninitialized_timeline() -> No
     assert prepared.timeline_id == allocation.timeline_id
     assert bootstrapped_timeline_state is not None
     assert bootstrapped_timeline_state.timeline_id == allocation.timeline_id
-    assert bootstrapped_timeline_state.baseline_source_run_id == BASELINE.source_run_id
+    assert bootstrapped_timeline_state.baseline_source_run_id == "train-run-1"
 
 
 def test_execute_contract_check_returns_warn_result_for_environment_mismatch() -> None:
@@ -1168,11 +1052,11 @@ def test_prepare_run_context_fails_for_uninitialized_timeline_with_missing_basel
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1182,9 +1066,9 @@ def test_prepare_run_context_fails_for_uninitialized_timeline_with_missing_basel
         prepare_test_context(
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                source_run_id=BASELINE.source_run_id,
+                source_run_id="train-run-1",
                 source_experiment="training/churn",
-                required_metrics=tuple(BASELINE.metric_snapshot.keys()),
+                required_metrics=("f1",),
                 required_artifacts=("metrics.json",),
                 custom_reference_monitoring_run_id=None,
             ),
@@ -1211,11 +1095,11 @@ def test_prepare_run_context_does_not_bootstrap_when_source_run_resolution_fails
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1232,7 +1116,7 @@ def test_prepare_run_context_does_not_bootstrap_when_source_run_resolution_fails
                 custom_reference_monitoring_run_id=None,
             ),
             gateway=gateway,
-            baseline_source_run_id=BASELINE.source_run_id,
+            baseline_source_run_id="train-run-1",
         )
 
     assert exc_info.value.code == "prepare_source_run_not_found"
@@ -1247,11 +1131,11 @@ def test_prepare_run_context_does_not_bootstrap_when_metric_validation_fails() -
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
         metrics={"auc": 0.95},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1261,14 +1145,14 @@ def test_prepare_run_context_does_not_bootstrap_when_metric_validation_fails() -
         prepare_test_context(
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                source_run_id=BASELINE.source_run_id,
+                source_run_id="train-run-1",
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
                 custom_reference_monitoring_run_id=None,
             ),
             gateway=gateway,
-            baseline_source_run_id=BASELINE.source_run_id,
+            baseline_source_run_id="train-run-1",
         )
 
     assert exc_info.value.code == "prepare_missing_required_metric"
@@ -1283,11 +1167,11 @@ def test_prepare_run_context_does_not_bootstrap_when_artifact_validation_fails()
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("model.pkl",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1297,14 +1181,14 @@ def test_prepare_run_context_does_not_bootstrap_when_artifact_validation_fails()
         prepare_test_context(
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                source_run_id=BASELINE.source_run_id,
+                source_run_id="train-run-1",
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
                 custom_reference_monitoring_run_id=None,
             ),
             gateway=gateway,
-            baseline_source_run_id=BASELINE.source_run_id,
+            baseline_source_run_id="train-run-1",
         )
 
     assert exc_info.value.code == "prepare_missing_required_artifact"
@@ -1319,11 +1203,11 @@ def test_prepare_run_context_does_not_bootstrap_when_custom_reference_is_invalid
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
         metrics={"f1": 0.91, "auc": 0.95},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1333,14 +1217,14 @@ def test_prepare_run_context_does_not_bootstrap_when_custom_reference_is_invalid
         prepare_test_context(
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                source_run_id=BASELINE.source_run_id,
+                source_run_id="train-run-1",
                 source_experiment="training/churn",
                 required_metrics=("f1", "auc"),
                 required_artifacts=("metrics.json",),
                 custom_reference_monitoring_run_id="run-missing",
             ),
             gateway=gateway,
-            baseline_source_run_id=BASELINE.source_run_id,
+            baseline_source_run_id="train-run-1",
         )
 
     assert exc_info.value.code == "prepare_custom_reference_not_found"
@@ -1355,11 +1239,11 @@ def test_prepare_rejects_foreign_subject_baseline_before_timeline_bootstrap() ->
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1368,9 +1252,9 @@ def test_prepare_rejects_foreign_subject_baseline_before_timeline_bootstrap() ->
         subject_id="fraud_model",
         source_run_id="fraud-baseline",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1380,9 +1264,9 @@ def test_prepare_rejects_foreign_subject_baseline_before_timeline_bootstrap() ->
         prepare_test_context(
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                source_run_id=BASELINE.source_run_id,
+                source_run_id="train-run-1",
                 source_experiment="training/churn",
-                required_metrics=tuple(BASELINE.metric_snapshot.keys()),
+                required_metrics=("f1",),
                 required_artifacts=("metrics.json",),
                 custom_reference_monitoring_run_id=None,
             ),
@@ -1409,11 +1293,11 @@ def test_prepare_rejects_foreign_experiment_baseline_before_timeline_bootstrap()
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1422,9 +1306,9 @@ def test_prepare_rejects_foreign_experiment_baseline_before_timeline_bootstrap()
         subject_id="churn_model",
         source_run_id="fraud-baseline",
         source_experiment="validation/fraudeval",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1434,9 +1318,9 @@ def test_prepare_rejects_foreign_experiment_baseline_before_timeline_bootstrap()
         prepare_test_context(
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                source_run_id=BASELINE.source_run_id,
+                source_run_id="train-run-1",
                 source_experiment="training/churn",
-                required_metrics=tuple(BASELINE.metric_snapshot.keys()),
+                required_metrics=("f1",),
                 required_artifacts=("metrics.json",),
                 custom_reference_monitoring_run_id=None,
             ),
@@ -1463,11 +1347,11 @@ def test_prepare_run_context_fails_when_timeline_init_does_not_materialize_state
     gateway = BrokenInitializeTimelineGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1477,14 +1361,14 @@ def test_prepare_run_context_fails_when_timeline_init_does_not_materialize_state
         prepare_test_context(
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                source_run_id=BASELINE.source_run_id,
+                source_run_id="train-run-1",
                 source_experiment="training/churn",
-                required_metrics=tuple(BASELINE.metric_snapshot.keys()),
+                required_metrics=("f1",),
                 required_artifacts=("metrics.json",),
                 custom_reference_monitoring_run_id=None,
             ),
             gateway=gateway,
-            baseline_source_run_id=BASELINE.source_run_id,
+            baseline_source_run_id="train-run-1",
         )
 
     error = exc_info.value
@@ -1499,15 +1383,15 @@ def test_prepare_run_context_succeeds_when_competing_bootstrap_pins_same_baselin
     """Prepare should succeed if another writer created the same pinned baseline."""
     gateway = RaceWinningInitializeTimelineGateway(
         GatewayConfig(),
-        competing_baseline_source_run_id=BASELINE.source_run_id,
+        competing_baseline_source_run_id="train-run-1",
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1516,18 +1400,18 @@ def test_prepare_run_context_succeeds_when_competing_bootstrap_pins_same_baselin
     prepared = prepare_test_context(
         subject_id="churn_model",
         compiled_invocation=make_compiled_invocation(
-            source_run_id=BASELINE.source_run_id,
+            source_run_id="train-run-1",
             source_experiment="training/churn",
-            required_metrics=tuple(BASELINE.metric_snapshot.keys()),
+            required_metrics=("f1",),
             required_artifacts=("metrics.json",),
             custom_reference_monitoring_run_id=None,
         ),
         gateway=gateway,
-        baseline_source_run_id=BASELINE.source_run_id,
+        baseline_source_run_id="train-run-1",
     )
 
     assert prepared.timeline_id == "timeline-churn_model"
-    assert prepared.baseline_source_run_id == BASELINE.source_run_id
+    assert prepared.baseline_source_run_id == "train-run-1"
 
 
 def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_baseline() -> None:
@@ -1538,11 +1422,11 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
     )
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1551,9 +1435,9 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
         subject_id="churn_model",
         source_run_id="train-run-other",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1563,21 +1447,21 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
         prepare_test_context(
             subject_id="churn_model",
             compiled_invocation=make_compiled_invocation(
-                source_run_id=BASELINE.source_run_id,
+                source_run_id="train-run-1",
                 source_experiment="training/churn",
-                required_metrics=tuple(BASELINE.metric_snapshot.keys()),
+                required_metrics=("f1",),
                 required_artifacts=("metrics.json",),
                 custom_reference_monitoring_run_id=None,
             ),
             gateway=gateway,
-            baseline_source_run_id=BASELINE.source_run_id,
+            baseline_source_run_id="train-run-1",
         )
 
     error = exc_info.value
     assert error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert error.details == (
         ("subject_id", "churn_model"),
-        ("baseline_source_run_id", BASELINE.source_run_id),
+        ("baseline_source_run_id", "train-run-1"),
     )
 
 
@@ -1585,26 +1469,26 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
     """Prepare should resolve references and required source-run inputs."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     compiled_invocation = make_compiled_invocation(
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
-        required_metrics=tuple(BASELINE.metric_snapshot.keys()),
+        required_metrics=("f1",),
         required_artifacts=("metrics.json",),
         custom_reference_monitoring_run_id=None,
     )
     timeline_pin_baseline_result = pin_test_timeline(
         gateway,
-        source_run_id=BASELINE.source_run_id,
-        baseline_source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
+        baseline_source_run_id="train-run-1",
         compiled_recipe=compiled_invocation.compiled_recipe,
     )
 
     gateway.add_source_run(
         subject_id="churn_model",
-        source_run_id=BASELINE.source_run_id,
+        source_run_id="train-run-1",
         source_experiment="training/churn",
-        metrics=BASELINE.metric_snapshot,
+        metrics={"f1": 0.87},
         artifacts=("metrics.json",),
-        environment=BASELINE.environment_context,
+        environment={"python": "3.12"},
         features=("age", "income"),
         schema={"age": "int", "income": "float"},
         data_scope="validation:2026-03-01",
@@ -1614,7 +1498,7 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
         subject_id="churn_model",
         compiled_invocation=compiled_invocation,
         gateway=gateway,
-        baseline_source_run_id=BASELINE.source_run_id,
+        baseline_source_run_id="train-run-1",
     )
 
     timeline_state = gateway.get_timeline_state("churn_model")
@@ -1622,7 +1506,7 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
     assert timeline_pin_baseline_result.baseline_pinned is True
     assert timeline_pin_baseline_result.timeline_id == "timeline-churn_model"
     assert timeline_state is not None
-    assert timeline_state.baseline_source_run_id == BASELINE.source_run_id
+    assert timeline_state.baseline_source_run_id == "train-run-1"
     assert timeline_state.timeline_id == "timeline-churn_model"
 
 

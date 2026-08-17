@@ -9,7 +9,6 @@ from mlflow_monitor.contract_checker import (
     DefaultContractChecker,
 )
 from mlflow_monitor.domain import (
-    Baseline,
     ComparabilityStatus,
     Contract,
     ContractCheckReason,
@@ -24,17 +23,6 @@ CONTRACT = Contract(
     metric_contract_ref=None,
     data_scope_contract_ref=None,
     execution_contract_ref=None,
-)
-
-BASELINE = Baseline(
-    timeline_id="timeline-1",
-    source_run_id="train-run-1",
-    model_identity="model-a",
-    parameter_fingerprint="params-v1",
-    data_snapshot_ref="dataset-2026-03-01",
-    run_config_ref="config-v1",
-    metric_snapshot={"f1": 0.87},
-    environment_context={"python": "3.12"},
 )
 
 BASELINE_EVIDENCE = ContractEvidence(

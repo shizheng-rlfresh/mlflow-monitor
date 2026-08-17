@@ -8,7 +8,6 @@ workflow rules and invariant enforcement live in the higher-level runtime.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -214,44 +213,6 @@ class Contract:
     metric_contract_ref: str | None
     data_scope_contract_ref: str | None
     execution_contract_ref: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class Baseline:
-    """Pinned immutable baseline snapshot for a timeline.
-
-    Attributes:
-        timeline_id: The ID of the timeline this baseline belongs to.
-        source_run_id: The run ID from which this baseline was derived.
-        model_identity: A string representing the model identity (e.g., name and version).
-        parameter_fingerprint: A string fingerprint representing the model parameters.
-        data_snapshot_ref: A reference to the data snapshot used for this baseline.
-        run_config_ref: A reference to the run configuration used for this baseline.
-        metric_snapshot: A mapping of metric names to their values at the time of baseline creation.
-        environment_context: A mapping of environment context keys to their values at the time of baseline creation.
-    """  # noqa: E501
-
-    timeline_id: str
-    source_run_id: str
-    model_identity: str
-    parameter_fingerprint: str
-    data_snapshot_ref: str
-    run_config_ref: str
-    metric_snapshot: Mapping[str, float]
-    environment_context: Mapping[str, str]
-
-    def __post_init__(self) -> None:
-        """Freeze nested baseline mappings after defensive copies."""
-        object.__setattr__(
-            self,
-            "metric_snapshot",
-            MappingProxyType(dict(self.metric_snapshot)),
-        )
-        object.__setattr__(
-            self,
-            "environment_context",
-            MappingProxyType(dict(self.environment_context)),
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -545,39 +506,6 @@ def _freeze_finding_evidence(value: FindingDraft | Finding) -> None:
 
     if not any(evidence_collections.values()):
         raise ValueError(f"{entity} requires at least one evidence identity.")
-
-
-@dataclass(frozen=True, slots=True)
-class Run:
-    """Canonical monitoring run record owned by exactly one timeline.
-
-    Attributes:
-        monitoring_run_id: Unique identifier for the monitoring run.
-        timeline_id: The ID of the timeline this run belongs to.
-        sequence_index: The sequential index of this run within its timeline, starting at 0 for the first run.
-        subject_id: The ID of the monitored subject this run is associated with.
-        source_run_id: The original run ID from the training system that produced this run, if applicable.
-        baseline_source_run_id: The source run ID of the baseline this run is compared against, if applicable.
-        contract: The comparability contract in effect for this run.
-        lifecycle_status: The current lifecycle status of this run (e.g., created, prepared, checked, analyzed, closed, failed).
-        comparability_status: The latest comparability status produced by contract evaluation for this run (e.g., pass, warn, fail).
-        contract_check_result: The detailed result of the latest contract check performed for this run, if applicable.
-        diff_ids: A tuple of diff IDs associated with this run.
-        finding_ids: A tuple of finding IDs associated with this run.
-    """  # noqa: E501
-
-    monitoring_run_id: str
-    timeline_id: str
-    sequence_index: int
-    subject_id: str
-    source_run_id: str
-    baseline_source_run_id: str
-    contract: Contract
-    lifecycle_status: LifecycleStatus
-    comparability_status: ComparabilityStatus
-    contract_check_result: ContractCheckResult | None
-    diff_ids: tuple[str, ...]
-    finding_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
