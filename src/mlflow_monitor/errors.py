@@ -8,6 +8,7 @@ PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existi
 PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
 MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
 MONITORING_RUN_UPSERT_FIELD_OVERRIDE = "monitoring_run_upsert_field_override"
+TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID = "timeline_state_not_found_for_subject_id"
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,4 +173,13 @@ def monitoring_run_upsert_field_override(
         code=MONITORING_RUN_UPSERT_FIELD_OVERRIDE,
         message=message,
         details=(*details,),
+    )
+
+
+def timeline_state_not_found_for_subject_id(*, subject_id: str) -> GatewayConsistencyViolation:
+    """Create a GatewayConsistencyViolation for missing timeline state for a subject ID."""
+    return GatewayConsistencyViolation(
+        code=TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID,
+        message=f"Timeline state not found for subject_id={subject_id!r}.",
+        details=(("subject_id", subject_id),),
     )

@@ -55,6 +55,7 @@ from mlflow_monitor.errors import (
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
     monitoring_run_upsert_field_override,
+    timeline_state_not_found_for_subject_id,
 )
 from mlflow_monitor.result_contract import MonitorRunResult
 from mlflow_monitor.utils import canonical_json
@@ -421,11 +422,7 @@ class InMemoryMonitoringGateway:
 
         timeline_state = self._timeline_by_subject.get(subject_id)
         if timeline_state is None:
-            raise GatewayConsistencyViolation(
-                code="timeline_state_not_found_for_subject_id",
-                message=f"Timeline state for subject_id '{subject_id}' not found.",
-                details=(("subject_id", subject_id),),
-            )
+            raise timeline_state_not_found_for_subject_id(subject_id=subject_id)
 
         # ready to bootstrap the timeline with the baseline source run id
         if timeline_state.baseline_source_run_id is None:

@@ -220,7 +220,7 @@ def test_pin_timeline_baseline_requires_an_existing_allocation() -> None:
 
     with pytest.raises(
         GatewayConsistencyViolation,
-        match="Timeline state for subject_id 'churn_model' not found.",
+        match="Timeline state not found for subject_id='churn_model'.",
     ):
         gateway.pin_timeline_baseline("churn_model", "train-run-1")
 

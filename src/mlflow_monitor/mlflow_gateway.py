@@ -49,6 +49,7 @@ from mlflow_monitor.errors import (
     TrainingRunMutationViolation,
     monitoring_allocation_inconsistent,
     monitoring_run_upsert_field_override,
+    timeline_state_not_found_for_subject_id,
 )
 from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
@@ -230,11 +231,7 @@ class MLflowMonitoringGateway:
 
         timeline_state = self.get_timeline_state(subject_id)
         if timeline_state is None:
-            raise GatewayConsistencyViolation(
-                code="timeline_state_not_found_for_subject_id",
-                message=f"Timeline state for subject_id '{subject_id}' not found.",
-                details=(("subject_id", subject_id),),
-            )
+            raise timeline_state_not_found_for_subject_id(subject_id=subject_id)
 
         if timeline_state.baseline_source_run_id is not None:
             return TimelinePinBaselineResult(

@@ -197,7 +197,7 @@ def test_get_timeline_state_distinguishes_no_allocation_from_allocated_uninitial
     assert gateway.get_timeline_state("churn_model") is None
     with pytest.raises(
         GatewayConsistencyViolation,
-        match="Timeline state for subject_id 'churn_model' not found.",
+        match="Timeline state not found for subject_id='churn_model'.",
     ):
         gateway.pin_timeline_baseline("churn_model", "train-run-1")
     stub_client.set_monitoring_experiment_tag.assert_not_called()
