@@ -443,7 +443,7 @@ class _PreparedContextInconsistentReason(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
-    """Raised when durable Monitoring Run allocation state is inconsistent."""
+    """Raised when persisted prepared context is missing or inconsistent."""
 
     @classmethod
     def _create(

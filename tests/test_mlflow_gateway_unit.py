@@ -433,7 +433,7 @@ def test_create_or_reuse_monitoring_run_repairs_stale_latest_and_source_binding(
                 "training.train-run-1.monitoring_run_id": "unknown-run",
             },
             "unknown_tag",
-            id="repairable-next-plus-unknown-pointer",
+            id="repairable-next-plus-unknown-tag",
         ),
         pytest.param(
             (
