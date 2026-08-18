@@ -1003,35 +1003,31 @@ class InMemoryMonitoringGateway:
         Returns:
             None
         """
-        details: tuple[tuple[str, str | int | None], ...] = ()
+        fields: tuple[tuple[str, str | int | None], ...] = ()
 
         if monitoring_run.source_run_id != source_run_id:
-            details += (("source_run_id", source_run_id),)
+            fields += (("source_run_id", source_run_id),)
 
         if monitoring_run.sequence_index != sequence_index:
-            details += (("sequence_index", sequence_index),)
+            fields += (("sequence_index", sequence_index),)
 
         if (
             monitoring_run.contract_check_result is not None
             and contract_check_result is not None
             and monitoring_run.contract_check_result != contract_check_result
         ):
-            details += (("contract_check_result", str(contract_check_result)),)
+            fields += (("contract_check_result", str(contract_check_result)),)
 
         if (
             monitoring_run.references
             and references is not None
             and monitoring_run.references != tuple(references)
         ):
-            details += (("references", str(tuple(references))),)
+            fields += (("references", str(tuple(references))),)
 
-        if bool(details):
+        if bool(fields):
             raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
-                message=(
-                    "Attempted to upsert monitoring run with immutable field value: "
-                    + ", ".join(f"{field}={value!r}" for field, value in details)
-                ),
-                details=details,
+                fields=fields,
             )
 
         return
@@ -1097,11 +1093,7 @@ class InMemoryMonitoringGateway:
                 continue
             if key.source_run_id != source_run_id:
                 raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
-                    message=(
-                        "Attempted to upsert monitoring run with immutable field value: "
-                        f"source_run_id={source_run_id!r}"
-                    ),
-                    details=(("source_run_id", source_run_id),),
+                    fields=(("source_run_id", source_run_id),),
                 )
             return
 
@@ -1125,11 +1117,7 @@ class InMemoryMonitoringGateway:
             ):
                 continue
             raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
-                message=(
-                    "Monitoring run source identity is inconsistent for "
-                    f"monitoring_run_id={reference.monitoring_run_id!r}."
-                ),
-                details=(
+                fields=(
                     ("monitoring_run_id", reference.monitoring_run_id),
                     ("source_run_id", reference.source_run_id),
                     ("persisted_source_run_id", persisted_reference.source_run_id),

@@ -183,7 +183,7 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
     ) -> None:
         if lifecycle_status is LifecycleStatus.PREPARED:
             raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
-                message="prepared upsert broke gateway consistency",
+                fields=(("lifecycle_status", lifecycle_status),)
             )
 
         super().upsert_monitoring_run(
@@ -1245,7 +1245,7 @@ def test_run_orchestration_raises_internal_gateway_errors_instead_of_normalizing
 
     with pytest.raises(
         GatewayConsistencyViolation,
-        match="prepared upsert broke gateway consistency",
+        match="Attempted to override immutable Monitoring Run field",
     ):
         run_orchestration(
             subject_id="churn_model",

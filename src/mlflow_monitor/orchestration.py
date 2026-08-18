@@ -13,6 +13,7 @@ from mlflow_monitor.errors import (
     CheckStageError,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
+    PreparedContextConsistencyViolation,
     PrepareStageError,
     TerminalRunRetryError,
 )
@@ -251,8 +252,8 @@ def _run_prepare_monitoring_run_slice(
         except (GatewayConsistencyViolation, GatewayNamespaceViolation):
             raise
         except ValueError as exc:
-            raise GatewayConsistencyViolation.prepared_context_inconsistent(
-                reason="broken_artifact", field="prepared_context"
+            raise PreparedContextConsistencyViolation.broken_artifact(
+                field="prepared_context"
             ) from exc
 
         prepared_context = hydrate_prepared_context(

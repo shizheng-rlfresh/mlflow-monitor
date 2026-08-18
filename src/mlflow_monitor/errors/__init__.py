@@ -1,8 +1,10 @@
 """Custom exception types for MLflow-Monitor v0."""
 
 from .gateway import (
+    AllocationConsistencyViolation,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
+    PreparedContextConsistencyViolation,
     TrainingRunMutationViolation,
 )
 from .invariant import InvariantViolation
@@ -28,4 +30,6 @@ __all__ = [
     "RecipeValidationIssue",
     "TerminalRunRetryError",
     "TrainingRunMutationViolation",
+    "AllocationConsistencyViolation",
+    "PreparedContextConsistencyViolation",
 ]

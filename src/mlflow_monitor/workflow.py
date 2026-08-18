@@ -31,6 +31,7 @@ from mlflow_monitor.errors import (
     CheckStageError,
     GatewayConsistencyViolation,
     InvariantViolation,
+    PreparedContextConsistencyViolation,
     PrepareStageError,
 )
 from mlflow_monitor.errors.workflow import PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
@@ -233,14 +234,12 @@ def hydrate_prepared_context(
             the current allocation or compiled Recipe.
     """
     if raw is None:
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="missing_artifact",
+        raise PreparedContextConsistencyViolation.missing_artifact(
             field="prepared_context",
         )
     _require_exact_prepared_fields(raw, _PREPARED_CONTEXT_FIELDS, section="prepared_context")
     if raw.get("artifact_schema_version") != _PREPARED_CONTEXT_ARTIFACT_SCHEMA_VERSION:
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="unsupported_artifact_schema_version",
+        raise PreparedContextConsistencyViolation.unsupported_artifact_schema_version(
             field="artifact_schema_version",
         )
 
@@ -258,8 +257,7 @@ def hydrate_prepared_context(
         else:
             valid_type = isinstance(actual, str) and bool(actual.strip())
         if not valid_type or actual != expected:
-            raise GatewayConsistencyViolation.prepared_context_inconsistent(
-                reason="allocation_identity_mismatch",
+            raise PreparedContextConsistencyViolation.allocation_identity_mismatch(
                 field=field,
             )
 
@@ -267,8 +265,7 @@ def hydrate_prepared_context(
 
     effective_recipe = raw.get("effective_recipe")
     if not isinstance(effective_recipe, Mapping):
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="invalid_field_type",
+        raise PreparedContextConsistencyViolation.invalid_field_type(
             field="effective_recipe",
         )
 
@@ -276,21 +273,18 @@ def hydrate_prepared_context(
         persisted = canonical_json(dict(effective_recipe))
         expected = canonical_json(compiled_recipe.effective_plan.to_dict())
     except (TypeError, ValueError) as exc:
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="invalide_field_type",
+        raise PreparedContextConsistencyViolation.invalid_field_type(
             field="effective_recipe",
         ) from exc
 
     if persisted != expected:
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="effective_recipe_mismatch",
+        raise PreparedContextConsistencyViolation.effective_recipe_mismatch(
             field="effective_recipe",
         )
 
     contract = _hydrate_prepared_contract(raw.get("contract"))
     if contract != compiled_recipe.contract:
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="contract_mismatch",
+        raise PreparedContextConsistencyViolation.contract_mismatch(
             field="contract",
         )
 
@@ -314,8 +308,8 @@ def hydrate_prepared_context(
 def _hydrate_prepared_contract(raw: object) -> Contract:
     """Hydrate the complete Contract frozen in prepared state."""
     if not isinstance(raw, Mapping):
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="invalid_field_type", field="contract"
+        raise PreparedContextConsistencyViolation.invalid_field_type(
+            field="contract",
         )
     _require_exact_prepared_fields(raw, _PREPARED_CONTRACT_FIELDS, section="contract")
     return Contract(
@@ -339,34 +333,28 @@ def _hydrate_prepared_references(
 ) -> tuple[MonitoringRunReference, ...]:
     """Hydrate canonical resolved Monitoring Run references."""
     if not isinstance(raw, list):
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="invalid_field_type", field="references"
+        raise PreparedContextConsistencyViolation.invalid_field_type(
+            field="references",
         )
 
     references: list[MonitoringRunReference] = []
     for index, item in enumerate(raw):
         field = f"references[{index}]"
         if not isinstance(item, Mapping):
-            raise GatewayConsistencyViolation.prepared_context_inconsistent(
-                reason="invalid_field_type", field=field
-            )
+            raise PreparedContextConsistencyViolation.invalid_field_type(field=field)
         _require_exact_prepared_fields(item, _PREPARED_REFERENCE_FIELDS, section=field)
         kind = item.get("kind")
         monitoring_run_id = item.get("monitoring_run_id")
         source_run_id = item.get("source_run_id")
         if not isinstance(kind, str):
-            raise GatewayConsistencyViolation.prepared_context_inconsistent(
-                reason="invalid_field_type", field=f"{field}.kind"
-            )
+            raise PreparedContextConsistencyViolation.invalid_field_type(field=f"{field}.kind")
         if monitoring_run_id is not None and not isinstance(monitoring_run_id, str):
-            raise GatewayConsistencyViolation.prepared_context_inconsistent(
-                reason="invalid_field_type",
-                field=f"{field}.monitoring_run_id",
+            raise PreparedContextConsistencyViolation.invalid_field_type(
+                field=f"{field}.monitoring_run_id"
             )
         if not isinstance(source_run_id, str):
-            raise GatewayConsistencyViolation.prepared_context_inconsistent(
-                reason="invalid_field_type",
-                field=f"{field}.source_run_id",
+            raise PreparedContextConsistencyViolation.invalid_field_type(
+                field=f"{field}.source_run_id"
             )
         try:
             reference = MonitoringRunReference(
@@ -375,10 +363,7 @@ def _hydrate_prepared_references(
                 source_run_id=source_run_id,
             )
         except ValueError as exc:
-            raise GatewayConsistencyViolation.prepared_context_inconsistent(
-                reason="invalid_reference",
-                field=field,
-            ) from exc
+            raise PreparedContextConsistencyViolation.invalid_reference(field=field) from exc
         references.append(reference)
 
     if not references or references[0] != MonitoringRunReference(
@@ -386,8 +371,7 @@ def _hydrate_prepared_references(
         monitoring_run_id=None,
         source_run_id=baseline_source_run_id,
     ):
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="baseline_reference_mismatch",
+        raise PreparedContextConsistencyViolation.baseline_reference_mismatch(
             field="references",
         )
 
@@ -396,8 +380,7 @@ def _hydrate_prepared_references(
         len(reference_kinds) != len(set(reference_kinds))
         or tuple(sorted(reference_kinds, key=_REFERENCE_ORDER.__getitem__)) != reference_kinds
     ):
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="noncanonical_references",
+        raise PreparedContextConsistencyViolation.noncanonical_references(
             field="references",
         )
     return tuple(references)
@@ -411,18 +394,14 @@ def _require_exact_prepared_fields(
 ) -> None:
     """Require one prepared-artifact mapping to have exactly its canonical fields."""
     if set(raw) != expected:
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="invalid_fields", field=section
-        )
+        raise PreparedContextConsistencyViolation.invalid_fields(field=section)
 
 
 def _require_prepared_string(raw: Mapping[str, object], field: str) -> str:
     """Return one required nonempty string from a prepared artifact mapping."""
     value = raw.get(field)
     if not isinstance(value, str) or not value.strip():
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="invalid_field_type", field=field
-        )
+        raise PreparedContextConsistencyViolation.invalid_field_type(field=field)
     return value
 
 
@@ -433,9 +412,7 @@ def _require_prepared_optional_string(
     """Return one optional string from a prepared artifact mapping."""
     value = raw.get(field)
     if value is not None and not isinstance(value, str):
-        raise GatewayConsistencyViolation.prepared_context_inconsistent(
-            reason="invalid_field_type", field=field
-        )
+        raise PreparedContextConsistencyViolation.invalid_field_type(field=field)
     return value
 
 
