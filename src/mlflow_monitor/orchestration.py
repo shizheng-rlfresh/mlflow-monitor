@@ -16,6 +16,7 @@ from mlflow_monitor.errors import (
     GatewayNamespaceViolation,
     PrepareStageError,
     TerminalRunRetryError,
+    prepared_context_inconsistent,
 )
 from mlflow_monitor.gateway import (
     IdempotencyKey,
@@ -249,13 +250,8 @@ def _run_prepare_monitoring_run_slice(
         except (GatewayConsistencyViolation, GatewayNamespaceViolation):
             raise
         except ValueError as exc:
-            raise GatewayConsistencyViolation(
-                code="prepared_context_inconsistent",
-                message="Persisted prepared context is missing, broken, or inconsistent.",
-                details=(
-                    ("reason", "broken_artifact"),
-                    ("field", "prepared_context"),
-                ),
+            raise prepared_context_inconsistent(
+                reason="broken_artifact", field="prepared_context"
             ) from exc
 
         prepared_context = hydrate_prepared_context(

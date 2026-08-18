@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_timeline"
+_PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,3 +128,15 @@ class RecipeValidationError(ValueError):
     def __str__(self) -> str:
         """Return a deterministic joined message for all validation issues."""
         return "; ".join(issue.message for issue in self.issues)
+
+
+def prepared_context_inconsistent(*, reason: str, field: str) -> GatewayConsistencyViolation:
+    """Helper function to create a GatewayConsistencyViolation for inconsistent prepared context."""
+    return GatewayConsistencyViolation(
+        code=_PREPARED_CONTEXT_INCONSISTENT,
+        message="Persisted prepared context is missing, malformed, or inconsistent.",
+        details=(
+            ("reason", reason),
+            ("field", field),
+        ),
+    )

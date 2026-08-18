@@ -37,6 +37,7 @@ from mlflow_monitor.utils import canonical_json
 
 _PREPARED_CONTEXT_PATH = "state/prepared_context.json"
 _USE_STORED_PREPARED_CONTEXT = object()
+_PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS = "prepared_context_inconsistent"
 
 
 class _ReadablePreparedContextGateway(Protocol):
@@ -702,7 +703,7 @@ def test_prepared_replay_rejects_malformed_prepared_context() -> None:
             contract_checker=DefaultContractChecker(),
         )
 
-    assert exc_info.value.code == "prepared_context_inconsistent"
+    assert exc_info.value.code == _PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS
 
 
 def test_prepared_replay_rejects_conflicting_persisted_identity() -> None:
@@ -720,7 +721,7 @@ def test_prepared_replay_rejects_conflicting_persisted_identity() -> None:
             contract_checker=DefaultContractChecker(),
         )
 
-    assert exc_info.value.code == "prepared_context_inconsistent"
+    assert exc_info.value.code == _PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS
 
 
 def test_prepared_replay_rejects_changed_contract_definition_for_same_identity() -> None:
@@ -747,7 +748,7 @@ def test_prepared_replay_rejects_changed_contract_definition_for_same_identity()
             contract_checker=DefaultContractChecker(),
         )
 
-    assert exc_info.value.code == "prepared_context_inconsistent"
+    assert exc_info.value.code == _PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS
 
 
 def test_prepared_replay_rejects_different_effective_plan_for_same_recipe_identity() -> None:
@@ -767,7 +768,7 @@ def test_prepared_replay_rejects_different_effective_plan_for_same_recipe_identi
             contract_checker=DefaultContractChecker(),
         )
 
-    assert exc_info.value.code == "prepared_context_inconsistent"
+    assert exc_info.value.code == _PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS
 
 
 def test_run_orchestration_upserts_created_when_allocation_exists_without_run_record() -> None:
