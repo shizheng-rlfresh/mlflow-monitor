@@ -28,7 +28,7 @@ class TrainingRunMutationViolation(ValueError):
 
     def __init__(self, source_run_id: str, updates: Mapping[str, str]) -> None:
         """Initialize the violation with the source run ID and attempted updates."""
-        rendered_field = _render_message_fields(tuple(updates.items()))
+        rendered_field = _render_message_fields(updates)
         self.message = (
             "Training runs are read-only in MLflow-Monitor; "
             f"Attempted to mutate Source Training Run {source_run_id!r}; "
@@ -551,6 +551,10 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
         )
 
 
-def _render_message_fields(fields: tuple[tuple[str, str | int | None], ...]) -> str:
+def _render_message_fields(
+    fields: tuple[tuple[str, str | int | None], ...] | Mapping[str, str],
+) -> str:
     """Render message fields for error messages."""
+    if isinstance(fields, Mapping):
+        return ", ".join(sorted(fields))
     return ", ".join(f"{name}={value!r}" for name, value in fields)
