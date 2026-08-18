@@ -5,12 +5,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_timeline"
-PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
-MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
-MONITORING_RUN_UPSERT_FIELD_OVERRIDE = "monitoring_run_upsert_field_override"
-TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID = "timeline_state_not_found_for_subject_id"
-MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT = "monitoring_run_json_artifact_inconsistent"
+from mlflow_monitor.domain import DiffReferenceKind
+
+PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepared_baseline_override_existing_baseline"
+
+
+class GatewayConsistencyCode(StrEnum):
+    """Code for gateway consistency violations."""
+
+    PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
+    MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
+    MONITORING_RUN_UPSERT_FIELD_OVERRIDE = "monitoring_run_upsert_field_override"
+    TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID = "timeline_state_not_found_for_subject_id"
+    MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT = "monitoring_run_json_artifact_inconsistent"
+    MONITORING_RUN_SUBJECT_INCONSISTENT = "monitoring_run_subject_inconsistent"
+    MONITORING_REFERENCE_INCONSISTENT = "monitoring_reference_inconsistent"
 
 
 class MonitorAllocationReason(StrEnum):
@@ -157,7 +166,7 @@ class RecipeValidationError(ValueError):
 def prepared_context_inconsistent(*, reason: str, field: str) -> GatewayConsistencyViolation:
     """Create a GatewayConsistencyViolation for inconsistent prepared context."""
     return GatewayConsistencyViolation(
-        code=PREPARED_CONTEXT_INCONSISTENT,
+        code=GatewayConsistencyCode.PREPARED_CONTEXT_INCONSISTENT,
         message="Persisted prepared context is missing, malformed, or inconsistent.",
         details=(
             ("reason", reason),
@@ -175,7 +184,7 @@ def monitoring_allocation_inconsistent(
     """Create a GatewayConsistencyViolation for inconsistent monitoring allocation."""
     normalized_reason = MonitorAllocationReason(reason)
     return GatewayConsistencyViolation(
-        code=MONITORING_ALLOCATION_INCONSISTENT,
+        code=GatewayConsistencyCode.MONITORING_ALLOCATION_INCONSISTENT,
         message=message,
         details=(
             ("reason", normalized_reason.value),
@@ -189,7 +198,7 @@ def monitoring_run_upsert_field_override(
 ) -> GatewayConsistencyViolation:
     """Create a GatewayConsistencyViolation for monitoring run upsert field override."""
     return GatewayConsistencyViolation(
-        code=MONITORING_RUN_UPSERT_FIELD_OVERRIDE,
+        code=GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE,
         message=message,
         details=(*details,),
     )
@@ -198,7 +207,7 @@ def monitoring_run_upsert_field_override(
 def timeline_state_not_found_for_subject_id(*, subject_id: str) -> GatewayConsistencyViolation:
     """Create a GatewayConsistencyViolation for missing timeline state for a subject ID."""
     return GatewayConsistencyViolation(
-        code=TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID,
+        code=GatewayConsistencyCode.TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID,
         message=f"Timeline state not found for subject_id={subject_id!r}.",
         details=(("subject_id", subject_id),),
     )
@@ -209,13 +218,47 @@ def monitoring_run_json_artifact_inconsistent(
 ) -> GatewayConsistencyViolation:
     """Create a GatewayConsistencyViolation for inconsistent monitoring run JSON artifact."""
     return GatewayConsistencyViolation(
-        code=MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT,
+        code=GatewayConsistencyCode.MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT,
         message=(
-            f"Monitoring run JSON artifact is inconsistent for run_id={monitoring_run_id!r} "
+            f"Monitoring run JSON artifact is inconsistent for "
+            f"monitoring_run_id={monitoring_run_id!r} "
             f"at path={path!r}."
         ),
         details=(
             ("monitoring_run_id", monitoring_run_id),
             ("path", path),
+        ),
+    )
+
+
+def monitoring_run_subject_inconsistent(
+    *, subject_id: str, monitoring_run_id: str
+) -> GatewayConsistencyViolation:
+    """Create a GatewayConsistencyViolation for a monitoring run not indexed on the subject ID."""
+    return GatewayConsistencyViolation(
+        code=GatewayConsistencyCode.MONITORING_RUN_SUBJECT_INCONSISTENT,
+        message=(
+            f"monitoring_run_id={monitoring_run_id!r} is not indexed on subject_id={subject_id!r}."
+        ),
+        details=(
+            ("subject_id", subject_id),
+            ("monitoring_run_id", monitoring_run_id),
+        ),
+    )
+
+
+def monitoring_reference_inconsistent(
+    *, kind: DiffReferenceKind, monitoring_run_id: str
+) -> GatewayConsistencyViolation:
+    """Create a GatewayConsistencyViolation for an inconsistent monitoring reference."""
+    return GatewayConsistencyViolation(
+        code=GatewayConsistencyCode.MONITORING_REFERENCE_INCONSISTENT,
+        message=(
+            f"Monitoring reference of kind={kind.value!r} is inconsistent for "
+            f"monitoring_run_id={monitoring_run_id!r}."
+        ),
+        details=(
+            ("kind", kind.value),
+            ("monitoring_run_id", monitoring_run_id),
         ),
     )

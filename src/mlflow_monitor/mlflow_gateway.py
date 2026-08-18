@@ -49,6 +49,8 @@ from mlflow_monitor.errors import (
     MonitorAllocationReason,
     TrainingRunMutationViolation,
     monitoring_allocation_inconsistent,
+    monitoring_run_json_artifact_inconsistent,
+    monitoring_run_subject_inconsistent,
     monitoring_run_upsert_field_override,
     timeline_state_not_found_for_subject_id,
 )
@@ -323,17 +325,11 @@ class MLflowMonitoringGateway:
         """
         self._validate_subject_id(subject_id)
         if self.resolve_timeline_monitoring_run_id(subject_id, monitoring_run_id) is None:
-            raise GatewayConsistencyViolation(
-                code="monitoring_run_subject_inconsistent",
-                message=(
-                    f"Monitoring run {monitoring_run_id!r} is not indexed on "
-                    f"subject_id={subject_id!r}."
-                ),
-                details=(
-                    ("subject_id", subject_id),
-                    ("monitoring_run_id", monitoring_run_id),
-                ),
+            raise monitoring_run_subject_inconsistent(
+                subject_id=subject_id,
+                monitoring_run_id=monitoring_run_id,
             )
+
         persisted_source_run_id = self._mlflow.get_run_tags(monitoring_run_id).get(_SOURCE_RUN_TAG)
         if persisted_source_run_id != source_run_id:
             raise self._source_identity_consistency_error(
@@ -787,12 +783,9 @@ class MLflowMonitoringGateway:
         if canonical_json(existing_artifact) == canonical_json(data):
             return
 
-        raise GatewayConsistencyViolation(
-            code="monitoring_run_json_artifact_inconsistent",
-            message=(
-                "Existing monitoring run JSON artifact is inconsistent with the requested data."
-            ),
-            details=(("monitoring_run_id", monitoring_run_id), ("path", path)),
+        raise monitoring_run_json_artifact_inconsistent(
+            monitoring_run_id=monitoring_run_id,
+            path=path,
         )
 
     def _get_or_create_experiment_id(self, subject_id: str) -> str:

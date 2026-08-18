@@ -30,9 +30,9 @@ from mlflow_monitor.domain import (
 from mlflow_monitor.errors import (
     PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
-    GatewayConsistencyViolation,
     InvariantViolation,
     PrepareStageError,
+    monitoring_reference_inconsistent,
     prepared_context_inconsistent,
 )
 from mlflow_monitor.gateway import MonitoringGateway, TimelineState
@@ -659,17 +659,11 @@ def _hydrate_monitoring_run_reference(
     """Freeze a complete reference pair from a resolved Monitoring Run pointer."""
     record = gateway.get_monitoring_run(subject_id, monitoring_run_id)
     if record is None:
-        raise GatewayConsistencyViolation(
-            code="monitoring_reference_inconsistent",
-            message=(
-                "Monitoring reference could not be hydrated for "
-                f"monitoring_run_id={monitoring_run_id!r}."
-            ),
-            details=(
-                ("kind", kind.value),
-                ("monitoring_run_id", monitoring_run_id),
-            ),
+        raise monitoring_reference_inconsistent(
+            kind=kind,
+            monitoring_run_id=monitoring_run_id,
         )
+
     return MonitoringRunReference(
         kind=kind,
         monitoring_run_id=record.monitoring_run_id,

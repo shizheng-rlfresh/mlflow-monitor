@@ -9,7 +9,7 @@ import pytest
 
 from mlflow_monitor.domain import DiffReferenceKind, LifecycleStatus, MonitoringRunReference
 from mlflow_monitor.errors import (
-    MONITORING_RUN_UPSERT_FIELD_OVERRIDE,
+    GatewayConsistencyCode,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
 )
@@ -18,8 +18,15 @@ from mlflow_monitor.mlflow_client import MonitoringRunInfo, MonitoringRunTagSnap
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 
-_MONITORING_ALLOCATION_INCONSISTENT_FOR_TESTS = "monitoring_allocation_inconsistent"
-_MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS = MONITORING_RUN_UPSERT_FIELD_OVERRIDE
+_MONITORING_ALLOCATION_INCONSISTENT_FOR_TESTS = (
+    GatewayConsistencyCode.MONITORING_ALLOCATION_INCONSISTENT
+)
+_MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS = (
+    GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE
+)
+_MONITORING_RUN_SUBJECT_INCONSISTENT_FOR_TESTS = (
+    GatewayConsistencyCode.MONITORING_RUN_SUBJECT_INCONSISTENT
+)
 
 
 def _make_result(
@@ -895,7 +902,7 @@ def test_upsert_monitoring_run_rejects_run_outside_subject_timeline_before_run_a
             sequence_index=0,
         )
 
-    assert exc_info.value.code == "monitoring_run_subject_inconsistent"
+    assert exc_info.value.code == _MONITORING_RUN_SUBJECT_INCONSISTENT_FOR_TESTS
     assert exc_info.value.details == (
         ("subject_id", "churn_model"),
         ("monitoring_run_id", "monitoring-run-foreign"),

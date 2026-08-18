@@ -20,6 +20,7 @@ from mlflow_monitor.domain import (
 )
 from mlflow_monitor.errors import (
     PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+    GatewayConsistencyCode,
     GatewayConsistencyViolation,
     monitoring_run_upsert_field_override,
 )
@@ -38,7 +39,7 @@ from mlflow_monitor.utils import canonical_json
 
 _PREPARED_CONTEXT_PATH = "state/prepared_context.json"
 _USE_STORED_PREPARED_CONTEXT = object()
-_PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS = "prepared_context_inconsistent"
+_PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS = GatewayConsistencyCode.PREPARED_CONTEXT_INCONSISTENT
 
 
 class _ReadablePreparedContextGateway(Protocol):
