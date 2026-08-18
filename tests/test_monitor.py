@@ -183,7 +183,7 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
     ) -> None:
         if lifecycle_status is LifecycleStatus.PREPARED:
             raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
-                fields=(("lifecycle_status", lifecycle_status),)
+                fields=(("lifecycle_status", lifecycle_status.value),)
             )
 
         super().upsert_monitoring_run(
