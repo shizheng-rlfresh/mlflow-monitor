@@ -19,9 +19,9 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
+    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     GatewayConsistencyViolation,
 )
-from mlflow_monitor.errors.workflow import PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
 from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,

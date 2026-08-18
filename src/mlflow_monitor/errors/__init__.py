@@ -14,6 +14,7 @@ from .recipe import (
     RecipeValidationIssue,
 )
 from .workflow import (
+    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
     PrepareStageError,
     TerminalRunRetryError,
@@ -32,4 +33,5 @@ __all__ = [
     "TrainingRunMutationViolation",
     "AllocationConsistencyViolation",
     "PreparedContextConsistencyViolation",
+    "PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE",
 ]
