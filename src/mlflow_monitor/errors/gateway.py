@@ -1,5 +1,7 @@
 """Custom exceptions types and factory functions for Gateway errors."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -19,19 +21,6 @@ class GatewayNamespaceViolation(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class GatewayConsistencyViolation(ValueError):
-    """Raised when a gateway operation violates consistency constraints."""
-
-    code: str
-    message: str
-    details: tuple[tuple[str, str | int | None], ...] = ()
-
-    def __str__(self) -> str:
-        """Return the error message when the exception is converted to a string."""
-        return self.message
-
-
-@dataclass(frozen=True, slots=True)
 class TrainingRunMutationViolation(ValueError):
     """Raised when code attempts to mutate source training run data."""
 
@@ -42,10 +31,9 @@ class TrainingRunMutationViolation(ValueError):
         return self.message
 
 
-# error factories
-
-
 # GatewayConsistencyViolation error factories
+
+
 class GatewayConsistencyCode(StrEnum):
     """Code for gateway consistency violations."""
 
@@ -106,107 +94,133 @@ MONITORING_ALLOCATION_REASON_MESSAGE = MappingProxyType(
 )
 
 
-def prepared_context_inconsistent(*, reason: str, field: str) -> GatewayConsistencyViolation:
-    """Create a GatewayConsistencyViolation for inconsistent prepared context."""
-    return GatewayConsistencyViolation(
-        code=GatewayConsistencyCode.PREPARED_CONTEXT_INCONSISTENT,
-        message="Persisted prepared context is missing, malformed, or inconsistent.",
-        details=(
-            ("reason", reason),
-            ("field", field),
-        ),
-    )
+@dataclass(frozen=True, slots=True)
+class GatewayConsistencyViolation(ValueError):
+    """Raised when a gateway operation violates consistency constraints."""
 
+    code: str
+    message: str
+    details: tuple[tuple[str, str | int | None], ...] = ()
 
-def monitoring_allocation_inconsistent(
-    *,
-    reason: MonitoringAllocationInconsistentReason | str,
-    details: tuple[tuple[str, str | int | None], ...] = (),
-    context_message: str | None = None,
-) -> GatewayConsistencyViolation:
-    """Create a GatewayConsistencyViolation for inconsistent monitoring allocation."""
-    normalized_reason = MonitoringAllocationInconsistentReason(reason)
+    def __str__(self) -> str:
+        """Return the error message when the exception is converted to a string."""
+        return self.message
 
-    message = MONITORING_ALLOCATION_REASON_MESSAGE[normalized_reason].format(
-        context_message=f" {context_message}" if context_message else ""
-    )
+    # monitoring allocation inconsistent error factory
+    @classmethod
+    def monitoring_allocation_inconsistent(
+        cls,
+        *,
+        reason: MonitoringAllocationInconsistentReason | str,
+        details: tuple[tuple[str, str | int | None], ...] = (),
+        context_message: str | None = None,
+    ) -> GatewayConsistencyViolation:
+        """Create a GatewayConsistencyViolation for inconsistent monitoring allocation."""
+        normalized_reason = MonitoringAllocationInconsistentReason(reason)
 
-    return GatewayConsistencyViolation(
-        code=GatewayConsistencyCode.MONITORING_ALLOCATION_INCONSISTENT,
-        message=message,
-        details=(
-            ("reason", normalized_reason.value),
-            *details,
-        ),
-    )
+        message = MONITORING_ALLOCATION_REASON_MESSAGE[normalized_reason].format(
+            context_message=f" {context_message}" if context_message else ""
+        )
 
+        return cls(
+            code=GatewayConsistencyCode.MONITORING_ALLOCATION_INCONSISTENT,
+            message=message,
+            details=(
+                ("reason", normalized_reason.value),
+                *details,
+            ),
+        )
 
-def monitoring_run_upsert_field_override(
-    message: str, details: tuple[tuple[str, str | int | None], ...] = ()
-) -> GatewayConsistencyViolation:
-    """Create a GatewayConsistencyViolation for monitoring run upsert field override."""
-    return GatewayConsistencyViolation(
-        code=GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE,
-        message=message,
-        details=(*details,),
-    )
+    # prepared context inconsistent error factory
+    @classmethod
+    def prepared_context_inconsistent(
+        cls, *, reason: str, field: str
+    ) -> GatewayConsistencyViolation:
+        """Create a GatewayConsistencyViolation for inconsistent prepared context."""
+        return cls(
+            code=GatewayConsistencyCode.PREPARED_CONTEXT_INCONSISTENT,
+            message="Persisted prepared context is missing, malformed, or inconsistent.",
+            details=(
+                ("reason", reason),
+                ("field", field),
+            ),
+        )
 
+    # monitoring run upsert field override error factory
+    @classmethod
+    def monitoring_run_upsert_field_override(
+        cls, *, message: str, details: tuple[tuple[str, str | int | None], ...] = ()
+    ) -> GatewayConsistencyViolation:
+        """Create a GatewayConsistencyViolation for monitoring run upsert field override."""
+        return cls(
+            code=GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE,
+            message=message,
+            details=(*details,),
+        )
 
-def timeline_state_not_found_for_subject_id(*, subject_id: str) -> GatewayConsistencyViolation:
-    """Create a GatewayConsistencyViolation for missing timeline state for a subject ID."""
-    return GatewayConsistencyViolation(
-        code=GatewayConsistencyCode.TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID,
-        message=f"Timeline state not found for subject_id={subject_id!r}.",
-        details=(("subject_id", subject_id),),
-    )
+    # timeline state not found for subject ID error factory
+    @classmethod
+    def timeline_state_not_found_for_subject_id(
+        cls, *, subject_id: str
+    ) -> GatewayConsistencyViolation:
+        """Create a GatewayConsistencyViolation for missing timeline state for a subject ID."""
+        return cls(
+            code=GatewayConsistencyCode.TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID,
+            message=f"Timeline state not found for subject_id={subject_id!r}.",
+            details=(("subject_id", subject_id),),
+        )
 
+    # monitoring run JSON artifact inconsistent error factory
+    @classmethod
+    def monitoring_run_json_artifact_inconsistent(
+        cls, *, monitoring_run_id: str, path: str
+    ) -> GatewayConsistencyViolation:
+        """Create a GatewayConsistencyViolation for inconsistent monitoring run JSON artifact."""
+        return cls(
+            code=GatewayConsistencyCode.MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT,
+            message=(
+                f"Monitoring run JSON artifact is inconsistent for "
+                f"monitoring_run_id={monitoring_run_id!r} "
+                f"at path={path!r}."
+            ),
+            details=(
+                ("monitoring_run_id", monitoring_run_id),
+                ("path", path),
+            ),
+        )
 
-def monitoring_run_json_artifact_inconsistent(
-    *, monitoring_run_id: str, path: str
-) -> GatewayConsistencyViolation:
-    """Create a GatewayConsistencyViolation for inconsistent monitoring run JSON artifact."""
-    return GatewayConsistencyViolation(
-        code=GatewayConsistencyCode.MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT,
-        message=(
-            f"Monitoring run JSON artifact is inconsistent for "
-            f"monitoring_run_id={monitoring_run_id!r} "
-            f"at path={path!r}."
-        ),
-        details=(
-            ("monitoring_run_id", monitoring_run_id),
-            ("path", path),
-        ),
-    )
+    # monitoring run subject inconsistent error factory
+    @classmethod
+    def monitoring_run_subject_inconsistent(
+        cls, *, subject_id: str, monitoring_run_id: str
+    ) -> GatewayConsistencyViolation:
+        """Create a GatewayConsistencyViolation for a monitoring run not indexed on the subject ID."""  # noqa: E501
+        return cls(
+            code=GatewayConsistencyCode.MONITORING_RUN_SUBJECT_INCONSISTENT,
+            message=(
+                f"monitoring_run_id={monitoring_run_id!r} is not indexed "
+                f"on subject_id={subject_id!r}."
+            ),
+            details=(
+                ("subject_id", subject_id),
+                ("monitoring_run_id", monitoring_run_id),
+            ),
+        )
 
-
-def monitoring_run_subject_inconsistent(
-    *, subject_id: str, monitoring_run_id: str
-) -> GatewayConsistencyViolation:
-    """Create a GatewayConsistencyViolation for a monitoring run not indexed on the subject ID."""
-    return GatewayConsistencyViolation(
-        code=GatewayConsistencyCode.MONITORING_RUN_SUBJECT_INCONSISTENT,
-        message=(
-            f"monitoring_run_id={monitoring_run_id!r} is not indexed on subject_id={subject_id!r}."
-        ),
-        details=(
-            ("subject_id", subject_id),
-            ("monitoring_run_id", monitoring_run_id),
-        ),
-    )
-
-
-def monitoring_reference_inconsistent(
-    *, kind: DiffReferenceKind, monitoring_run_id: str
-) -> GatewayConsistencyViolation:
-    """Create a GatewayConsistencyViolation for an inconsistent monitoring reference."""
-    return GatewayConsistencyViolation(
-        code=GatewayConsistencyCode.MONITORING_REFERENCE_INCONSISTENT,
-        message=(
-            f"Monitoring reference of kind={kind.value!r} is inconsistent for "
-            f"monitoring_run_id={monitoring_run_id!r}."
-        ),
-        details=(
-            ("kind", kind.value),
-            ("monitoring_run_id", monitoring_run_id),
-        ),
-    )
+    # monitoring reference inconsistent error factory
+    @classmethod
+    def monitoring_reference_inconsistent(
+        cls, *, kind: DiffReferenceKind, monitoring_run_id: str
+    ) -> GatewayConsistencyViolation:
+        """Create a GatewayConsistencyViolation for an inconsistent monitoring reference."""
+        return cls(
+            code=GatewayConsistencyCode.MONITORING_REFERENCE_INCONSISTENT,
+            message=(
+                f"Monitoring reference of kind={kind.value!r} is inconsistent for "
+                f"monitoring_run_id={monitoring_run_id!r}."
+            ),
+            details=(
+                ("kind", kind.value),
+                ("monitoring_run_id", monitoring_run_id),
+            ),
+        )

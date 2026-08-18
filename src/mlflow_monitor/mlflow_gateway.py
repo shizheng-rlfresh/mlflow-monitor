@@ -50,11 +50,6 @@ from mlflow_monitor.errors import (
 )
 from mlflow_monitor.errors.gateway import (
     MonitoringAllocationInconsistentReason,
-    monitoring_allocation_inconsistent,
-    monitoring_run_json_artifact_inconsistent,
-    monitoring_run_subject_inconsistent,
-    monitoring_run_upsert_field_override,
-    timeline_state_not_found_for_subject_id,
 )
 from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
@@ -236,7 +231,9 @@ class MLflowMonitoringGateway:
 
         timeline_state = self.get_timeline_state(subject_id)
         if timeline_state is None:
-            raise timeline_state_not_found_for_subject_id(subject_id=subject_id)
+            raise GatewayConsistencyViolation.timeline_state_not_found_for_subject_id(
+                subject_id=subject_id
+            )
 
         if timeline_state.baseline_source_run_id is not None:
             return TimelinePinBaselineResult(
@@ -327,7 +324,7 @@ class MLflowMonitoringGateway:
         """
         self._validate_subject_id(subject_id)
         if self.resolve_timeline_monitoring_run_id(subject_id, monitoring_run_id) is None:
-            raise monitoring_run_subject_inconsistent(
+            raise GatewayConsistencyViolation.monitoring_run_subject_inconsistent(
                 subject_id=subject_id,
                 monitoring_run_id=monitoring_run_id,
             )
@@ -785,7 +782,7 @@ class MLflowMonitoringGateway:
         if canonical_json(existing_artifact) == canonical_json(data):
             return
 
-        raise monitoring_run_json_artifact_inconsistent(
+        raise GatewayConsistencyViolation.monitoring_run_json_artifact_inconsistent(
             monitoring_run_id=monitoring_run_id,
             path=path,
         )
@@ -832,7 +829,7 @@ class MLflowMonitoringGateway:
         for allocation in allocations:
             existing_key_allocation = allocations_by_key.get(allocation.key)
             if existing_key_allocation is not None:
-                raise monitoring_allocation_inconsistent(
+                raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                     reason=MonitoringAllocationInconsistentReason.DUPLICATE_IDENTITY,
                     details=(
                         ("first_monitoring_run_id", existing_key_allocation.monitoring_run_id),
@@ -841,7 +838,7 @@ class MLflowMonitoringGateway:
                 )
             existing_sequence_allocation = allocations_by_sequence.get(allocation.sequence_index)
             if existing_sequence_allocation is not None:
-                raise monitoring_allocation_inconsistent(
+                raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                     reason=MonitoringAllocationInconsistentReason.DUPLICATE_SEQUENCE,
                     details=(
                         ("sequence_index", allocation.sequence_index),
@@ -861,7 +858,7 @@ class MLflowMonitoringGateway:
         )
         for expected_sequence, allocation in enumerate(ordered_allocations):
             if allocation.sequence_index != expected_sequence:
-                raise monitoring_allocation_inconsistent(
+                raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                     reason=MonitoringAllocationInconsistentReason.SEQUENCE_GAP,
                     details=(
                         ("expected_sequence_index", expected_sequence),
@@ -902,7 +899,7 @@ class MLflowMonitoringGateway:
             if not value
         )
         if not snapshot.run_id or missing_fields:
-            raise monitoring_allocation_inconsistent(
+            raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                 reason=MonitoringAllocationInconsistentReason.INVALID_ALLOCATION,
                 details=(("monitoring_run_id", snapshot.run_id),),
                 context_message=(
@@ -919,7 +916,7 @@ class MLflowMonitoringGateway:
         try:
             sequence_index = int(raw_sequence_index)
         except (TypeError, ValueError) as exc:
-            raise monitoring_allocation_inconsistent(
+            raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                 reason=MonitoringAllocationInconsistentReason.INVALID_ALLOCATION,
                 details=(("monitoring_run_id", snapshot.run_id),),
                 context_message=(
@@ -928,7 +925,7 @@ class MLflowMonitoringGateway:
                 ),
             ) from exc
         if sequence_index < 0:
-            raise monitoring_allocation_inconsistent(
+            raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                 reason=MonitoringAllocationInconsistentReason.INVALID_ALLOCATION,
                 details=(
                     ("monitoring_run_id", snapshot.run_id),
@@ -966,7 +963,7 @@ class MLflowMonitoringGateway:
 
         persisted_next_sequence = self._read_next_sequence_index(experiment_tags)
         if persisted_next_sequence > next_sequence_index:
-            raise monitoring_allocation_inconsistent(
+            raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                 reason=MonitoringAllocationInconsistentReason.NEXT_SEQUENCE_AHEAD,
                 details=(
                     ("persisted_next_sequence_index", persisted_next_sequence),
@@ -1026,7 +1023,7 @@ class MLflowMonitoringGateway:
 
             allocation = allocations_by_sequence.get(sequence_index)
             if allocation is None or allocation.monitoring_run_id != monitoring_run_id:
-                raise monitoring_allocation_inconsistent(
+                raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                     reason=MonitoringAllocationInconsistentReason.TIMELINE_CONFLICT,
                     details=(
                         ("sequence_index", sequence_index),
@@ -1050,7 +1047,7 @@ class MLflowMonitoringGateway:
         """Validate latest and source pointers before any repair writes occur."""
         latest_run_id = experiment_tags.get(_LATEST_TAG)
         if latest_run_id and latest_run_id not in allocations_by_run_id:
-            raise monitoring_allocation_inconsistent(
+            raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                 reason=MonitoringAllocationInconsistentReason.UNKNOWN_POINTER,
                 details=(("monitoring_run_id", latest_run_id),),
                 context_message=f"monitoring_run_id={latest_run_id!r}.",
@@ -1071,13 +1068,13 @@ class MLflowMonitoringGateway:
                 )
             allocation = allocations_by_run_id.get(monitoring_run_id)
             if allocation is None:
-                raise monitoring_allocation_inconsistent(
+                raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                     reason=MonitoringAllocationInconsistentReason.UNKNOWN_TAG,
                     details=(("monitoring_run_id", monitoring_run_id), ("tag", tag_key)),
                     context_message=f"tag={tag_key!r}.",
                 )
             if allocation.key.source_run_id != source_run_id:
-                raise monitoring_allocation_inconsistent(
+                raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                     reason=MonitoringAllocationInconsistentReason.SOURCE_BINDING_CONFLICT,
                     details=(
                         ("source_run_id", source_run_id),
@@ -1186,7 +1183,7 @@ class MLflowMonitoringGateway:
         persisted_source_run_id: str | None,
     ) -> GatewayConsistencyViolation:
         """Build a structured error for one contradictory monitoring/source pair."""
-        raise monitoring_run_upsert_field_override(
+        raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
             message=(
                 "Attempted to upsert monitoring run with immutable field value: "
                 f"monitoring_run_id={monitoring_run_id!r}, "
@@ -1231,7 +1228,7 @@ class MLflowMonitoringGateway:
             tag.value for tag in RequiredMonitoringRunTags if not run_tags.get(tag.value)
         )
         if missing_tags:
-            raise monitoring_allocation_inconsistent(
+            raise GatewayConsistencyViolation.monitoring_allocation_inconsistent(
                 reason=MonitoringAllocationInconsistentReason.INVALID_ALLOCATION,
                 details=(
                     ("monitoring_run_id", monitoring_run_id),

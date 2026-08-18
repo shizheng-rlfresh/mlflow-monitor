@@ -16,9 +16,6 @@ from mlflow_monitor.errors import (
     PrepareStageError,
     TerminalRunRetryError,
 )
-from mlflow_monitor.errors.gateway import (
-    prepared_context_inconsistent,
-)
 from mlflow_monitor.errors.workflow import (
     PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
 )
@@ -254,7 +251,7 @@ def _run_prepare_monitoring_run_slice(
         except (GatewayConsistencyViolation, GatewayNamespaceViolation):
             raise
         except ValueError as exc:
-            raise prepared_context_inconsistent(
+            raise GatewayConsistencyViolation.prepared_context_inconsistent(
                 reason="broken_artifact", field="prepared_context"
             ) from exc
 

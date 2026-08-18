@@ -51,13 +51,9 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
+    GatewayConsistencyViolation,
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
-)
-from mlflow_monitor.errors.gateway import (
-    monitoring_run_json_artifact_inconsistent,
-    monitoring_run_upsert_field_override,
-    timeline_state_not_found_for_subject_id,
 )
 from mlflow_monitor.result_contract import MonitorRunResult
 from mlflow_monitor.utils import canonical_json
@@ -424,7 +420,9 @@ class InMemoryMonitoringGateway:
 
         timeline_state = self._timeline_by_subject.get(subject_id)
         if timeline_state is None:
-            raise timeline_state_not_found_for_subject_id(subject_id=subject_id)
+            raise GatewayConsistencyViolation.timeline_state_not_found_for_subject_id(
+                subject_id=subject_id
+            )
 
         # ready to bootstrap the timeline with the baseline source run id
         if timeline_state.baseline_source_run_id is None:
@@ -917,7 +915,7 @@ class InMemoryMonitoringGateway:
         if existing_artifact_encoded == encoded:
             return
 
-        raise monitoring_run_json_artifact_inconsistent(
+        raise GatewayConsistencyViolation.monitoring_run_json_artifact_inconsistent(
             monitoring_run_id=monitoring_run_id,
             path=path,
         )
@@ -1028,7 +1026,7 @@ class InMemoryMonitoringGateway:
             details += (("references", str(tuple(references))),)
 
         if bool(details):
-            raise monitoring_run_upsert_field_override(
+            raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
                 message=(
                     "Attempted to upsert monitoring run with immutable field value: "
                     + ", ".join(f"{field}={value!r}" for field, value in details)
@@ -1098,7 +1096,7 @@ class InMemoryMonitoringGateway:
             if key.subject_id != subject_id or allocated_monitoring_run_id != monitoring_run_id:
                 continue
             if key.source_run_id != source_run_id:
-                raise monitoring_run_upsert_field_override(
+                raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
                     message=(
                         "Attempted to upsert monitoring run with immutable field value: "
                         f"source_run_id={source_run_id!r}"
@@ -1126,7 +1124,7 @@ class InMemoryMonitoringGateway:
                 or persisted_reference.source_run_id == reference.source_run_id
             ):
                 continue
-            raise monitoring_run_upsert_field_override(
+            raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
                 message=(
                     "Monitoring run source identity is inconsistent for "
                     f"monitoring_run_id={reference.monitoring_run_id!r}."
