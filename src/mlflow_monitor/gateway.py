@@ -781,10 +781,8 @@ class InMemoryMonitoringGateway:
             None
         """
         raise TrainingRunMutationViolation(
-            message=(
-                "Training runs are read-only in MLflow-Monitor; "
-                f"attempted mutation for source_run_id={source_run_id} with updates={dict(updates)}"
-            )
+            source_run_id=source_run_id,
+            updates=updates,
         )
 
     def build_monitoring_namespace(self, subject_id: str) -> str:

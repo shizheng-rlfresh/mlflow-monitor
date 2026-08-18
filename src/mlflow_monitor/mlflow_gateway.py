@@ -661,10 +661,8 @@ class MLflowMonitoringGateway:
             TrainingRunMutationViolation: Always. Training runs are read-only.
         """
         raise TrainingRunMutationViolation(
-            message=(
-                "Training runs are read-only in MLflow-Monitor; "
-                f"attempted mutation for source_run_id={source_run_id} with updates={dict(updates)}"
-            )
+            source_run_id=source_run_id,
+            updates=updates,
         )
 
     def finalize_monitoring_run_result(

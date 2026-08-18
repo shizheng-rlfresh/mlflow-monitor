@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -19,15 +20,20 @@ class GatewayNamespaceViolation(ValueError):
         return self.message
 
 
-@dataclass(frozen=True, slots=True)
 class TrainingRunMutationViolation(ValueError):
-    """Raised when code attempts to mutate source training run data."""
+    """Raised when code attempts to mutate Source Training Run data."""
 
-    message: str
+    code = "training_run_mutation_violation"
+    reason = "attempted_mutation"
 
-    def __str__(self) -> str:
-        """Return the error message when the exception is converted to a string."""
-        return self.message
+    def __init__(self, source_run_id: str, updates: Mapping[str, str]) -> None:
+        """Initialize the violation with the source run ID and attempted updates."""
+        update_fields = ", ".join(sorted(updates))
+        super().__init__(
+            "Training runs are read-only in MLflow-Monitor; "
+            f"Attempted to mutate Source Training Run {source_run_id!r}; "
+            f"update fields: {update_fields}."
+        )
 
 
 # GatewayConsistencyViolation error factories
