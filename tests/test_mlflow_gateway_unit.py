@@ -9,7 +9,6 @@ import pytest
 
 from mlflow_monitor.domain import DiffReferenceKind, LifecycleStatus, MonitoringRunReference
 from mlflow_monitor.errors import (
-    GatewayConsistencyCode,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
 )
@@ -17,16 +16,6 @@ from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_client import MonitoringRunInfo, MonitoringRunTagSnapshot
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
-
-_MONITORING_ALLOCATION_INCONSISTENT_FOR_TESTS = (
-    GatewayConsistencyCode.MONITORING_ALLOCATION_INCONSISTENT
-)
-_MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS = (
-    GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE
-)
-_MONITORING_RUN_SUBJECT_INCONSISTENT_FOR_TESTS = (
-    GatewayConsistencyCode.MONITORING_RUN_SUBJECT_INCONSISTENT
-)
 
 
 def _make_result(
@@ -443,7 +432,7 @@ def test_create_or_reuse_monitoring_run_repairs_stale_latest_and_source_binding(
                 "monitoring.next_sequence_index": "0",
                 "training.train-run-1.monitoring_run_id": "unknown-run",
             },
-            "unknown_pointer",
+            "unknown_tag",
             id="repairable-next-plus-unknown-pointer",
         ),
         pytest.param(
@@ -495,7 +484,7 @@ def test_create_or_reuse_monitoring_run_fails_closed_before_writes(
             )
         )
 
-    assert exc_info.value.code == _MONITORING_ALLOCATION_INCONSISTENT_FOR_TESTS
+    assert exc_info.value.code == "monitoring_allocation_inconsistent"
     assert ("reason", expected_reason) in exc_info.value.details
     stub_client.set_monitoring_experiment_tag.assert_not_called()
     stub_client.create_monitoring_run.assert_not_called()
@@ -586,7 +575,7 @@ def test_write_monitoring_run_json_artifact_rejects_missing_allocation_tag(
             path="state/prepared_context.json",
         )
 
-    assert exc_info.value.code == _MONITORING_ALLOCATION_INCONSISTENT_FOR_TESTS
+    assert exc_info.value.code == "monitoring_allocation_inconsistent"
     assert exc_info.value.details == (
         ("reason", "invalid_allocation"),
         ("monitoring_run_id", "monitoring-run-1"),
@@ -842,7 +831,7 @@ def test_upsert_monitoring_run_rejects_conflicting_reference_pair() -> None:
             ),
         )
 
-    assert exc_info.value.code == _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS
+    assert exc_info.value.code == "monitoring_run_upsert_field_override"
     assert dict(exc_info.value.details) == {
         "monitoring_run_id": "monitoring-run-previous",
         "source_run_id": "train-run-claimed-reference",
@@ -872,7 +861,7 @@ def test_upsert_monitoring_run_rejects_conflicting_primary_pair() -> None:
             sequence_index=0,
         )
 
-    assert exc_info.value.code == _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS
+    assert exc_info.value.code == "monitoring_run_upsert_field_override"
     assert dict(exc_info.value.details) == {
         "monitoring_run_id": "monitoring-run-1",
         "source_run_id": "train-run-claimed",
@@ -902,7 +891,7 @@ def test_upsert_monitoring_run_rejects_run_outside_subject_timeline_before_run_a
             sequence_index=0,
         )
 
-    assert exc_info.value.code == _MONITORING_RUN_SUBJECT_INCONSISTENT_FOR_TESTS
+    assert exc_info.value.code == "monitoring_run_subject_inconsistent"
     assert exc_info.value.details == (
         ("subject_id", "churn_model"),
         ("monitoring_run_id", "monitoring-run-foreign"),

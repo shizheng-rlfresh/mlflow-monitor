@@ -10,13 +10,17 @@ from mlflow_monitor.domain import (
     LifecycleStatus,
 )
 from mlflow_monitor.errors import (
-    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
     PrepareStageError,
     TerminalRunRetryError,
+)
+from mlflow_monitor.errors.gateway import (
     prepared_context_inconsistent,
+)
+from mlflow_monitor.errors.workflow import (
+    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
 )
 from mlflow_monitor.gateway import (
     IdempotencyKey,

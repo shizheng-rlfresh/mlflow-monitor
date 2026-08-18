@@ -12,7 +12,6 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
-    GatewayConsistencyCode,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
@@ -24,9 +23,7 @@ from mlflow_monitor.gateway import (
     InMemoryMonitoringGateway,
 )
 
-_MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS = (
-    GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE
-)
+_MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS = "monitoring_run_upsert_field_override"
 
 
 def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:

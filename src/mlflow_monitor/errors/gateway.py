@@ -1,52 +1,10 @@
-"""Custom exception types for MLflow-Monitor v0."""
-
-from __future__ import annotations
+"""Custom exceptions types and factory functions for Gateway errors."""
 
 from dataclasses import dataclass
 from enum import StrEnum
+from types import MappingProxyType
 
 from mlflow_monitor.domain import DiffReferenceKind
-
-PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepared_baseline_override_existing_baseline"
-
-
-class GatewayConsistencyCode(StrEnum):
-    """Code for gateway consistency violations."""
-
-    PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
-    MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
-    MONITORING_RUN_UPSERT_FIELD_OVERRIDE = "monitoring_run_upsert_field_override"
-    TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID = "timeline_state_not_found_for_subject_id"
-    MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT = "monitoring_run_json_artifact_inconsistent"
-    MONITORING_RUN_SUBJECT_INCONSISTENT = "monitoring_run_subject_inconsistent"
-    MONITORING_REFERENCE_INCONSISTENT = "monitoring_reference_inconsistent"
-
-
-class MonitorAllocationReason(StrEnum):
-    """Reasons for monitoring run allocation inconsistency."""
-
-    DUPLICATE_IDENTITY = "duplicate_identity"
-    DUPLICATE_SEQUENCE = "duplicate_sequence"
-    SEQUENCE_GAP = "sequence_gap"
-    INVALID_ALLOCATION = "invalid_allocation"
-    NEXT_SEQUENCE_AHEAD = "next_sequence_ahead"
-    UNKNOWN_POINTER = "unknown_pointer"
-    SOURCE_BINDING_CONFLICT = "source_binding_conflict"
-    TIMELINE_CONFLICT = "timeline_conflict"
-
-
-@dataclass(frozen=True, slots=True)
-class InvariantViolation(ValueError):
-    """Raised when a domain invariant is violated."""
-
-    code: str
-    message: str
-    entity: str
-    field: str | None = None
-
-    def __str__(self) -> str:
-        """Return the error message when the exception is converted to a string."""
-        return self.message
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,83 +42,68 @@ class TrainingRunMutationViolation(ValueError):
         return self.message
 
 
-@dataclass(frozen=True, slots=True)
-class PrepareStageError(ValueError):
-    """Raised when prepare-stage workflow resolution fails deterministically."""
-
-    code: str
-    message: str
-    details: tuple[tuple[str, str | None], ...] = ()
-
-    def __str__(self) -> str:
-        """Return the error message when the exception is converted to a string."""
-        return self.message
-
-
-@dataclass(frozen=True, slots=True)
-class CheckStageError(ValueError):
-    """Raised when check-stage workflow evaluation fails deterministically."""
-
-    code: str
-    message: str
-    details: tuple[tuple[str, str | None], ...] = ()
-
-    def __str__(self) -> str:
-        """Return the error message when the exception is converted to a string."""
-        return self.message
-
-
-@dataclass(frozen=True, slots=True)
-class ContractResolutionError(ValueError):
-    """Raised when recipe-selected contract binding cannot be resolved."""
-
-    code: str
-    message: str
-    details: tuple[tuple[str, str | None], ...] = ()
-
-    def __str__(self) -> str:
-        """Return the error message when the exception is converted to a string."""
-        return self.message
-
-
-@dataclass(frozen=True, slots=True)
-class TerminalRunRetryError(ValueError):
-    """Raised when a duplicate request targets a terminal failed monitoring run."""
-
-    code: str
-    message: str
-    details: tuple[tuple[str, str | int | None], ...] = ()
-
-    def __str__(self) -> str:
-        """Return the error message when the exception is converted to a string."""
-        return self.message
-
-
-@dataclass(frozen=True, slots=True)
-class RecipeValidationIssue:
-    """One machine-readable issue discovered during recipe validation."""
-
-    code: str
-    section: str
-    message: str
-    field: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RecipeValidationError(ValueError):
-    """Raised when one or more recipe validation checks fail."""
-
-    issues: tuple[RecipeValidationIssue, ...]
-
-    def __str__(self) -> str:
-        """Return a deterministic joined message for all validation issues."""
-        return "; ".join(issue.message for issue in self.issues)
-
-
 # error factories
 
 
 # GatewayConsistencyViolation error factories
+class GatewayConsistencyCode(StrEnum):
+    """Code for gateway consistency violations."""
+
+    PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
+    MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
+    MONITORING_RUN_UPSERT_FIELD_OVERRIDE = "monitoring_run_upsert_field_override"
+    TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID = "timeline_state_not_found_for_subject_id"
+    MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT = "monitoring_run_json_artifact_inconsistent"
+    MONITORING_RUN_SUBJECT_INCONSISTENT = "monitoring_run_subject_inconsistent"
+    MONITORING_REFERENCE_INCONSISTENT = "monitoring_reference_inconsistent"
+
+
+class MonitoringAllocationInconsistentReason(StrEnum):
+    """Reasons for monitoring run allocation inconsistent error code."""
+
+    DUPLICATE_IDENTITY = "duplicate_identity"
+    DUPLICATE_SEQUENCE = "duplicate_sequence"
+    SEQUENCE_GAP = "sequence_gap"
+    INVALID_ALLOCATION = "invalid_allocation"
+    NEXT_SEQUENCE_AHEAD = "next_sequence_ahead"
+    UNKNOWN_POINTER = "unknown_pointer"
+    UNKNOWN_TAG = "unknown_tag"
+    SOURCE_BINDING_CONFLICT = "source_binding_conflict"
+    TIMELINE_CONFLICT = "timeline_conflict"
+
+
+MONITORING_ALLOCATION_REASON_MESSAGE = MappingProxyType(
+    {
+        MonitoringAllocationInconsistentReason.DUPLICATE_IDENTITY: (
+            "Multiple monitoring runs claim the same allocation identity.{context_message}"
+        ),
+        MonitoringAllocationInconsistentReason.DUPLICATE_SEQUENCE: (
+            "Multiple monitoring runs claim the sequence index.{context_message}"
+        ),
+        MonitoringAllocationInconsistentReason.SEQUENCE_GAP: (
+            "Monitoring allocation sequences must be contiguous from zero.{context_message}"
+        ),
+        MonitoringAllocationInconsistentReason.INVALID_ALLOCATION: (
+            "Monitoring run allocation is invalid.{context_message}"
+        ),
+        MonitoringAllocationInconsistentReason.NEXT_SEQUENCE_AHEAD: (
+            "Monitoring run allocation's next sequence index is "
+            "ahead of the durable allocation state.{context_message}"
+        ),
+        MonitoringAllocationInconsistentReason.UNKNOWN_POINTER: (
+            "Monitoring run ID points to an unknown allocation.{context_message}"
+        ),
+        MonitoringAllocationInconsistentReason.UNKNOWN_TAG: (
+            "Experiment tag points to an unknown allocation.{context_message}"
+        ),
+        MonitoringAllocationInconsistentReason.SOURCE_BINDING_CONFLICT: (
+            "Source binding conflict detected.{context_message}"
+        ),
+        MonitoringAllocationInconsistentReason.TIMELINE_CONFLICT: (
+            "Timeline conflict detected.{context_message}"
+        ),
+    }
+)
 
 
 def prepared_context_inconsistent(*, reason: str, field: str) -> GatewayConsistencyViolation:
@@ -177,12 +120,17 @@ def prepared_context_inconsistent(*, reason: str, field: str) -> GatewayConsiste
 
 def monitoring_allocation_inconsistent(
     *,
-    reason: MonitorAllocationReason | str,
-    message: str,
+    reason: MonitoringAllocationInconsistentReason | str,
     details: tuple[tuple[str, str | int | None], ...] = (),
+    context_message: str | None = None,
 ) -> GatewayConsistencyViolation:
     """Create a GatewayConsistencyViolation for inconsistent monitoring allocation."""
-    normalized_reason = MonitorAllocationReason(reason)
+    normalized_reason = MonitoringAllocationInconsistentReason(reason)
+
+    message = MONITORING_ALLOCATION_REASON_MESSAGE[normalized_reason].format(
+        context_message=f" {context_message}" if context_message else ""
+    )
+
     return GatewayConsistencyViolation(
         code=GatewayConsistencyCode.MONITORING_ALLOCATION_INCONSISTENT,
         message=message,

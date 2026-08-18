@@ -28,13 +28,15 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
-    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
     InvariantViolation,
     PrepareStageError,
+)
+from mlflow_monitor.errors.gateway import (
     monitoring_reference_inconsistent,
     prepared_context_inconsistent,
 )
+from mlflow_monitor.errors.workflow import PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
 from mlflow_monitor.gateway import MonitoringGateway, TimelineState
 from mlflow_monitor.invariant import validate_contract_check_result
 from mlflow_monitor.recipe_compiler import CompiledRecipe, EffectiveRecipePlan
