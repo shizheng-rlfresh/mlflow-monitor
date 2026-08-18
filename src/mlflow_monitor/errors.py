@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_timeline"
 PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
@@ -10,6 +11,19 @@ MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
 MONITORING_RUN_UPSERT_FIELD_OVERRIDE = "monitoring_run_upsert_field_override"
 TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID = "timeline_state_not_found_for_subject_id"
 MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT = "monitoring_run_json_artifact_inconsistent"
+
+
+class MonitorAllocationReason(StrEnum):
+    """Reasons for monitoring run allocation inconsistency."""
+
+    DUPLICATE_IDENTITY = "duplicate_identity"
+    DUPLICATE_SEQUENCE = "duplicate_sequence"
+    SEQUENCE_GAP = "sequence_gap"
+    INVALID_ALLOCATION = "invalid_allocation"
+    NEXT_SEQUENCE_AHEAD = "next_sequence_ahead"
+    UNKNOWN_POINTER = "unknown_pointer"
+    SOURCE_BINDING_CONFLICT = "source_binding_conflict"
+    TIMELINE_CONFLICT = "timeline_conflict"
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,14 +167,18 @@ def prepared_context_inconsistent(*, reason: str, field: str) -> GatewayConsiste
 
 
 def monitoring_allocation_inconsistent(
-    *, reason: str, message: str, details: tuple[tuple[str, str | int | None], ...] = ()
+    *,
+    reason: MonitorAllocationReason | str,
+    message: str,
+    details: tuple[tuple[str, str | int | None], ...] = (),
 ) -> GatewayConsistencyViolation:
     """Create a GatewayConsistencyViolation for inconsistent monitoring allocation."""
+    normalized_reason = MonitorAllocationReason(reason)
     return GatewayConsistencyViolation(
         code=MONITORING_ALLOCATION_INCONSISTENT,
         message=message,
         details=(
-            ("reason", reason),
+            ("reason", normalized_reason.value),
             *details,
         ),
     )
