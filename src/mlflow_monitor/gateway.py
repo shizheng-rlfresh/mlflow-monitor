@@ -51,9 +51,9 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
-    GatewayConsistencyViolation,
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
+    monitoring_run_json_artifact_inconsistent,
     monitoring_run_upsert_field_override,
     timeline_state_not_found_for_subject_id,
 )
@@ -915,12 +915,9 @@ class InMemoryMonitoringGateway:
         if existing_artifact_encoded == encoded:
             return
 
-        raise GatewayConsistencyViolation(
-            code="monitoring_run_json_artifact_inconsistent",
-            message=(
-                "Existing monitoring run JSON artifact is inconsistent with the requested data."
-            ),
-            details=(("monitoring_run_id", monitoring_run_id), ("path", path)),
+        raise monitoring_run_json_artifact_inconsistent(
+            monitoring_run_id=monitoring_run_id,
+            path=path,
         )
 
     def _encode_monitoring_run_json_artifact(

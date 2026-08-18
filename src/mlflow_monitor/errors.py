@@ -9,6 +9,7 @@ PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
 MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
 MONITORING_RUN_UPSERT_FIELD_OVERRIDE = "monitoring_run_upsert_field_override"
 TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID = "timeline_state_not_found_for_subject_id"
+MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT = "monitoring_run_json_artifact_inconsistent"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,4 +183,21 @@ def timeline_state_not_found_for_subject_id(*, subject_id: str) -> GatewayConsis
         code=TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID,
         message=f"Timeline state not found for subject_id={subject_id!r}.",
         details=(("subject_id", subject_id),),
+    )
+
+
+def monitoring_run_json_artifact_inconsistent(
+    *, monitoring_run_id: str, path: str
+) -> GatewayConsistencyViolation:
+    """Create a GatewayConsistencyViolation for inconsistent monitoring run JSON artifact."""
+    return GatewayConsistencyViolation(
+        code=MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT,
+        message=(
+            f"Monitoring run JSON artifact is inconsistent for run_id={monitoring_run_id!r} "
+            f"at path={path!r}."
+        ),
+        details=(
+            ("monitoring_run_id", monitoring_run_id),
+            ("path", path),
+        ),
     )
