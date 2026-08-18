@@ -28,11 +28,11 @@ class TrainingRunMutationViolation(ValueError):
 
     def __init__(self, source_run_id: str, updates: Mapping[str, str]) -> None:
         """Initialize the violation with the source run ID and attempted updates."""
-        update_fields = ", ".join(sorted(updates))
+        rendered_field = _render_message_fields(tuple(updates.items()))
         self.message = (
             "Training runs are read-only in MLflow-Monitor; "
             f"Attempted to mutate Source Training Run {source_run_id!r}; "
-            f"update fields: {update_fields}."
+            f"update fields: {rendered_field}."
         )
         super().__init__(self.message)
 
@@ -86,10 +86,15 @@ class GatewayConsistencyViolation(ValueError):
         fields: tuple[tuple[str, str | int | None], ...] = (),
     ) -> GatewayConsistencyViolation:
         """Create a violation for one immutable Monitoring Run field override."""
-        field = [f for f, _ in fields]
+        if fields:
+            rendered_field = _render_message_fields(fields)
+            message = f"Attempted to override immutable Monitoring Run field {rendered_field}."
+        else:
+            message = "Attempted to override immutable Monitoring Run field."
+
         return cls(
             code=GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE.value,
-            message=f"Attempted to override immutable Monitoring Run field {field!r}.",
+            message=message,
             details=fields,
         )
 
@@ -544,3 +549,8 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
             reason=PreparedContextInconsistentReason.NONCANONICAL_REFERENCES,
             details=(("field", field),),
         )
+
+
+def _render_message_fields(fields: tuple[tuple[str, str | int | None], ...]) -> str:
+    """Render message fields for error messages."""
+    return ", ".join(f"{name}={value!r}" for name, value in fields)
