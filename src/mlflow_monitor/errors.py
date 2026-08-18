@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_timeline"
 _PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
+_MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,13 +131,33 @@ class RecipeValidationError(ValueError):
         return "; ".join(issue.message for issue in self.issues)
 
 
+# error factories
+
+
+# GatewayConsistencyViolation error factories
+
+
 def prepared_context_inconsistent(*, reason: str, field: str) -> GatewayConsistencyViolation:
-    """Helper function to create a GatewayConsistencyViolation for inconsistent prepared context."""
+    """Create a GatewayConsistencyViolation for inconsistent prepared context."""
     return GatewayConsistencyViolation(
         code=_PREPARED_CONTEXT_INCONSISTENT,
         message="Persisted prepared context is missing, malformed, or inconsistent.",
         details=(
             ("reason", reason),
             ("field", field),
+        ),
+    )
+
+
+def monitoring_allocation_inconsistent(
+    *, reason: str, message: str, details: tuple[tuple[str, str | int | None], ...] = ()
+) -> GatewayConsistencyViolation:
+    """Create a GatewayConsistencyViolation for inconsistent monitoring allocation."""
+    return GatewayConsistencyViolation(
+        code=_MONITORING_ALLOCATION_INCONSISTENT,
+        message=message,
+        details=(
+            ("reason", reason),
+            *details,
         ),
     )

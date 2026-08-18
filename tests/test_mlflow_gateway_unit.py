@@ -14,6 +14,8 @@ from mlflow_monitor.mlflow_client import MonitoringRunInfo, MonitoringRunTagSnap
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 
+_MONITORING_ALLOCATION_INCONSISTENT_FOR_TESTS = "monitoring_allocation_inconsistent"
+
 
 def _make_result(
     *,
@@ -481,7 +483,7 @@ def test_create_or_reuse_monitoring_run_fails_closed_before_writes(
             )
         )
 
-    assert exc_info.value.code == "monitoring_allocation_inconsistent"
+    assert exc_info.value.code == _MONITORING_ALLOCATION_INCONSISTENT_FOR_TESTS
     assert ("reason", expected_reason) in exc_info.value.details
     stub_client.set_monitoring_experiment_tag.assert_not_called()
     stub_client.create_monitoring_run.assert_not_called()
@@ -572,7 +574,7 @@ def test_write_monitoring_run_json_artifact_rejects_missing_allocation_tag(
             path="state/prepared_context.json",
         )
 
-    assert exc_info.value.code == "monitoring_allocation_inconsistent"
+    assert exc_info.value.code == _MONITORING_ALLOCATION_INCONSISTENT_FOR_TESTS
     assert exc_info.value.details == (
         ("reason", "invalid_allocation"),
         ("monitoring_run_id", "monitoring-run-1"),
