@@ -54,6 +54,7 @@ from mlflow_monitor.errors import (
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
+    monitoring_run_upsert_field_override,
 )
 from mlflow_monitor.result_contract import MonitorRunResult
 from mlflow_monitor.utils import canonical_json
@@ -1031,8 +1032,7 @@ class InMemoryMonitoringGateway:
             details += (("references", str(tuple(references))),)
 
         if bool(details):
-            raise GatewayConsistencyViolation(
-                code="monitoring_run_upsert_field_override",
+            raise monitoring_run_upsert_field_override(
                 message=(
                     "Attempted to upsert monitoring run with immutable field value: "
                     + ", ".join(f"{field}={value!r}" for field, value in details)
@@ -1102,8 +1102,7 @@ class InMemoryMonitoringGateway:
             if key.subject_id != subject_id or allocated_monitoring_run_id != monitoring_run_id:
                 continue
             if key.source_run_id != source_run_id:
-                raise GatewayConsistencyViolation(
-                    code="monitoring_run_upsert_field_override",
+                raise monitoring_run_upsert_field_override(
                     message=(
                         "Attempted to upsert monitoring run with immutable field value: "
                         f"source_run_id={source_run_id!r}"
@@ -1131,8 +1130,7 @@ class InMemoryMonitoringGateway:
                 or persisted_reference.source_run_id == reference.source_run_id
             ):
                 continue
-            raise GatewayConsistencyViolation(
-                code="monitoring_run_upsert_field_override",
+            raise monitoring_run_upsert_field_override(
                 message=(
                     "Monitoring run source identity is inconsistent for "
                     f"monitoring_run_id={reference.monitoring_run_id!r}."

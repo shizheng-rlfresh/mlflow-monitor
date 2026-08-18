@@ -8,13 +8,18 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from mlflow_monitor.domain import DiffReferenceKind, LifecycleStatus, MonitoringRunReference
-from mlflow_monitor.errors import GatewayConsistencyViolation, GatewayNamespaceViolation
+from mlflow_monitor.errors import (
+    MONITORING_RUN_UPSERT_FIELD_OVERRIDE,
+    GatewayConsistencyViolation,
+    GatewayNamespaceViolation,
+)
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_client import MonitoringRunInfo, MonitoringRunTagSnapshot
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 
 _MONITORING_ALLOCATION_INCONSISTENT_FOR_TESTS = "monitoring_allocation_inconsistent"
+_MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS = MONITORING_RUN_UPSERT_FIELD_OVERRIDE
 
 
 def _make_result(
@@ -830,7 +835,7 @@ def test_upsert_monitoring_run_rejects_conflicting_reference_pair() -> None:
             ),
         )
 
-    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert exc_info.value.code == _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS
     assert dict(exc_info.value.details) == {
         "monitoring_run_id": "monitoring-run-previous",
         "source_run_id": "train-run-claimed-reference",
@@ -860,7 +865,7 @@ def test_upsert_monitoring_run_rejects_conflicting_primary_pair() -> None:
             sequence_index=0,
         )
 
-    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert exc_info.value.code == _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS
     assert dict(exc_info.value.details) == {
         "monitoring_run_id": "monitoring-run-1",
         "source_run_id": "train-run-claimed",

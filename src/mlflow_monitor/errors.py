@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_timeline"
-_PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
-_MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
+PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
+MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
+MONITORING_RUN_UPSERT_FIELD_OVERRIDE = "monitoring_run_upsert_field_override"
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +141,7 @@ class RecipeValidationError(ValueError):
 def prepared_context_inconsistent(*, reason: str, field: str) -> GatewayConsistencyViolation:
     """Create a GatewayConsistencyViolation for inconsistent prepared context."""
     return GatewayConsistencyViolation(
-        code=_PREPARED_CONTEXT_INCONSISTENT,
+        code=PREPARED_CONTEXT_INCONSISTENT,
         message="Persisted prepared context is missing, malformed, or inconsistent.",
         details=(
             ("reason", reason),
@@ -154,10 +155,21 @@ def monitoring_allocation_inconsistent(
 ) -> GatewayConsistencyViolation:
     """Create a GatewayConsistencyViolation for inconsistent monitoring allocation."""
     return GatewayConsistencyViolation(
-        code=_MONITORING_ALLOCATION_INCONSISTENT,
+        code=MONITORING_ALLOCATION_INCONSISTENT,
         message=message,
         details=(
             ("reason", reason),
             *details,
         ),
+    )
+
+
+def monitoring_run_upsert_field_override(
+    message: str, details: tuple[tuple[str, str | int | None], ...] = ()
+) -> GatewayConsistencyViolation:
+    """Create a GatewayConsistencyViolation for monitoring run upsert field override."""
+    return GatewayConsistencyViolation(
+        code=MONITORING_RUN_UPSERT_FIELD_OVERRIDE,
+        message=message,
+        details=(*details,),
     )

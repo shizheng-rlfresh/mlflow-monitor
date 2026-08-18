@@ -48,6 +48,7 @@ from mlflow_monitor.errors import (
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
     monitoring_allocation_inconsistent,
+    monitoring_run_upsert_field_override,
 )
 from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
@@ -1219,11 +1220,12 @@ class MLflowMonitoringGateway:
         persisted_source_run_id: str | None,
     ) -> GatewayConsistencyViolation:
         """Build a structured error for one contradictory monitoring/source pair."""
-        return GatewayConsistencyViolation(
-            code="monitoring_run_upsert_field_override",
+        raise monitoring_run_upsert_field_override(
             message=(
-                "Monitoring run source identity is inconsistent for "
-                f"monitoring_run_id={monitoring_run_id!r}."
+                "Attempted to upsert monitoring run with immutable field value: "
+                f"monitoring_run_id={monitoring_run_id!r}, "
+                f"source_run_id={source_run_id!r}, "
+                f"persisted_source_run_id={persisted_source_run_id!r}"
             ),
             details=(
                 ("monitoring_run_id", monitoring_run_id),

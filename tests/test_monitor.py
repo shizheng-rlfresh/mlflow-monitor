@@ -21,6 +21,7 @@ from mlflow_monitor.domain import (
 from mlflow_monitor.errors import (
     PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     GatewayConsistencyViolation,
+    monitoring_run_upsert_field_override,
 )
 from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
@@ -182,10 +183,10 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
         references: tuple[MonitoringRunReference, ...] | None = None,
     ) -> None:
         if lifecycle_status is LifecycleStatus.PREPARED:
-            raise GatewayConsistencyViolation(
-                code="monitoring_run_upsert_field_override",
+            raise monitoring_run_upsert_field_override(
                 message="prepared upsert broke gateway consistency",
             )
+
         super().upsert_monitoring_run(
             subject_id=subject_id,
             monitoring_run_id=monitoring_run_id,

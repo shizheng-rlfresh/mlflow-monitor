@@ -12,6 +12,7 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
+    MONITORING_RUN_UPSERT_FIELD_OVERRIDE,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
@@ -22,6 +23,8 @@ from mlflow_monitor.gateway import (
     IdempotencyKey,
     InMemoryMonitoringGateway,
 )
+
+_MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS = MONITORING_RUN_UPSERT_FIELD_OVERRIDE
 
 
 def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:
@@ -691,7 +694,7 @@ def test_upsert_monitoring_run_rejects_source_identity_conflict() -> None:
             sequence_index=allocation.sequence_index,
         )
 
-    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert exc_info.value.code == _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS
     assert exc_info.value.details == (("source_run_id", "train-run-2"),)
 
 
@@ -734,7 +737,7 @@ def test_upsert_monitoring_run_rejects_conflicting_reference_pair() -> None:
             ),
         )
 
-    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert exc_info.value.code == _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS
     assert dict(exc_info.value.details) == {
         "monitoring_run_id": "monitoring-run-previous",
         "source_run_id": "train-run-claimed-reference",
@@ -825,7 +828,7 @@ def test_upsert_monitoring_run_rejects_changed_sequence_index() -> None:
         )
 
     error = exc.value
-    assert error.code == "monitoring_run_upsert_field_override"
+    assert error.code == _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS
     assert error.details == (("sequence_index", 1),)
 
 
@@ -872,7 +875,7 @@ def test_upsert_monitoring_run_reports_all_immutable_field_overrides() -> None:
         )
 
     error = exc.value
-    assert error.code == "monitoring_run_upsert_field_override"
+    assert error.code == _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS
     assert error.details == (
         ("sequence_index", 1),
         ("contract_check_result", str(replacement_result)),
@@ -922,5 +925,5 @@ def test_upsert_monitoring_run_rejects_changed_contract_check_result_after_initi
         )
 
     error = exc.value
-    assert error.code == "monitoring_run_upsert_field_override"
+    assert error.code == _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS
     assert error.details == (("contract_check_result", str(replacement_result)),)
