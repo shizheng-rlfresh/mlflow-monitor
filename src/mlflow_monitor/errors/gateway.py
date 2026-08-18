@@ -34,7 +34,7 @@ class TrainingRunMutationViolation(ValueError):
             f"Attempted to mutate Source Training Run {source_run_id!r}; "
             f"update fields: {update_fields}."
         )
-        super().__init__()
+        super().__init__(self.message)
 
 
 # GatewayConsistencyViolation error factories
