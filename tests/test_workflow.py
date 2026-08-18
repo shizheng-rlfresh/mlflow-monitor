@@ -38,7 +38,7 @@ from mlflow_monitor.workflow import (
 )
 
 _CONTRACT = resolve_contract_v0(SYSTEM_DEFAULT_CONTRACT_ID)
-_PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepared_baseline_override_existing_baseline"
+_PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_baseline"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1458,7 +1458,7 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
         )
 
     error = exc_info.value
-    assert error.code == _PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
+    assert error.code == _PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", "train-run-1"),
@@ -1680,7 +1680,7 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
         )
 
     error = exc_info.value
-    assert error.code == _PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
+    assert error.code == _PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", "train-run-other"),

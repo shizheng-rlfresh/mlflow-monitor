@@ -10,7 +10,7 @@ from mlflow_monitor.domain import (
     LifecycleStatus,
 )
 from mlflow_monitor.errors import (
-    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+    PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
@@ -596,7 +596,7 @@ def _validate_rerun_baseline_input(
         return None
 
     return PrepareStageError(
-        code=PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+        code=PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
         message=(
             f"Provided baseline_source_run_id={supplied_baseline_source_run_id!r} "
             f"with resolved baseline_source_run_id={resolved!r} does not match "
@@ -641,7 +641,7 @@ def _validate_checked_monitoring_run_rerun_inputs(
         return None
 
     return PrepareStageError(
-        code=PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+        code=PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
         message=(
             f"Provided baseline_source_run_id={baseline_source_run_id!r} "
             f"with resolved_baseline_source_run_id={resolved_baseline_source_run_id!r} "

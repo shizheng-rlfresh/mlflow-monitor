@@ -28,7 +28,7 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
-    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+    PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
     GatewayConsistencyViolation,
     InvariantViolation,
@@ -554,7 +554,7 @@ def prepare_run_context(
             _resolved_baseline = baseline_resolution_result.baseline_source_run_id
             _existing_baseline = timeline_state.baseline_source_run_id
             raise PrepareStageError(
-                code=PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+                code=PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
                 message=(
                     f"Provided baseline_source_run_id={_provided_baseline!r} "
                     f"with resolved_baseline_source_run_id={_resolved_baseline!r} "
@@ -837,7 +837,7 @@ def _resolve_baseline_for_prepare(
 
         if resolved_baseline != pinned_baseline:
             raise PrepareStageError(
-                code=PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+                code=PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
                 message=(
                     f"Provided baseline_source_run_id={baseline_source_run_id!r} "
                     f"with resolved baseline_source_run_id={resolved_baseline!r} does not match "

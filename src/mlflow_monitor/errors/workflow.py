@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepared_baseline_override_existing_baseline"
+PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_baseline"
 
 
 @dataclass(frozen=True, slots=True)

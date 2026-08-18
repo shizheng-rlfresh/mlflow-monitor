@@ -1134,7 +1134,7 @@ class MLflowMonitoringGateway:
         persisted_source_run_id: str | None,
     ) -> GatewayConsistencyViolation:
         """Build a structured error for one contradictory monitoring/source pair."""
-        raise GatewayConsistencyViolation.monitoring_run_upsert_source_binding_conflict(
+        return GatewayConsistencyViolation.monitoring_run_upsert_source_binding_conflict(
             monitoring_run_id=monitoring_run_id,
             source_run_id=source_run_id,
             persisted_source_run_id=persisted_source_run_id,

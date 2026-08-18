@@ -19,7 +19,7 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
-    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+    PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
     GatewayConsistencyViolation,
 )
 from mlflow_monitor.gateway import (
@@ -1490,7 +1490,7 @@ def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun
     assert second.comparability_status is None
     assert second.error is not None
     assert second.error.stage == "prepare"
-    assert second.error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
+    assert second.error.code == PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert stored is not None
     assert stored.lifecycle_status is LifecycleStatus.CHECKED
     assert stored.contract_check_result is not None
