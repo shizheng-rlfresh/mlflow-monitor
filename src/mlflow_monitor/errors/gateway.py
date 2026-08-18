@@ -29,11 +29,12 @@ class TrainingRunMutationViolation(ValueError):
     def __init__(self, source_run_id: str, updates: Mapping[str, str]) -> None:
         """Initialize the violation with the source run ID and attempted updates."""
         update_fields = ", ".join(sorted(updates))
-        super().__init__(
+        self.message = (
             "Training runs are read-only in MLflow-Monitor; "
             f"Attempted to mutate Source Training Run {source_run_id!r}; "
             f"update fields: {update_fields}."
         )
+        super().__init__()
 
 
 # GatewayConsistencyViolation error factories
