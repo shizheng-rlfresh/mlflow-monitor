@@ -1,4 +1,33 @@
-"""Custom exceptions types and factory functions for Gateway errors."""
+"""Custom exceptions types and factory functions for Gateway errors.
+
+Three main types of gateway errors:
+1. `GatewayNamespaceViolation`: a gateway operation violates namespace constraints.
+2. `TrainingRunMutationViolation`: an attempt to mutate source training run data.
+3. `GatewayConsistencyViolation`: a gateway operation violates consistency constraints.
+
+For GatewayConsistencyViolation,
+there are several specific error codes (i.e., subtypes) defined in the `GatewayConsistencyCode`:
+- "prepared_context_inconsistent": the prepared context is inconsistent with the expected state.
+- "monitoring_allocation_inconsistent": the monitoring run allocation is inconsistent with the expected state.
+- "monitoring_run_upsert_field_override": an upsert operation on a monitoring run violates field constraints.
+- "timeline_state_not_found_for_subject_id": the timeline state for a given subject ID is not found.
+- "monitoring_run_json_artifact_inconsistent": the JSON artifact of a monitoring run is inconsistent with the expected state.
+- "monitoring_run_subject_inconsistent": the subject of a monitoring run is inconsistent with the expected state.
+- "monitoring_reference_inconsistent": a monitoring reference is inconsistent with the expected state.
+
+For "monitoring_allocation_inconsistent",
+there are several specific reasons defined in the `MonitoringAllocationInconsistentReason`:
+- "duplicate_identity": multiple monitoring runs claim the same allocation identity.
+- "duplicate_sequence": multiple monitoring runs claim the sequence index.
+- "sequence_gap": there is a gap in the sequence of monitoring runs.
+- "invalid_allocation": the allocation of a monitoring run is invalid.
+- "next_sequence_ahead": the next sequence index is ahead of the expected value.
+- "unknown_pointer": the pointer to a monitoring run is unknown.
+- "unknown_tag": the tag associated with a monitoring run is unknown.
+- "source_binding_conflict": there is a conflict in the source binding of a monitoring run.
+- "timeline_conflict": there is a conflict in the timeline of monitoring runs.
+
+"""  # noqa: E501
 
 from __future__ import annotations
 
