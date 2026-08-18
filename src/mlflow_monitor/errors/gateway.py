@@ -40,7 +40,7 @@ class TrainingRunMutationViolation(ValueError):
 # GatewayConsistencyViolation error factories
 
 
-class GatewayConsistencyCode(StrEnum):
+class _GatewayConsistencyCode(StrEnum):
     """Code for gateway consistency violations."""
 
     PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
@@ -52,7 +52,7 @@ class GatewayConsistencyCode(StrEnum):
     MONITORING_REFERENCE_INCONSISTENT = "monitoring_reference_inconsistent"
 
 
-class MonitoringAllocationInconsistentReason(StrEnum):
+class _AllocationInconsistentReason(StrEnum):
     """Reasons for monitoring run allocation inconsistent reason code."""
 
     DUPLICATE_IDENTITY = "duplicate_identity"
@@ -93,7 +93,7 @@ class GatewayConsistencyViolation(ValueError):
             message = "Attempted to override immutable Monitoring Run field."
 
         return cls(
-            code=GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE.value,
+            code=_GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE.value,
             message=message,
             details=fields,
         )
@@ -108,7 +108,7 @@ class GatewayConsistencyViolation(ValueError):
     ) -> GatewayConsistencyViolation:
         """Create a violation for a Monitoring Run bound to another source run."""
         return cls(
-            code=GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE.value,
+            code=_GatewayConsistencyCode.MONITORING_RUN_UPSERT_FIELD_OVERRIDE.value,
             message=(
                 "Monitoring Run source binding conflicts with durable state for "
                 f"monitoring_run_id={monitoring_run_id!r}; "
@@ -129,7 +129,7 @@ class GatewayConsistencyViolation(ValueError):
     ) -> GatewayConsistencyViolation:
         """Create a GatewayConsistencyViolation for missing timeline state for a subject ID."""
         return cls(
-            code=GatewayConsistencyCode.TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID.value,
+            code=_GatewayConsistencyCode.TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID.value,
             message=f"Timeline state not found for subject_id={subject_id!r}.",
             details=(("subject_id", subject_id),),
         )
@@ -141,7 +141,7 @@ class GatewayConsistencyViolation(ValueError):
     ) -> GatewayConsistencyViolation:
         """Create a GatewayConsistencyViolation for inconsistent monitoring run JSON artifact."""
         return cls(
-            code=GatewayConsistencyCode.MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT.value,
+            code=_GatewayConsistencyCode.MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT.value,
             message=(
                 f"Monitoring run JSON artifact is inconsistent for "
                 f"monitoring_run_id={monitoring_run_id!r} "
@@ -160,7 +160,7 @@ class GatewayConsistencyViolation(ValueError):
     ) -> GatewayConsistencyViolation:
         """Create a GatewayConsistencyViolation for a monitoring run not indexed on the subject ID."""  # noqa: E501
         return cls(
-            code=GatewayConsistencyCode.MONITORING_RUN_SUBJECT_INCONSISTENT.value,
+            code=_GatewayConsistencyCode.MONITORING_RUN_SUBJECT_INCONSISTENT.value,
             message=(
                 f"monitoring_run_id={monitoring_run_id!r} is not indexed "
                 f"on subject_id={subject_id!r}."
@@ -178,7 +178,7 @@ class GatewayConsistencyViolation(ValueError):
     ) -> GatewayConsistencyViolation:
         """Create a GatewayConsistencyViolation for an inconsistent monitoring reference."""
         return cls(
-            code=GatewayConsistencyCode.MONITORING_REFERENCE_INCONSISTENT.value,
+            code=_GatewayConsistencyCode.MONITORING_REFERENCE_INCONSISTENT.value,
             message=(
                 f"Monitoring reference of kind={kind.value!r} is inconsistent for "
                 f"monitoring_run_id={monitoring_run_id!r}."
@@ -198,13 +198,13 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     def _create(
         cls,
         *,
-        reason: MonitoringAllocationInconsistentReason,
+        reason: _AllocationInconsistentReason,
         message: str,
         details: tuple[tuple[str, str | int | None], ...],
     ) -> AllocationConsistencyViolation:
         """Create a violation with its stable code and normalized reason."""
         return cls(
-            code=GatewayConsistencyCode.MONITORING_ALLOCATION_INCONSISTENT.value,
+            code=_GatewayConsistencyCode.MONITORING_ALLOCATION_INCONSISTENT.value,
             message=message,
             details=(("reason", reason.value), *details),
         )
@@ -218,7 +218,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for two Monitoring Runs with the same identity."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.DUPLICATE_IDENTITY,
+            reason=_AllocationInconsistentReason.DUPLICATE_IDENTITY,
             message="Multiple Monitoring Runs claim the same allocation identity.",
             details=(
                 ("first_monitoring_run_id", first_monitoring_run_id),
@@ -236,7 +236,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for two Monitoring Runs with the same sequence index."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.DUPLICATE_SEQUENCE,
+            reason=_AllocationInconsistentReason.DUPLICATE_SEQUENCE,
             message=f"Multiple Monitoring Runs claim sequence_index={sequence_index}.",
             details=(
                 ("sequence_index", sequence_index),
@@ -254,7 +254,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a non-contiguous allocation sequence."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.SEQUENCE_GAP,
+            reason=_AllocationInconsistentReason.SEQUENCE_GAP,
             message=(
                 "Monitoring allocation sequence is not contiguous; "
                 f"expected sequence_index={expected_sequence_index}, "
@@ -276,7 +276,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
         """Create a violation for an allocation missing required durable tags."""
         rendered_missing_tags = ", ".join(missing_tags)
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.INVALID_ALLOCATION,
+            reason=_AllocationInconsistentReason.INVALID_ALLOCATION,
             message=(
                 f"Monitoring Run {monitoring_run_id!r} is missing durable "
                 f"allocation tags: {rendered_missing_tags}."
@@ -296,7 +296,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a non-integer allocation sequence index."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.INVALID_ALLOCATION,
+            reason=_AllocationInconsistentReason.INVALID_ALLOCATION,
             message=(
                 f"Monitoring Run {monitoring_run_id!r} has a non-integer "
                 f"sequence index: {raw_sequence_index!r}."
@@ -316,7 +316,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a negative allocation sequence index."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.INVALID_ALLOCATION,
+            reason=_AllocationInconsistentReason.INVALID_ALLOCATION,
             message=(
                 f"Monitoring Run {monitoring_run_id!r} has a negative "
                 f"sequence_index={sequence_index}."
@@ -336,7 +336,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a persisted next sequence ahead of durable state."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.NEXT_SEQUENCE_AHEAD,
+            reason=_AllocationInconsistentReason.NEXT_SEQUENCE_AHEAD,
             message=(
                 "Monitoring allocation next sequence index is ahead of durable state; "
                 f"persisted sequence_index={persisted_next_sequence_index}, "
@@ -352,7 +352,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     def unknown_pointer(cls, *, monitoring_run_id: str) -> AllocationConsistencyViolation:
         """Create a violation for a pointer to an unknown allocation."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.UNKNOWN_POINTER,
+            reason=_AllocationInconsistentReason.UNKNOWN_POINTER,
             message=(
                 "Monitoring pointer references an unknown allocation for "
                 f"monitoring_run_id={monitoring_run_id!r}."
@@ -369,7 +369,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for an experiment tag pointing to an unknown allocation."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.UNKNOWN_TAG,
+            reason=_AllocationInconsistentReason.UNKNOWN_TAG,
             message=f"Experiment tag {tag!r} references an unknown allocation.",
             details=(
                 ("tag", tag),
@@ -388,7 +388,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for an allocation bound to a different source run."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.SOURCE_BINDING_CONFLICT,
+            reason=_AllocationInconsistentReason.SOURCE_BINDING_CONFLICT,
             message=(
                 f"Experiment tag {tag!r} points to monitoring_run_id={monitoring_run_id!r} "
                 f"allocated for source_run_id={persisted_source_run_id!r}, "
@@ -412,7 +412,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a timeline slot that conflicts with durable state."""
         return cls._create(
-            reason=MonitoringAllocationInconsistentReason.TIMELINE_CONFLICT,
+            reason=_AllocationInconsistentReason.TIMELINE_CONFLICT,
             message=(
                 f"Experiment timeline slot sequence_index={sequence_index} does not match "
                 "its durable Monitoring Run allocation."
@@ -425,7 +425,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
         )
 
 
-class PreparedContextInconsistentReason(StrEnum):
+class _PreparedContextInconsistentReason(StrEnum):
     """Reasons for prepared context inconsistent reason code."""
 
     MISSING_ARTIFACT = "missing_artifact"
@@ -449,12 +449,12 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def _create(
         cls,
         *,
-        reason: PreparedContextInconsistentReason,
+        reason: _PreparedContextInconsistentReason,
         details: tuple[tuple[str, str | int | None], ...],
     ) -> PreparedContextConsistencyViolation:
         """Create a violation with its stable code and normalized reason."""
         return cls(
-            code=GatewayConsistencyCode.PREPARED_CONTEXT_INCONSISTENT.value,
+            code=_GatewayConsistencyCode.PREPARED_CONTEXT_INCONSISTENT.value,
             message="Persisted prepared context is missing, malformed, or inconsistent.",
             details=(("reason", reason.value), *details),
         )
@@ -464,7 +464,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def missing_artifact(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for missing artifact."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.MISSING_ARTIFACT,
+            reason=_PreparedContextInconsistentReason.MISSING_ARTIFACT,
             details=(("field", field),),
         )
 
@@ -472,7 +472,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def broken_artifact(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for broken artifact."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.BROKEN_ARTIFACT,
+            reason=_PreparedContextInconsistentReason.BROKEN_ARTIFACT,
             details=(("field", field),),
         )
 
@@ -482,7 +482,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     ) -> PreparedContextConsistencyViolation:
         """Create a violation for unsupported artifact schema version."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.UNSUPPORTED_ARTIFACT_SCHEMA_VERSION,
+            reason=_PreparedContextInconsistentReason.UNSUPPORTED_ARTIFACT_SCHEMA_VERSION,
             details=(("field", field),),
         )
 
@@ -490,7 +490,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def allocation_identity_mismatch(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for allocation identity mismatch."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.ALLOCATION_IDENTITY_MISMATCH,
+            reason=_PreparedContextInconsistentReason.ALLOCATION_IDENTITY_MISMATCH,
             details=(("field", field),),
         )
 
@@ -498,7 +498,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def invalid_field_type(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for invalid field type."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.INVALID_FIELD_TYPE,
+            reason=_PreparedContextInconsistentReason.INVALID_FIELD_TYPE,
             details=(("field", field),),
         )
 
@@ -506,7 +506,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def invalid_fields(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for invalid fields."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.INVALID_FIELDS,
+            reason=_PreparedContextInconsistentReason.INVALID_FIELDS,
             details=(("field", field),),
         )
 
@@ -514,7 +514,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def effective_recipe_mismatch(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for effective recipe mismatch."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.EFFECTIVE_RECIPE_MISMATCH,
+            reason=_PreparedContextInconsistentReason.EFFECTIVE_RECIPE_MISMATCH,
             details=(("field", field),),
         )
 
@@ -522,7 +522,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def contract_mismatch(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for contract mismatch."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.CONTRACT_MISMATCH,
+            reason=_PreparedContextInconsistentReason.CONTRACT_MISMATCH,
             details=(("field", field),),
         )
 
@@ -530,7 +530,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def invalid_reference(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for invalid reference."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.INVALID_REFERENCE,
+            reason=_PreparedContextInconsistentReason.INVALID_REFERENCE,
             details=(("field", field),),
         )
 
@@ -538,7 +538,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def baseline_reference_mismatch(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for baseline reference mismatch."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.BASELINE_REFERENCE_MISMATCH,
+            reason=_PreparedContextInconsistentReason.BASELINE_REFERENCE_MISMATCH,
             details=(("field", field),),
         )
 
@@ -546,7 +546,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def noncanonical_references(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for noncanonical references."""
         return cls._create(
-            reason=PreparedContextInconsistentReason.NONCANONICAL_REFERENCES,
+            reason=_PreparedContextInconsistentReason.NONCANONICAL_REFERENCES,
             details=(("field", field),),
         )
 
