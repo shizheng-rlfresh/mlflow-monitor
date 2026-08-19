@@ -9,6 +9,11 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 ## Working rules
 
 - Work ticket-by-ticket.
+- Before planning or implementing a ticket, classify each affected behavior,
+  interface, persisted representation, test surface, and documentation surface
+  as add, modify, replace, or remove. Separately identify unchanged invariants
+  at realistic risk of regression, required compatibility, and obsolete code or
+  tests that must be removed.
 - Keep diffs small and reviewable.
 - Only add code that is necessary for the current ticket.
 - Do not broaden scope beyond the requested ticket.
