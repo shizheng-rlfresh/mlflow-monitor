@@ -1373,11 +1373,11 @@ def test_prepare_rejects_foreign_experiment_baseline_before_timeline_bootstrap()
     )
 
 
-def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_passed_in() -> None:
-    """Prepare should resolve references and required source-run inputs."""
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
+def test_prepare_claims_existing_timeline_baseline_for_new_monitoring_run() -> None:
+    """Every successful Prepare should persist its own identical baseline claim."""
+    gateway = RecordingBaselineClaimGateway(GatewayConfig())
     compiled_invocation = make_compiled_invocation(
-        source_run_id="train-run-1",
+        source_run_id="train-run-current",
         source_experiment="training/churn",
         required_metrics=("f1",),
         required_artifacts=("metrics.json",),
@@ -1385,38 +1385,48 @@ def test_prepare_run_context_succeeds_existing_timeline_with_correct_baseline_pa
     )
     reconciled_timeline_state = reconcile_test_timeline_baseline(
         gateway,
-        source_run_id="train-run-1",
-        baseline_source_run_id="train-run-1",
+        source_run_id="train-run-established",
+        baseline_source_run_id="train-run-baseline",
         compiled_recipe=compiled_invocation.compiled_recipe,
     )
+    gateway.baseline_claim_calls.clear()
 
-    gateway.add_source_run(
-        subject_id="churn_model",
-        source_run_id="train-run-1",
-        source_experiment="training/churn",
-        metrics={"f1": 0.87},
-        artifacts=("metrics.json",),
-        environment={"python": "3.12"},
-        features=("age", "income"),
-        schema={"age": "int", "income": "float"},
-        data_scope="validation:2026-03-01",
-    )
+    for source_run_id in ("train-run-baseline", "train-run-current"):
+        gateway.add_source_run(
+            subject_id="churn_model",
+            source_run_id=source_run_id,
+            source_experiment="training/churn",
+            metrics={"f1": 0.87},
+            artifacts=("metrics.json",),
+            environment={"python": "3.12"},
+            features=("age", "income"),
+            schema={"age": "int", "income": "float"},
+            data_scope="validation:2026-03-01",
+        )
 
-    prepare_test_context(
+    prepared = prepare_test_context(
         subject_id="churn_model",
         compiled_invocation=compiled_invocation,
         gateway=gateway,
-        baseline_source_run_id="train-run-1",
+        baseline_source_run_id="train-run-baseline",
     )
 
     timeline_state = gateway.get_timeline_state("churn_model")
 
     assert reconciled_timeline_state == TimelineState(
         timeline_id="timeline-churn_model",
-        baseline_source_run_id="train-run-1",
+        baseline_source_run_id="train-run-baseline",
     )
+    assert prepared.sequence_index == 1
+    assert gateway.baseline_claim_calls == [
+        (
+            "churn_model",
+            prepared.monitoring_run_id,
+            "train-run-baseline",
+        )
+    ]
     assert timeline_state is not None
-    assert timeline_state.baseline_source_run_id == "train-run-1"
+    assert timeline_state.baseline_source_run_id == "train-run-baseline"
     assert timeline_state.timeline_id == "timeline-churn_model"
 
 

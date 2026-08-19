@@ -239,7 +239,8 @@ def test_get_timeline_state_distinguishes_no_allocation_from_allocated_uninitial
     assert timeline_state.baseline_source_run_id is None
 
 
-def test_get_timeline_state_preserves_legacy_baseline_projection_without_claims() -> None:
+def test_get_timeline_state_uses_legacy_projection_only_after_scanning_no_claims() -> None:
+    """A claimless MVP Timeline may use its projection as a migration fallback."""
     allocation = _allocation_snapshot(
         run_id="monitoring-run-1",
         source_run_id="train-run-1",
@@ -261,6 +262,10 @@ def test_get_timeline_state_preserves_legacy_baseline_projection_without_claims(
 
     assert timeline_state is not None
     assert timeline_state.baseline_source_run_id == "train-run-baseline"
+    stub_client.list_monitoring_runs_with_tag.assert_any_call(
+        experiment_id="experiment-1",
+        tag_key=_BASELINE_CLAIM_TAG,
+    )
     stub_client.set_monitoring_experiment_tag.assert_not_called()
 
 
@@ -387,19 +392,31 @@ def test_get_timeline_state_rejects_contradictory_baseline_projection() -> None:
     stub_client.set_monitoring_experiment_tag.assert_not_called()
 
 
-def test_reconcile_timeline_baseline_writes_claim_before_projection() -> None:
-    allocation = _allocation_snapshot(
+def test_reconcile_timeline_baseline_writes_new_participant_claim_before_projection() -> None:
+    established_allocation = _allocation_snapshot(
         run_id="monitoring-run-1",
-        source_run_id="train-run-1",
+        source_run_id="train-run-established",
         sequence_index=0,
     )
-    durable_claims: list[MonitoringRunTagSnapshot] = []
+    current_allocation = _allocation_snapshot(
+        run_id="monitoring-run-2",
+        source_run_id="train-run-current",
+        sequence_index=1,
+    )
+    durable_claims = [
+        _baseline_claim_snapshot(
+            run_id="monitoring-run-1",
+            source_run_id="train-run-established",
+            sequence_index=0,
+            baseline_source_run_id="train-run-baseline",
+        )
+    ]
     stub_client = MagicMock()
     stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
     stub_client.get_monitoring_experiment_tags.return_value = {}
-    stub_client.get_run_tags.return_value = dict(allocation.tags)
+    stub_client.get_run_tags.return_value = dict(current_allocation.tags)
     stub_client.list_monitoring_runs_with_tag.side_effect = lambda experiment_id, tag_key: (
-        (allocation,)
+        (established_allocation, current_allocation)
         if tag_key == "training.source_run_id"
         else tuple(durable_claims)
         if tag_key == _BASELINE_CLAIM_TAG
@@ -407,13 +424,13 @@ def test_reconcile_timeline_baseline_writes_claim_before_projection() -> None:
     )
 
     def persist_claim(monitoring_run_id: str, tags: dict[str, str]) -> None:
-        assert monitoring_run_id == "monitoring-run-1"
+        assert monitoring_run_id == "monitoring-run-2"
         assert tags == {_BASELINE_CLAIM_TAG: "train-run-baseline"}
         durable_claims.append(
             _baseline_claim_snapshot(
                 run_id=monitoring_run_id,
-                source_run_id="train-run-1",
-                sequence_index=0,
+                source_run_id="train-run-current",
+                sequence_index=1,
                 baseline_source_run_id="train-run-baseline",
             )
         )
@@ -425,12 +442,12 @@ def test_reconcile_timeline_baseline_writes_claim_before_projection() -> None:
 
     timeline_state = gateway.reconcile_timeline_baseline(
         "churn_model",
-        "monitoring-run-1",
+        "monitoring-run-2",
         "train-run-baseline",
     )
 
     claim_call = call.set_monitoring_run_tags(
-        "monitoring-run-1",
+        "monitoring-run-2",
         {_BASELINE_CLAIM_TAG: "train-run-baseline"},
     )
     projection_call = call.set_monitoring_experiment_tag(
@@ -444,6 +461,44 @@ def test_reconcile_timeline_baseline_writes_claim_before_projection() -> None:
     assert stub_client.method_calls.index(claim_call) < stub_client.method_calls.index(
         projection_call
     )
+
+
+def test_reconcile_timeline_baseline_rejects_changed_durable_claim_before_writes() -> None:
+    claim = _baseline_claim_snapshot(
+        run_id="monitoring-run-1",
+        source_run_id="train-run-1",
+        sequence_index=0,
+        baseline_source_run_id="train-run-baseline-a",
+    )
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        _BASELINE_PROJECTION_TAG: "train-run-baseline-a"
+    }
+    stub_client.get_run_tags.return_value = dict(claim.tags)
+    stub_client.list_monitoring_runs_with_tag.side_effect = lambda experiment_id, tag_key: (
+        (claim,) if tag_key in {"training.source_run_id", _BASELINE_CLAIM_TAG} else ()
+    )
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.reconcile_timeline_baseline(
+            "churn_model",
+            "monitoring-run-1",
+            "train-run-baseline-b",
+        )
+
+    assert exc_info.value.code == "monitoring_timeline_inconsistent"
+    assert exc_info.value.details == (
+        ("reason", "claim_conflict"),
+        ("monitoring_run_id", "monitoring-run-1"),
+        ("existing_baseline_source_run_id", "train-run-baseline-a"),
+        ("requested_baseline_source_run_id", "train-run-baseline-b"),
+    )
+    stub_client.set_monitoring_run_tags.assert_not_called()
+    stub_client.set_monitoring_experiment_tag.assert_not_called()
 
 
 def test_reconcile_timeline_baseline_rechecks_claims_before_projection() -> None:
