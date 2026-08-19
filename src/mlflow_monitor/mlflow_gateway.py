@@ -821,7 +821,7 @@ class MLflowMonitoringGateway:
         )
         allocations_by_key: dict[IdempotencyKey, _MonitoringRunAllocation] = {}
         allocations_by_sequence: dict[int, _MonitoringRunAllocation] = {}
-        allocations_by_run_id: dict[str, _MonitoringRunAllocation] = {}
+        allocations_by_monitoring_run_id: dict[str, _MonitoringRunAllocation] = {}
         for allocation in allocations:
             existing_key_allocation = allocations_by_key.get(allocation.key)
             if existing_key_allocation is not None:
@@ -838,7 +838,7 @@ class MLflowMonitoringGateway:
                 )
             allocations_by_key[allocation.key] = allocation
             allocations_by_sequence[allocation.sequence_index] = allocation
-            allocations_by_run_id[allocation.monitoring_run_id] = allocation
+            allocations_by_monitoring_run_id[allocation.monitoring_run_id] = allocation
 
         ordered_allocations = tuple(
             sorted(allocations, key=lambda allocation: allocation.sequence_index)
@@ -855,7 +855,7 @@ class MLflowMonitoringGateway:
             experiment_tags=experiment_tags,
             ordered_allocations=ordered_allocations,
             allocations_by_sequence=allocations_by_sequence,
-            allocations_by_run_id=allocations_by_run_id,
+            allocations_by_monitoring_run_id=allocations_by_monitoring_run_id,
             next_sequence_index=next_sequence_index,
         )
         if repairs:
@@ -924,12 +924,12 @@ class MLflowMonitoringGateway:
         experiment_tags: Mapping[str, str],
         ordered_allocations: tuple[_MonitoringRunAllocation, ...],
         allocations_by_sequence: Mapping[int, _MonitoringRunAllocation],
-        allocations_by_run_id: Mapping[str, _MonitoringRunAllocation],
+        allocations_by_monitoring_run_id: Mapping[str, _MonitoringRunAllocation],
         next_sequence_index: int,
     ) -> dict[str, str]:
         """Return validated experiment-tag repairs in deterministic write order."""
         self._validate_timeline_index_tags(experiment_tags, allocations_by_sequence)
-        self._validate_allocation_pointer_tags(experiment_tags, allocations_by_run_id)
+        self._validate_allocation_pointer_tags(experiment_tags, allocations_by_monitoring_run_id)
 
         persisted_next_sequence = self._read_next_sequence_index(experiment_tags)
         if persisted_next_sequence > next_sequence_index:

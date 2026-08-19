@@ -52,6 +52,20 @@ class FailingAllocationIndexMLflowMonitoringGateway(MLflowMonitoringGateway):
         super()._set_experiment_tags(experiment_id, tags)
 
 
+class FailingBaselineProjectionMLflowMonitoringGateway(MLflowMonitoringGateway):
+    """Fail once after a durable baseline claim but before projection repair."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._fail_baseline_projection = True
+
+    def _set_experiment_tags(self, experiment_id: str, tags: Mapping[str, str]) -> None:
+        if self._fail_baseline_projection and "training.baseline_run_id" in tags:
+            self._fail_baseline_projection = False
+            raise RuntimeError("simulated baseline projection failure")
+        super()._set_experiment_tags(experiment_id, tags)
+
+
 class ExplodingContractChecker:
     """Fail the test if checked replay re-enters contract evaluation."""
 
@@ -234,12 +248,82 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     assert monitoring_run.info.status == "FINISHED"
     assert monitoring_run.data.tags["monitoring.lifecycle_status"] == "checked"
     assert monitoring_run.data.tags["monitoring.comparability_status"] == "pass"
+    assert monitoring_run.data.tags["monitoring.baseline_source_run_id"] == baseline_run_id
 
     artifact_dir = Path(raw.download_artifacts(result.monitoring_run_id, "outputs"))
     payload = json.loads((artifact_dir / "result.json").read_text())
     assert payload["monitoring_run_id"] == result.monitoring_run_id
     assert payload["timeline_id"] == experiment.experiment_id
     assert payload["lifecycle_status"] == "checked"
+
+
+def test_mlflow_gateway_repairs_projection_after_baseline_claim_interruption(
+    tracking_uri: str,
+    artifact_root_uri: str,
+    create_training_run: Callable[..., str],
+) -> None:
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    baseline_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="baseline",
+        metrics={"f1": 0.87},
+        params={"feature_columns": "age"},
+        tags={"schema.age": "int"},
+    )
+    current_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="current",
+        metrics={"f1": 0.91},
+        params={"feature_columns": "age"},
+        tags={"schema.age": "int"},
+    )
+    failing_gateway = FailingBaselineProjectionMLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated baseline projection failure"):
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id=current_run_id,
+            baseline_source_run_id=baseline_run_id,
+            gateway=failing_gateway,
+            contract_checker=DefaultContractChecker(),
+        )
+
+    experiment = raw.get_experiment_by_name("mlflow_monitor/churn_model")
+    assert experiment is not None
+    monitoring_run_id = experiment.tags[f"training.{current_run_id}.monitoring_run_id"]
+    interrupted_run = raw.get_run(monitoring_run_id)
+    assert interrupted_run.data.tags["monitoring.lifecycle_status"] == "created"
+    assert interrupted_run.data.tags["monitoring.baseline_source_run_id"] == baseline_run_id
+    assert "training.baseline_run_id" not in experiment.tags
+
+    replay_gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+    replay = run_orchestration(
+        subject_id="churn_model",
+        source_run_id=current_run_id,
+        baseline_source_run_id=None,
+        gateway=replay_gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    repaired_experiment = raw.get_experiment_by_name("mlflow_monitor/churn_model")
+    assert repaired_experiment is not None
+    monitoring_runs = raw.search_runs(experiment_ids=[repaired_experiment.experiment_id])
+    assert replay.monitoring_run_id == monitoring_run_id
+    assert replay.lifecycle_status is LifecycleStatus.CHECKED
+    assert repaired_experiment.tags["training.baseline_run_id"] == baseline_run_id
+    assert len(monitoring_runs) == 1
 
 
 def test_mlflow_gateway_checked_replay_repairs_incomplete_terminal_finalization(

@@ -17,6 +17,7 @@ from mlflow_monitor.domain import (
 )
 from mlflow_monitor.errors import (
     CheckStageError,
+    GatewayConsistencyViolation,
     PrepareStageError,
 )
 from mlflow_monitor.gateway import (
@@ -283,6 +284,28 @@ class AliasResolvingBaselineGateway(InMemoryMonitoringGateway):
             subject_id=subject_id,
             source_experiment=source_experiment,
             source_run_id=candidate,
+        )
+
+
+class RecordingBaselineClaimGateway(InMemoryMonitoringGateway):
+    """Record baseline reconciliation attempts made by Prepare."""
+
+    def __init__(self, config: GatewayConfig) -> None:
+        super().__init__(config)
+        self.baseline_claim_calls: list[tuple[str, str, str]] = []
+
+    def reconcile_timeline_baseline(
+        self,
+        subject_id: str,
+        monitoring_run_id: str,
+        baseline_source_run_id: str,
+    ) -> TimelineState:
+        """Record the claim before delegating to the in-memory gateway."""
+        self.baseline_claim_calls.append((subject_id, monitoring_run_id, baseline_source_run_id))
+        return super().reconcile_timeline_baseline(
+            subject_id,
+            monitoring_run_id,
+            baseline_source_run_id,
         )
 
 
@@ -1092,7 +1115,7 @@ def test_prepare_run_context_fails_for_uninitialized_timeline_with_missing_basel
 
 def test_prepare_run_context_does_not_bootstrap_when_source_run_resolution_fails() -> None:
     """Failed Prepare should retain allocation without pinning a baseline."""
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway = RecordingBaselineClaimGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-1",
@@ -1124,11 +1147,12 @@ def test_prepare_run_context_does_not_bootstrap_when_source_run_resolution_fails
     assert timeline_state is not None
     assert timeline_state.timeline_id == "timeline-churn_model"
     assert timeline_state.baseline_source_run_id is None
+    assert gateway.baseline_claim_calls == []
 
 
 def test_prepare_run_context_does_not_bootstrap_when_metric_validation_fails() -> None:
     """Metric validation failure should leave the baseline uninitialized."""
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway = RecordingBaselineClaimGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-1",
@@ -1160,11 +1184,12 @@ def test_prepare_run_context_does_not_bootstrap_when_metric_validation_fails() -
     assert timeline_state is not None
     assert timeline_state.timeline_id == "timeline-churn_model"
     assert timeline_state.baseline_source_run_id is None
+    assert gateway.baseline_claim_calls == []
 
 
 def test_prepare_run_context_does_not_bootstrap_when_artifact_validation_fails() -> None:
     """Artifact validation failure should leave the baseline uninitialized."""
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway = RecordingBaselineClaimGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-1",
@@ -1196,11 +1221,12 @@ def test_prepare_run_context_does_not_bootstrap_when_artifact_validation_fails()
     assert timeline_state is not None
     assert timeline_state.timeline_id == "timeline-churn_model"
     assert timeline_state.baseline_source_run_id is None
+    assert gateway.baseline_claim_calls == []
 
 
 def test_prepare_run_context_does_not_bootstrap_when_custom_reference_is_invalid() -> None:
     """Reference validation failure should leave the baseline uninitialized."""
-    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway = RecordingBaselineClaimGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
         source_run_id="train-run-1",
@@ -1232,6 +1258,47 @@ def test_prepare_run_context_does_not_bootstrap_when_custom_reference_is_invalid
     assert timeline_state is not None
     assert timeline_state.timeline_id == "timeline-churn_model"
     assert timeline_state.baseline_source_run_id is None
+    assert gateway.baseline_claim_calls == []
+
+
+def test_prepare_does_not_claim_baseline_when_lkg_reference_is_inconsistent() -> None:
+    """Prepare should finish current reference validation before claiming a baseline."""
+    gateway = RecordingBaselineClaimGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-1",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91},
+        artifacts=("metrics.json",),
+        environment={"python": "3.12"},
+        features=("age",),
+        schema={"age": "int"},
+        data_scope="validation:2026-03-01",
+    )
+    gateway.set_active_lkg_monitoring_run_id(
+        "churn_model",
+        "monitoring-run-missing",
+    )
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        prepare_test_context(
+            subject_id="churn_model",
+            compiled_invocation=make_compiled_invocation(
+                source_run_id="train-run-1",
+                source_experiment="training/churn",
+                required_metrics=("f1",),
+                required_artifacts=("metrics.json",),
+            ),
+            gateway=gateway,
+            baseline_source_run_id="train-run-1",
+        )
+
+    assert exc_info.value.code == "monitoring_reference_inconsistent"
+    assert gateway.baseline_claim_calls == []
+    assert gateway.get_timeline_state("churn_model") == TimelineState(
+        timeline_id="timeline-churn_model",
+        baseline_source_run_id=None,
+    )
 
 
 def test_prepare_rejects_foreign_subject_baseline_before_timeline_bootstrap() -> None:

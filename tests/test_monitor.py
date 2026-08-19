@@ -313,6 +313,26 @@ class RecordingPreparedCommitGateway(InMemoryMonitoringGateway):
         super().__init__(config)
         self.persistence_events: list[tuple[str, object]] = []
 
+    def reconcile_timeline_baseline(
+        self,
+        subject_id: str,
+        monitoring_run_id: str,
+        baseline_source_run_id: str,
+    ) -> TimelineState:
+        """Record a successfully persisted baseline claim."""
+        timeline_state = super().reconcile_timeline_baseline(
+            subject_id,
+            monitoring_run_id,
+            baseline_source_run_id,
+        )
+        self.persistence_events.append(
+            (
+                "baseline_claim",
+                (monitoring_run_id, baseline_source_run_id),
+            )
+        )
+        return timeline_state
+
     def write_monitoring_run_json_artifact(
         self,
         monitoring_run_id: str,
@@ -578,9 +598,18 @@ def test_prepare_writes_context_before_prepared_lifecycle_marker() -> None:
         contract_checker=DefaultContractChecker(),
     )
 
+    monitoring_run_id = gateway.idempotency_bindings("churn_model")[
+        "train-run-current|system_default|v0"
+    ]
+    claim_index = gateway.persistence_events.index(
+        (
+            "baseline_claim",
+            (monitoring_run_id, "train-run-baseline"),
+        )
+    )
     artifact_index = gateway.persistence_events.index(("artifact", _PREPARED_CONTEXT_PATH))
     prepared_index = gateway.persistence_events.index(("lifecycle", LifecycleStatus.PREPARED))
-    assert artifact_index < prepared_index
+    assert claim_index < artifact_index < prepared_index
 
 
 def test_created_replay_reuses_identical_partial_prepared_context() -> None:
