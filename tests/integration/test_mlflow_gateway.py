@@ -22,11 +22,12 @@ from mlflow_monitor.domain import (
     LifecycleStatus,
     MonitoringRunReference,
 )
-from mlflow_monitor.errors import PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
 from mlflow_monitor.result_contract import MonitorRunResult
+
+_PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_baseline"
 
 
 class FailingFinalizeMLflowMonitoringGateway(MLflowMonitoringGateway):
@@ -976,7 +977,7 @@ def test_mlflow_gateway_baseline_immutability_rejection(
     assert second.lifecycle_status is LifecycleStatus.FAILED
     assert second.comparability_status is None
     assert second.error is not None
-    assert second.error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
+    assert second.error.code == _PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert dict(experiment_after.tags) == experiment_tags_before
     assert experiment_after.tags["training.baseline_run_id"] == baseline_run_id
     assert monitoring_run_before.info.status == "FINISHED"

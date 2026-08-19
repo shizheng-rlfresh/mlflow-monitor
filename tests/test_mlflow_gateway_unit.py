@@ -8,7 +8,10 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from mlflow_monitor.domain import DiffReferenceKind, LifecycleStatus, MonitoringRunReference
-from mlflow_monitor.errors import GatewayConsistencyViolation, GatewayNamespaceViolation
+from mlflow_monitor.errors import (
+    GatewayConsistencyViolation,
+    GatewayNamespaceViolation,
+)
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_client import MonitoringRunInfo, MonitoringRunTagSnapshot
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
@@ -190,7 +193,7 @@ def test_get_timeline_state_distinguishes_no_allocation_from_allocated_uninitial
     assert gateway.get_timeline_state("churn_model") is None
     with pytest.raises(
         GatewayConsistencyViolation,
-        match="Timeline state for subject_id 'churn_model' not found.",
+        match="Timeline state not found for subject_id='churn_model'.",
     ):
         gateway.pin_timeline_baseline("churn_model", "train-run-1")
     stub_client.set_monitoring_experiment_tag.assert_not_called()
@@ -429,8 +432,8 @@ def test_create_or_reuse_monitoring_run_repairs_stale_latest_and_source_binding(
                 "monitoring.next_sequence_index": "0",
                 "training.train-run-1.monitoring_run_id": "unknown-run",
             },
-            "unknown_pointer",
-            id="repairable-next-plus-unknown-pointer",
+            "unknown_tag",
+            id="repairable-next-plus-unknown-tag",
         ),
         pytest.param(
             (

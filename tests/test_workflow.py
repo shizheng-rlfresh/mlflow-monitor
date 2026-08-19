@@ -16,7 +16,6 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
-    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
     PrepareStageError,
 )
@@ -38,7 +37,8 @@ from mlflow_monitor.workflow import (
     prepare_run_context as _prepare_run_context,
 )
 
-CONTRACT = resolve_contract_v0(SYSTEM_DEFAULT_CONTRACT_ID)
+_CONTRACT = resolve_contract_v0(SYSTEM_DEFAULT_CONTRACT_ID)
+_PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_baseline"
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,7 +383,7 @@ def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     assert prepared.previous_monitoring_run_id == fixture.custom_monitoring_run_id
     assert prepared.active_lkg_monitoring_run_id == fixture.previous_monitoring_run_id
     assert prepared.custom_reference_monitoring_run_id == fixture.custom_monitoring_run_id
-    assert prepared.contract == CONTRACT
+    assert prepared.contract == _CONTRACT
     assert prepared.required_metrics == ("auc", "f1")
     assert prepared.required_artifacts == ("metrics.json",)
     assert prepared.recipe_id == "default"
@@ -511,7 +511,7 @@ def test_execute_contract_check_fails_when_baseline_evidence_is_missing() -> Non
 
     with pytest.raises(CheckStageError) as exc_info:
         execute_contract_check(
-            prepared_context=make_prepared_context(contract=CONTRACT),
+            prepared_context=make_prepared_context(contract=_CONTRACT),
             gateway=gateway,
             contract_checker=DefaultContractChecker(),
         )
@@ -536,7 +536,7 @@ def test_execute_contract_check_fails_when_current_evidence_is_missing() -> None
 
     with pytest.raises(CheckStageError) as exc_info:
         execute_contract_check(
-            prepared_context=make_prepared_context(contract=CONTRACT),
+            prepared_context=make_prepared_context(contract=_CONTRACT),
             gateway=gateway,
             contract_checker=DefaultContractChecker(),
         )
@@ -572,7 +572,7 @@ def test_execute_contract_check_propagates_checker_failures() -> None:
 
     with pytest.raises(RuntimeError, match="checker exploded"):
         execute_contract_check(
-            prepared_context=make_prepared_context(contract=CONTRACT),
+            prepared_context=make_prepared_context(contract=_CONTRACT),
             gateway=gateway,
             contract_checker=RaisingContractChecker(),
         )
@@ -606,7 +606,7 @@ def test_execute_contract_check_rejects_invalid_checker_result() -> None:
 
     with pytest.raises(CheckStageError) as exc_info:
         execute_contract_check(
-            prepared_context=make_prepared_context(contract=CONTRACT),
+            prepared_context=make_prepared_context(contract=_CONTRACT),
             gateway=gateway,
             contract_checker=InvalidResultContractChecker(),
         )
@@ -632,7 +632,7 @@ def test_execute_contract_check_rejects_duplicate_reason_codes() -> None:
 
     with pytest.raises(CheckStageError) as exc_info:
         execute_contract_check(
-            prepared_context=make_prepared_context(contract=CONTRACT),
+            prepared_context=make_prepared_context(contract=_CONTRACT),
             gateway=gateway,
             contract_checker=DuplicateReasonContractChecker(),
         )
@@ -1458,7 +1458,7 @@ def test_prepare_run_context_fails_when_competing_bootstrap_pins_different_basel
         )
 
     error = exc_info.value
-    assert error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
+    assert error.code == _PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", "train-run-1"),
@@ -1680,7 +1680,7 @@ def test_prepare_run_context_fail_with_created_timeline_mismatch_baseline() -> N
         )
 
     error = exc_info.value
-    assert error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
+    assert error.code == _PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert error.details == (
         ("subject_id", "churn_model"),
         ("baseline_source_run_id", "train-run-other"),

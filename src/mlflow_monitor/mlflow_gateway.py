@@ -44,6 +44,7 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
+    AllocationConsistencyViolation,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
@@ -228,10 +229,8 @@ class MLflowMonitoringGateway:
 
         timeline_state = self.get_timeline_state(subject_id)
         if timeline_state is None:
-            raise GatewayConsistencyViolation(
-                code="timeline_state_not_found_for_subject_id",
-                message=f"Timeline state for subject_id '{subject_id}' not found.",
-                details=(("subject_id", subject_id),),
+            raise GatewayConsistencyViolation.timeline_state_not_found_for_subject_id(
+                subject_id=subject_id
             )
 
         if timeline_state.baseline_source_run_id is not None:
@@ -323,17 +322,11 @@ class MLflowMonitoringGateway:
         """
         self._validate_subject_id(subject_id)
         if self.resolve_timeline_monitoring_run_id(subject_id, monitoring_run_id) is None:
-            raise GatewayConsistencyViolation(
-                code="monitoring_run_subject_inconsistent",
-                message=(
-                    f"Monitoring run {monitoring_run_id!r} is not indexed on "
-                    f"subject_id={subject_id!r}."
-                ),
-                details=(
-                    ("subject_id", subject_id),
-                    ("monitoring_run_id", monitoring_run_id),
-                ),
+            raise GatewayConsistencyViolation.monitoring_run_subject_inconsistent(
+                subject_id=subject_id,
+                monitoring_run_id=monitoring_run_id,
             )
+
         persisted_source_run_id = self._mlflow.get_run_tags(monitoring_run_id).get(_SOURCE_RUN_TAG)
         if persisted_source_run_id != source_run_id:
             raise self._source_identity_consistency_error(
@@ -668,10 +661,8 @@ class MLflowMonitoringGateway:
             TrainingRunMutationViolation: Always. Training runs are read-only.
         """
         raise TrainingRunMutationViolation(
-            message=(
-                "Training runs are read-only in MLflow-Monitor; "
-                f"attempted mutation for source_run_id={source_run_id} with updates={dict(updates)}"
-            )
+            source_run_id=source_run_id,
+            updates=updates,
         )
 
     def finalize_monitoring_run_result(
@@ -787,12 +778,9 @@ class MLflowMonitoringGateway:
         if canonical_json(existing_artifact) == canonical_json(data):
             return
 
-        raise GatewayConsistencyViolation(
-            code="monitoring_run_json_artifact_inconsistent",
-            message=(
-                "Existing monitoring run JSON artifact is inconsistent with the requested data."
-            ),
-            details=(("monitoring_run_id", monitoring_run_id), ("path", path)),
+        raise GatewayConsistencyViolation.monitoring_run_json_artifact_inconsistent(
+            monitoring_run_id=monitoring_run_id,
+            path=path,
         )
 
     def _get_or_create_experiment_id(self, subject_id: str) -> str:
@@ -837,30 +825,16 @@ class MLflowMonitoringGateway:
         for allocation in allocations:
             existing_key_allocation = allocations_by_key.get(allocation.key)
             if existing_key_allocation is not None:
-                raise self._allocation_consistency_error(
-                    reason="duplicate_identity",
-                    message="Multiple monitoring runs claim the same allocation identity.",
-                    details=(
-                        ("first_monitoring_run_id", existing_key_allocation.monitoring_run_id),
-                        ("second_monitoring_run_id", allocation.monitoring_run_id),
-                    ),
+                raise AllocationConsistencyViolation.duplicate_identity(
+                    first_monitoring_run_id=existing_key_allocation.monitoring_run_id,
+                    second_monitoring_run_id=allocation.monitoring_run_id,
                 )
             existing_sequence_allocation = allocations_by_sequence.get(allocation.sequence_index)
             if existing_sequence_allocation is not None:
-                raise self._allocation_consistency_error(
-                    reason="duplicate_sequence",
-                    message=(
-                        "Multiple monitoring runs claim sequence index "
-                        f"{allocation.sequence_index}."
-                    ),
-                    details=(
-                        ("sequence_index", allocation.sequence_index),
-                        (
-                            "first_monitoring_run_id",
-                            existing_sequence_allocation.monitoring_run_id,
-                        ),
-                        ("second_monitoring_run_id", allocation.monitoring_run_id),
-                    ),
+                raise AllocationConsistencyViolation.duplicate_sequence(
+                    sequence_index=allocation.sequence_index,
+                    first_monitoring_run_id=existing_sequence_allocation.monitoring_run_id,
+                    second_monitoring_run_id=allocation.monitoring_run_id,
                 )
             allocations_by_key[allocation.key] = allocation
             allocations_by_sequence[allocation.sequence_index] = allocation
@@ -871,16 +845,9 @@ class MLflowMonitoringGateway:
         )
         for expected_sequence, allocation in enumerate(ordered_allocations):
             if allocation.sequence_index != expected_sequence:
-                raise self._allocation_consistency_error(
-                    reason="sequence_gap",
-                    message=(
-                        "Monitoring allocation sequences must be contiguous from zero; "
-                        f"expected {expected_sequence}, got {allocation.sequence_index}."
-                    ),
-                    details=(
-                        ("expected_sequence_index", expected_sequence),
-                        ("actual_sequence_index", allocation.sequence_index),
-                    ),
+                raise AllocationConsistencyViolation.sequence_gap(
+                    expected_sequence_index=expected_sequence,
+                    actual_sequence_index=allocation.sequence_index,
                 )
 
         next_sequence_index = len(ordered_allocations)
@@ -905,7 +872,7 @@ class MLflowMonitoringGateway:
         recipe_id = snapshot.tags.get(_RECIPE_ID_TAG)
         recipe_version = snapshot.tags.get(_RECIPE_VERSION_TAG)
         raw_sequence_index = snapshot.tags.get(_SEQUENCE_INDEX_TAG)
-        missing_fields = tuple(
+        missing_tags = tuple(
             field
             for field, value in (
                 (_SOURCE_RUN_TAG, source_run_id),
@@ -915,14 +882,10 @@ class MLflowMonitoringGateway:
             )
             if not value
         )
-        if not snapshot.run_id or missing_fields:
-            raise self._allocation_consistency_error(
-                reason="invalid_allocation",
-                message=(
-                    f"Monitoring run {snapshot.run_id!r} is missing durable allocation tags: "
-                    + ", ".join(missing_fields)
-                ),
-                details=(("monitoring_run_id", snapshot.run_id),),
+        if not snapshot.run_id or missing_tags:
+            raise AllocationConsistencyViolation.missing_durable_tags(
+                monitoring_run_id=snapshot.run_id,
+                missing_tags=missing_tags,
             )
 
         assert source_run_id is not None
@@ -933,25 +896,15 @@ class MLflowMonitoringGateway:
         try:
             sequence_index = int(raw_sequence_index)
         except (TypeError, ValueError) as exc:
-            raise self._allocation_consistency_error(
-                reason="invalid_allocation",
-                message=(
-                    f"Monitoring run {snapshot.run_id!r} has a non-integer sequence index: "
-                    f"{raw_sequence_index!r}."
-                ),
-                details=(("monitoring_run_id", snapshot.run_id),),
+            raise AllocationConsistencyViolation.non_integer_sequence(
+                monitoring_run_id=snapshot.run_id,
+                raw_sequence_index=raw_sequence_index,
             ) from exc
+
         if sequence_index < 0:
-            raise self._allocation_consistency_error(
-                reason="invalid_allocation",
-                message=(
-                    f"Monitoring run {snapshot.run_id!r} has a negative sequence index: "
-                    f"{sequence_index}."
-                ),
-                details=(
-                    ("monitoring_run_id", snapshot.run_id),
-                    ("sequence_index", sequence_index),
-                ),
+            raise AllocationConsistencyViolation.negative_sequence(
+                monitoring_run_id=snapshot.run_id,
+                sequence_index=sequence_index,
             )
 
         return _MonitoringRunAllocation(
@@ -980,16 +933,9 @@ class MLflowMonitoringGateway:
 
         persisted_next_sequence = self._read_next_sequence_index(experiment_tags)
         if persisted_next_sequence > next_sequence_index:
-            raise self._allocation_consistency_error(
-                reason="next_sequence_ahead",
-                message=(
-                    "monitoring.next_sequence_index is ahead of durable allocation state; "
-                    f"got {persisted_next_sequence}, expected {next_sequence_index}."
-                ),
-                details=(
-                    ("persisted_next_sequence_index", persisted_next_sequence),
-                    ("durable_next_sequence_index", next_sequence_index),
-                ),
+            raise AllocationConsistencyViolation.next_sequence_ahead(
+                persisted_next_sequence_index=persisted_next_sequence,
+                durable_next_sequence_index=next_sequence_index,
             )
 
         repairs: dict[str, str] = {}
@@ -1044,20 +990,12 @@ class MLflowMonitoringGateway:
 
             allocation = allocations_by_sequence.get(sequence_index)
             if allocation is None or allocation.monitoring_run_id != monitoring_run_id:
-                raise self._allocation_consistency_error(
-                    reason="timeline_conflict",
-                    message=(
-                        f"Experiment timeline slot {sequence_index} does not match its "
-                        "durable monitoring-run allocation."
-                    ),
-                    details=(
-                        ("sequence_index", sequence_index),
-                        ("indexed_monitoring_run_id", monitoring_run_id),
-                        (
-                            "durable_monitoring_run_id",
-                            None if allocation is None else allocation.monitoring_run_id,
-                        ),
-                    ),
+                raise AllocationConsistencyViolation.timeline_conflict(
+                    sequence_index=sequence_index,
+                    indexed_monitoring_run_id=monitoring_run_id,
+                    durable_monitoring_run_id=None
+                    if allocation is None
+                    else allocation.monitoring_run_id,
                 )
 
     def _validate_allocation_pointer_tags(
@@ -1068,10 +1006,8 @@ class MLflowMonitoringGateway:
         """Validate latest and source pointers before any repair writes occur."""
         latest_run_id = experiment_tags.get(_LATEST_TAG)
         if latest_run_id and latest_run_id not in allocations_by_run_id:
-            raise self._allocation_consistency_error(
-                reason="unknown_pointer",
-                message="monitoring.latest_run_id points to an unknown allocation.",
-                details=(("monitoring_run_id", latest_run_id),),
+            raise AllocationConsistencyViolation.unknown_pointer(
+                monitoring_run_id=latest_run_id,
             )
 
         source_prefix = "training."
@@ -1089,37 +1025,17 @@ class MLflowMonitoringGateway:
                 )
             allocation = allocations_by_run_id.get(monitoring_run_id)
             if allocation is None:
-                raise self._allocation_consistency_error(
-                    reason="unknown_pointer",
-                    message=f"Experiment tag {tag_key!r} points to an unknown allocation.",
-                    details=(("monitoring_run_id", monitoring_run_id),),
+                raise AllocationConsistencyViolation.unknown_tag(
+                    tag=tag_key,
+                    monitoring_run_id=monitoring_run_id,
                 )
             if allocation.key.source_run_id != source_run_id:
-                raise self._allocation_consistency_error(
-                    reason="source_binding_conflict",
-                    message=(
-                        f"Experiment tag {tag_key!r} points to a monitoring run allocated "
-                        f"for source {allocation.key.source_run_id!r}."
-                    ),
-                    details=(
-                        ("source_run_id", source_run_id),
-                        ("monitoring_run_id", monitoring_run_id),
-                    ),
+                raise AllocationConsistencyViolation.source_binding_conflict(
+                    tag=tag_key,
+                    monitoring_run_id=monitoring_run_id,
+                    source_run_id=source_run_id,
+                    persisted_source_run_id=allocation.key.source_run_id,
                 )
-
-    def _allocation_consistency_error(
-        self,
-        *,
-        reason: str,
-        message: str,
-        details: tuple[tuple[str, str | int | None], ...] = (),
-    ) -> GatewayConsistencyViolation:
-        """Build one operator-visible allocation consistency error."""
-        return GatewayConsistencyViolation(
-            code="monitoring_allocation_inconsistent",
-            message=message,
-            details=(("reason", reason), *details),
-        )
 
     def _set_experiment_tags(self, experiment_id: str, tags: Mapping[str, str]) -> None:
         """Write a batch of experiment tags via the thin MLflow adapter."""
@@ -1218,17 +1134,10 @@ class MLflowMonitoringGateway:
         persisted_source_run_id: str | None,
     ) -> GatewayConsistencyViolation:
         """Build a structured error for one contradictory monitoring/source pair."""
-        return GatewayConsistencyViolation(
-            code="monitoring_run_upsert_field_override",
-            message=(
-                "Monitoring run source identity is inconsistent for "
-                f"monitoring_run_id={monitoring_run_id!r}."
-            ),
-            details=(
-                ("monitoring_run_id", monitoring_run_id),
-                ("source_run_id", source_run_id),
-                ("persisted_source_run_id", persisted_source_run_id),
-            ),
+        return GatewayConsistencyViolation.monitoring_run_upsert_source_binding_conflict(
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+            persisted_source_run_id=persisted_source_run_id,
         )
 
     def _validate_namespace_prefix(self, prefix: str) -> None:
@@ -1262,14 +1171,7 @@ class MLflowMonitoringGateway:
             tag.value for tag in RequiredMonitoringRunTags if not run_tags.get(tag.value)
         )
         if missing_tags:
-            raise self._allocation_consistency_error(
-                reason="invalid_allocation",
-                message=(
-                    f"Monitoring run {monitoring_run_id!r} is missing durable allocation tags: "
-                    + ", ".join(missing_tags)
-                ),
-                details=(
-                    ("monitoring_run_id", monitoring_run_id),
-                    ("missing_tags", ",".join(missing_tags)),
-                ),
+            raise AllocationConsistencyViolation.missing_durable_tags(
+                monitoring_run_id=monitoring_run_id,
+                missing_tags=missing_tags,
             )

@@ -19,7 +19,7 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
-    PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE,
+    PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
     GatewayConsistencyViolation,
 )
 from mlflow_monitor.gateway import (
@@ -37,6 +37,7 @@ from mlflow_monitor.utils import canonical_json
 
 _PREPARED_CONTEXT_PATH = "state/prepared_context.json"
 _USE_STORED_PREPARED_CONTEXT = object()
+_PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS = "prepared_context_inconsistent"
 
 
 class _ReadablePreparedContextGateway(Protocol):
@@ -181,10 +182,10 @@ class BrokenUpsertGateway(InMemoryMonitoringGateway):
         references: tuple[MonitoringRunReference, ...] | None = None,
     ) -> None:
         if lifecycle_status is LifecycleStatus.PREPARED:
-            raise GatewayConsistencyViolation(
-                code="monitoring_run_upsert_field_override",
-                message="prepared upsert broke gateway consistency",
+            raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
+                fields=(("lifecycle_status", lifecycle_status.value),)
             )
+
         super().upsert_monitoring_run(
             subject_id=subject_id,
             monitoring_run_id=monitoring_run_id,
@@ -702,7 +703,7 @@ def test_prepared_replay_rejects_malformed_prepared_context() -> None:
             contract_checker=DefaultContractChecker(),
         )
 
-    assert exc_info.value.code == "prepared_context_inconsistent"
+    assert exc_info.value.code == _PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS
 
 
 def test_prepared_replay_rejects_conflicting_persisted_identity() -> None:
@@ -720,7 +721,7 @@ def test_prepared_replay_rejects_conflicting_persisted_identity() -> None:
             contract_checker=DefaultContractChecker(),
         )
 
-    assert exc_info.value.code == "prepared_context_inconsistent"
+    assert exc_info.value.code == _PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS
 
 
 def test_prepared_replay_rejects_changed_contract_definition_for_same_identity() -> None:
@@ -747,7 +748,7 @@ def test_prepared_replay_rejects_changed_contract_definition_for_same_identity()
             contract_checker=DefaultContractChecker(),
         )
 
-    assert exc_info.value.code == "prepared_context_inconsistent"
+    assert exc_info.value.code == _PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS
 
 
 def test_prepared_replay_rejects_different_effective_plan_for_same_recipe_identity() -> None:
@@ -767,7 +768,7 @@ def test_prepared_replay_rejects_different_effective_plan_for_same_recipe_identi
             contract_checker=DefaultContractChecker(),
         )
 
-    assert exc_info.value.code == "prepared_context_inconsistent"
+    assert exc_info.value.code == _PREPARED_CONTEXT_INCONSISTENT_CODE_FOR_TESTS
 
 
 def test_run_orchestration_upserts_created_when_allocation_exists_without_run_record() -> None:
@@ -1244,7 +1245,7 @@ def test_run_orchestration_raises_internal_gateway_errors_instead_of_normalizing
 
     with pytest.raises(
         GatewayConsistencyViolation,
-        match="prepared upsert broke gateway consistency",
+        match="Attempted to override immutable Monitoring Run field",
     ):
         run_orchestration(
             subject_id="churn_model",
@@ -1489,7 +1490,7 @@ def test_run_orchestration_rejects_baseline_override_on_checked_idempotent_rerun
     assert second.comparability_status is None
     assert second.error is not None
     assert second.error.stage == "prepare"
-    assert second.error.code == PREPARED_BASELINE_OVERRIDE_EXISTING_BASELINE
+    assert second.error.code == PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE
     assert stored is not None
     assert stored.lifecycle_status is LifecycleStatus.CHECKED
     assert stored.contract_check_result is not None
