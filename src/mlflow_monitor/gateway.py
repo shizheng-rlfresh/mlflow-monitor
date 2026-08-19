@@ -8,8 +8,8 @@ This module separates three kinds of state used by workflow:
 
 2. Timeline state
    Per-subject monitoring configuration created by the first Monitoring Run
-   allocation. Its `baseline_source_run_id` remains `None` until Prepare pins
-   the baseline through `pin_timeline_baseline()`.
+   allocation. Its `baseline_source_run_id` remains `None` until a successful
+   Prepare reconciles an immutable Monitoring Run baseline claim.
 
 3. Monitoring runs
    Runs owned by the monitoring timeline itself. In the in-memory gateway,
@@ -23,14 +23,15 @@ Lifecycle sketch:
   - monitoring runs do not exist yet
 
 - First Monitoring Run allocation and Prepare:
-  - allocation creates Timeline identity with no pinned baseline
+  - allocation creates Timeline identity with no established baseline
   - workflow resolves the source run through the gateway
-  - Prepare pins a valid caller-supplied baseline
-  - prepare then continues using the pinned timeline baseline
+  - Prepare validates all live inputs, then writes an immutable baseline claim
+  - the Timeline baseline projection is reconciled from durable claims
 
 - Later prepares:
   - workflow reads existing timeline state
   - baseline is resolved from timeline state, not from caller input
+  - each successful Monitoring Run writes the same immutable baseline claim
   - previous/custom monitoring references are resolved from monitoring runs
 """
 
@@ -53,6 +54,7 @@ from mlflow_monitor.domain import (
 from mlflow_monitor.errors import (
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
+    TimelineConsistencyViolation,
     TrainingRunMutationViolation,
 )
 from mlflow_monitor.result_contract import MonitorRunResult
@@ -105,16 +107,17 @@ class MonitoringRunRecord:
 
 @dataclass(frozen=True, slots=True)
 class TimelineState:
-    """Persisted timeline metadata stored by the in-memory gateway.
+    """Reconciled timeline metadata exposed by a monitoring gateway.
 
     Attributes:
         timeline_id: Stable timeline identifier.
-        baseline_source_run_id: Pinned baseline source run id
-            or None if not set yet.
+        baseline_source_run_id: Immutable baseline source run id, or `None`
+            before any claim or legacy projection establishes it.
 
     Note:
         When the first Monitoring Run is allocated, `baseline_source_run_id`
-        is `None`. Successful bootstrap pins the Baseline Source Run identity.
+        is `None`. Successful Prepare reconciles identical per-run claims into
+        this Timeline projection.
     """
 
     timeline_id: str
@@ -203,14 +206,6 @@ class SourceRunRecord:
         object.__setattr__(self, "schema", MappingProxyType(dict(self.schema)))
 
 
-@dataclass(frozen=True, slots=True)
-class TimelinePinBaselineResult:
-    """Result of pinning the timeline baseline attempt."""
-
-    timeline_id: str
-    baseline_pinned: bool
-
-
 class MonitoringGateway(Protocol):
     """Protocol for gateway-mediated monitoring persistence operations."""
 
@@ -225,10 +220,13 @@ class MonitoringGateway(Protocol):
         """
         ...
 
-    def pin_timeline_baseline(
-        self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelinePinBaselineResult:
-        """Pin the timeline baseline for a subject and return the result."""
+    def reconcile_timeline_baseline(
+        self,
+        subject_id: str,
+        monitoring_run_id: str,
+        baseline_source_run_id: str,
+    ) -> TimelineState:
+        """Persist one immutable baseline claim and reconcile Timeline state."""
         ...
 
     def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
@@ -346,6 +344,7 @@ class InMemoryMonitoringGateway:
         self._timeline_by_subject: dict[str, TimelineState] = {}
         self._next_sequence_by_subject: dict[str, int] = {}
         self._idempotency_bindings: dict[IdempotencyKey, tuple[str, int]] = {}
+        self._baseline_claim_by_monitoring_run_id: dict[str, str] = {}
         self._active_lkg_by_subject: dict[str, str] = {}
         self._monitoring_runs_by_subject: dict[str, dict[str, MonitoringRunRecord]] = {}
         self._source_runs_by_id: dict[str, SourceRunRecord] = {}
@@ -401,46 +400,85 @@ class InMemoryMonitoringGateway:
             allocated=True,
         )
 
-    def pin_timeline_baseline(
-        self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelinePinBaselineResult:
-        """Pin the timeline baseline for a subject and return the result.
+    def reconcile_timeline_baseline(
+        self,
+        subject_id: str,
+        monitoring_run_id: str,
+        baseline_source_run_id: str,
+    ) -> TimelineState:
+        """Persist a Monitoring Run baseline claim and reconcile Timeline state.
 
         Args:
             subject_id: Monitored subject identifier.
-            baseline_source_run_id: Source training run id to pin as timeline baseline.
+            monitoring_run_id: Claiming Monitoring Run identifier.
+            baseline_source_run_id: Immutable Baseline Source Run identifier.
 
         Returns:
-            Timeline identity and whether this call pinned the baseline.
+            Reconciled Timeline state.
+
+        Raises:
+            GatewayConsistencyViolation: If the Monitoring Run is not allocated
+                to the subject.
+            TimelineConsistencyViolation: If the requested claim contradicts
+                existing immutable Timeline state.
         """
         if not baseline_source_run_id:
             raise GatewayNamespaceViolation(message="baseline_source_run_id must be non-empty.")
 
         self._validate_subject_id(subject_id)
-
         timeline_state = self._timeline_by_subject.get(subject_id)
         if timeline_state is None:
             raise GatewayConsistencyViolation.timeline_state_not_found_for_subject_id(
                 subject_id=subject_id
             )
 
-        # ready to bootstrap the timeline with the baseline source run id
-        if timeline_state.baseline_source_run_id is None:
-            self._timeline_by_subject[subject_id] = TimelineState(
-                timeline_id=timeline_state.timeline_id,
-                baseline_source_run_id=baseline_source_run_id,
+        allocated_monitoring_run_ids = {
+            allocated_monitoring_run_id
+            for key, (allocated_monitoring_run_id, _) in self._idempotency_bindings.items()
+            if key.subject_id == subject_id
+        }
+        if monitoring_run_id not in allocated_monitoring_run_ids:
+            raise GatewayConsistencyViolation.monitoring_run_subject_inconsistent(
+                subject_id=subject_id,
+                monitoring_run_id=monitoring_run_id,
             )
 
-            return TimelinePinBaselineResult(
-                timeline_id=self._timeline_by_subject[subject_id].timeline_id,
-                baseline_pinned=True,
+        existing_claim = self._baseline_claim_by_monitoring_run_id.get(monitoring_run_id)
+        if existing_claim is not None and existing_claim != baseline_source_run_id:
+            raise TimelineConsistencyViolation.claim_conflict(
+                monitoring_run_id=monitoring_run_id,
+                existing_baseline_source_run_id=existing_claim,
+                requested_baseline_source_run_id=baseline_source_run_id,
             )
 
-        # timeline already has a baseline source run id, nothing to do
-        return TimelinePinBaselineResult(
-            timeline_id=timeline_state.timeline_id,
-            baseline_pinned=False,
+        established_baseline = timeline_state.baseline_source_run_id
+        if established_baseline is not None and established_baseline != baseline_source_run_id:
+            raise TimelineConsistencyViolation.claim_conflict(
+                monitoring_run_id=monitoring_run_id,
+                existing_baseline_source_run_id=established_baseline,
+                requested_baseline_source_run_id=baseline_source_run_id,
+            )
+
+        self._baseline_claim_by_monitoring_run_id[monitoring_run_id] = baseline_source_run_id
+        subject_claims = tuple(
+            sorted(
+                (
+                    allocated_monitoring_run_id,
+                    self._baseline_claim_by_monitoring_run_id[allocated_monitoring_run_id],
+                )
+                for allocated_monitoring_run_id in allocated_monitoring_run_ids
+                if allocated_monitoring_run_id in self._baseline_claim_by_monitoring_run_id
+            )
         )
+        if len({claim for _, claim in subject_claims}) > 1:
+            raise TimelineConsistencyViolation.conflicting_claims(claims=subject_claims)
+
+        reconciled_state = TimelineState(
+            timeline_id=timeline_state.timeline_id,
+            baseline_source_run_id=baseline_source_run_id,
+        )
+        self._timeline_by_subject[subject_id] = reconciled_state
+        return reconciled_state
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
         """Return timeline state for test and workflow read access.

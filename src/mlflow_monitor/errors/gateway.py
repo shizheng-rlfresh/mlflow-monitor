@@ -45,6 +45,7 @@ class _GatewayConsistencyCode(StrEnum):
 
     PREPARED_CONTEXT_INCONSISTENT = "prepared_context_inconsistent"
     MONITORING_ALLOCATION_INCONSISTENT = "monitoring_allocation_inconsistent"
+    MONITORING_TIMELINE_INCONSISTENT = "monitoring_timeline_inconsistent"
     MONITORING_RUN_UPSERT_FIELD_OVERRIDE = "monitoring_run_upsert_field_override"
     TIMELINE_STATE_NOT_FOUND_FOR_SUBJECT_ID = "timeline_state_not_found_for_subject_id"
     MONITORING_RUN_JSON_ARTIFACT_INCONSISTENT = "monitoring_run_json_artifact_inconsistent"
@@ -64,6 +65,14 @@ class _AllocationInconsistentReason(StrEnum):
     UNKNOWN_TAG = "unknown_tag"
     SOURCE_BINDING_CONFLICT = "source_binding_conflict"
     TIMELINE_CONFLICT = "timeline_conflict"
+
+
+class _TimelineInconsistentReason(StrEnum):
+    """Reasons for monitoring Timeline inconsistency."""
+
+    CLAIM_CONFLICT = "claim_conflict"
+    CONFLICTING_CLAIMS = "conflicting_claims"
+    PROJECTION_CONFLICT = "projection_conflict"
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,6 +430,93 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
                 ("sequence_index", sequence_index),
                 ("indexed_monitoring_run_id", indexed_monitoring_run_id),
                 ("durable_monitoring_run_id", durable_monitoring_run_id),
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineConsistencyViolation(GatewayConsistencyViolation):
+    """Raised when durable baseline claims or their projection conflict."""
+
+    @classmethod
+    def _create(
+        cls,
+        *,
+        reason: _TimelineInconsistentReason,
+        message: str,
+        details: tuple[tuple[str, str | int | None], ...],
+    ) -> TimelineConsistencyViolation:
+        """Create a violation with its stable code and normalized reason."""
+        return cls(
+            code=_GatewayConsistencyCode.MONITORING_TIMELINE_INCONSISTENT.value,
+            message=message,
+            details=(("reason", reason.value), *details),
+        )
+
+    @classmethod
+    def claim_conflict(
+        cls,
+        *,
+        monitoring_run_id: str,
+        existing_baseline_source_run_id: str,
+        requested_baseline_source_run_id: str,
+    ) -> TimelineConsistencyViolation:
+        """Create a violation for one Monitoring Run changing its baseline claim."""
+        return cls._create(
+            reason=_TimelineInconsistentReason.CLAIM_CONFLICT,
+            message=(
+                f"Monitoring Run {monitoring_run_id!r} cannot change its immutable baseline claim."
+            ),
+            details=(
+                ("monitoring_run_id", monitoring_run_id),
+                ("existing_baseline_source_run_id", existing_baseline_source_run_id),
+                ("requested_baseline_source_run_id", requested_baseline_source_run_id),
+            ),
+        )
+
+    @classmethod
+    def conflicting_claims(
+        cls,
+        *,
+        claims: tuple[tuple[str, str], ...],
+    ) -> TimelineConsistencyViolation:
+        """Create a violation for Monitoring Runs claiming different baselines."""
+        details = tuple(
+            field
+            for monitoring_run_id, baseline_source_run_id in claims
+            for field in (
+                ("monitoring_run_id", monitoring_run_id),
+                ("baseline_source_run_id", baseline_source_run_id),
+            )
+        )
+        return cls._create(
+            reason=_TimelineInconsistentReason.CONFLICTING_CLAIMS,
+            message="Monitoring Runs contain conflicting immutable baseline claims.",
+            details=details,
+        )
+
+    @classmethod
+    def projection_conflict(
+        cls,
+        *,
+        projected_baseline_source_run_id: str,
+        claims: tuple[tuple[str, str], ...],
+    ) -> TimelineConsistencyViolation:
+        """Create a violation for a projection contradicting durable claims."""
+        claim_details = tuple(
+            field
+            for monitoring_run_id, baseline_source_run_id in claims
+            for field in (
+                ("monitoring_run_id", monitoring_run_id),
+                ("baseline_source_run_id", baseline_source_run_id),
+            )
+        )
+        return cls._create(
+            reason=_TimelineInconsistentReason.PROJECTION_CONFLICT,
+            message="The experiment baseline projection contradicts durable claims.",
+            details=(
+                ("projected_baseline_source_run_id", projected_baseline_source_run_id),
+                *claim_details,
             ),
         )
 

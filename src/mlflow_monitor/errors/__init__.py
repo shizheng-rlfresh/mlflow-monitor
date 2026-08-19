@@ -5,6 +5,7 @@ from .gateway import (
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
     PreparedContextConsistencyViolation,
+    TimelineConsistencyViolation,
     TrainingRunMutationViolation,
 )
 from .invariant import InvariantViolation
@@ -33,5 +34,6 @@ __all__ = [
     "TrainingRunMutationViolation",
     "AllocationConsistencyViolation",
     "PreparedContextConsistencyViolation",
+    "TimelineConsistencyViolation",
     "PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE",
 ]
