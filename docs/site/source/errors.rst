@@ -47,6 +47,14 @@ Prepared-Context Consistency Violation
    :members:
    :show-inheritance:
 
+Timeline Consistency Violation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: mlflow_monitor.errors.TimelineConsistencyViolation
+   :members:
+   :show-inheritance:
+
+
 Gateway Namespace Violation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
