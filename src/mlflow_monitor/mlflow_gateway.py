@@ -261,7 +261,6 @@ class MLflowMonitoringGateway:
         claims = self._read_baseline_claims(
             subject_id=subject_id,
             experiment_id=experiment_id,
-            allocations_by_run_id=allocations_by_run_id,
         )
         established_baseline = self._resolve_baseline_projection(
             subject_id=subject_id,
@@ -301,7 +300,6 @@ class MLflowMonitoringGateway:
         claims = self._read_baseline_claims(
             subject_id=subject_id,
             experiment_id=experiment_id,
-            allocations_by_run_id=allocations_by_run_id,
         )
         unique_claim = self._get_unique_claimed_baseline(subject_id, claims)
         current_claim = next(
@@ -568,7 +566,6 @@ class MLflowMonitoringGateway:
         claims = self._read_baseline_claims(
             subject_id=subject_id,
             experiment_id=experiment_id,
-            allocations_by_run_id=allocations_by_run_id,
         )
         baseline_source_run_id = self._resolve_baseline_projection(
             subject_id=subject_id,
@@ -906,23 +903,27 @@ class MLflowMonitoringGateway:
         *,
         subject_id: str,
         experiment_id: str,
-        allocations_by_run_id: Mapping[str, _MonitoringRunAllocation],
     ) -> tuple[TimelineClaim, ...]:
         """Return deterministic durable baseline claims for allocated Monitoring Runs."""
         snapshots = self._mlflow.list_monitoring_runs_with_tag(
             experiment_id=experiment_id,
             tag_key=_BASELINE_CLAIM_TAG,
         )
+        allocations_by_run_id = self._read_timeline_allocations(
+            subject_id=subject_id,
+            experiment_id=experiment_id,
+        )
         claims: list[TimelineClaim] = []
         for snapshot in snapshots:
             baseline_source_run_id = snapshot.tags.get(_BASELINE_CLAIM_TAG)
             if not baseline_source_run_id:
                 continue
-            allocation = self._parse_monitoring_run_allocation(subject_id, snapshot)
-            if allocation.monitoring_run_id not in allocations_by_run_id:
+            claim_allocation = self._parse_monitoring_run_allocation(subject_id, snapshot)
+            allocation = allocations_by_run_id.get(claim_allocation.monitoring_run_id)
+            if allocation is None:
                 raise GatewayConsistencyViolation.monitoring_run_subject_inconsistent(
                     subject_id=subject_id,
-                    monitoring_run_id=allocation.monitoring_run_id,
+                    monitoring_run_id=claim_allocation.monitoring_run_id,
                 )
             claims.append(
                 TimelineClaim(

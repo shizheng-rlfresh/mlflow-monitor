@@ -468,6 +468,71 @@ def test_reconcile_timeline_baseline_writes_new_participant_claim_before_project
     )
 
 
+def test_reconcile_timeline_baseline_accepts_identical_claim_from_concurrent_allocation() -> None:
+    current_allocation = _allocation_snapshot(
+        run_id="monitoring-run-1",
+        source_run_id="train-run-1",
+        sequence_index=0,
+    )
+    concurrent_allocation = _allocation_snapshot(
+        run_id="monitoring-run-2",
+        source_run_id="train-run-2",
+        sequence_index=1,
+    )
+    durable_allocations = [current_allocation]
+    durable_claims: list[MonitoringRunTagSnapshot] = []
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {}
+    stub_client.get_run_tags.return_value = dict(current_allocation.tags)
+    stub_client.list_monitoring_runs_with_tag.side_effect = lambda experiment_id, tag_key: (
+        tuple(durable_allocations)
+        if tag_key == "training.source_run_id"
+        else tuple(durable_claims)
+        if tag_key == _BASELINE_CLAIM_TAG
+        else ()
+    )
+
+    def persist_identical_concurrent_claims(monitoring_run_id: str, tags: dict[str, str]) -> None:
+        assert monitoring_run_id == "monitoring-run-1"
+        assert tags == {_BASELINE_CLAIM_TAG: "train-run-baseline"}
+        durable_allocations.append(concurrent_allocation)
+        durable_claims.extend(
+            (
+                _baseline_claim_snapshot(
+                    run_id="monitoring-run-1",
+                    source_run_id="train-run-1",
+                    sequence_index=0,
+                    baseline_source_run_id="train-run-baseline",
+                ),
+                _baseline_claim_snapshot(
+                    run_id="monitoring-run-2",
+                    source_run_id="train-run-2",
+                    sequence_index=1,
+                    baseline_source_run_id="train-run-baseline",
+                ),
+            )
+        )
+
+    stub_client.set_monitoring_run_tags.side_effect = persist_identical_concurrent_claims
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    timeline_state = gateway.reconcile_timeline_baseline(
+        "churn_model",
+        "monitoring-run-1",
+        "train-run-baseline",
+    )
+
+    assert timeline_state.baseline_source_run_id == "train-run-baseline"
+    stub_client.set_monitoring_experiment_tag.assert_called_once_with(
+        "experiment-1",
+        _BASELINE_PROJECTION_TAG,
+        "train-run-baseline",
+    )
+
+
 def test_reconcile_timeline_baseline_rejects_changed_durable_claim_before_writes() -> None:
     claim = _baseline_claim_snapshot(
         run_id="monitoring-run-1",
