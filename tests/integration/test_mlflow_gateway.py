@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,11 @@ from mlflow_monitor.orchestration import run_orchestration
 from mlflow_monitor.result_contract import MonitorRunResult
 
 _PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_baseline"
+_BASELINE_CLAIM_TAG_PREFIX = "monitoring.baseline_source_run_id."
+
+
+def _baseline_claim_tag_key(baseline_source_run_id: str) -> str:
+    return f"{_BASELINE_CLAIM_TAG_PREFIX}{sha256(baseline_source_run_id.encode()).hexdigest()}"
 
 
 class FailingFinalizeMLflowMonitoringGateway(MLflowMonitoringGateway):
@@ -248,7 +254,7 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     assert monitoring_run.info.status == "FINISHED"
     assert monitoring_run.data.tags["monitoring.lifecycle_status"] == "checked"
     assert monitoring_run.data.tags["monitoring.comparability_status"] == "pass"
-    assert monitoring_run.data.tags["monitoring.baseline_source_run_id"] == baseline_run_id
+    assert monitoring_run.data.tags[_baseline_claim_tag_key(baseline_run_id)] == baseline_run_id
 
     artifact_dir = Path(raw.download_artifacts(result.monitoring_run_id, "outputs"))
     payload = json.loads((artifact_dir / "result.json").read_text())
@@ -301,7 +307,7 @@ def test_mlflow_gateway_repairs_projection_after_baseline_claim_interruption(
     monitoring_run_id = experiment.tags[f"training.{current_run_id}.monitoring_run_id"]
     interrupted_run = raw.get_run(monitoring_run_id)
     assert interrupted_run.data.tags["monitoring.lifecycle_status"] == "created"
-    assert interrupted_run.data.tags["monitoring.baseline_source_run_id"] == baseline_run_id
+    assert interrupted_run.data.tags[_baseline_claim_tag_key(baseline_run_id)] == baseline_run_id
     assert "training.baseline_run_id" not in experiment.tags
 
     replay_gateway = MLflowMonitoringGateway(

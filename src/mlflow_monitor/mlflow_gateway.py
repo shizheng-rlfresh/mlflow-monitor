@@ -35,6 +35,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from hashlib import sha256
 from typing import Any
 
 from mlflow_monitor.contract_checker import ContractEvidence
@@ -64,7 +65,7 @@ from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflow
 from mlflow_monitor.result_contract import MonitorRunResult
 from mlflow_monitor.utils import canonical_json
 
-_BASELINE_CLAIM_TAG = "monitoring.baseline_source_run_id"
+_BASELINE_CLAIM_TAG_PREFIX = "monitoring.baseline_source_run_id."
 _BASELINE_PROJECTION_TAG = "training.baseline_run_id"
 _IDEMPOTENCY_TAG_SUFFIX = ".monitoring_run_id"
 _LKG_TAG = "monitoring.lkg_run_id"
@@ -81,6 +82,12 @@ _REFERENCE_TAG_PREFIX = "monitoring.reference."
 _RESULT_ARTIFACT_PATH = "outputs/result.json"
 _VISIBLE_NON_FAILED_STATUSES = frozenset({LifecycleStatus.CHECKED, LifecycleStatus.CLOSED})
 _REFERENCE_KINDS = ("baseline", "previous", "lkg", "custom")
+
+
+def _baseline_claim_tag_key(baseline_source_run_id: str) -> str:
+    """Return the value-addressed tag key for one baseline claim."""
+    digest = sha256(baseline_source_run_id.encode()).hexdigest()
+    return f"{_BASELINE_CLAIM_TAG_PREFIX}{digest}"
 
 
 class RequiredMonitoringRunTags(StrEnum):
@@ -269,31 +276,21 @@ class MLflowMonitoringGateway:
             claims=claims,
             repair_missing_projection=False,
         )
+        requested_claim = TimelineClaim(
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+            claimed_baseline_source_run_id=baseline_source_run_id,
+        )
         if established_baseline is not None and established_baseline != baseline_source_run_id:
             raise TimelineConsistencyViolation.request_conflict(
-                requested_claim=TimelineClaim(
-                    monitoring_run_id=monitoring_run_id,
-                    source_run_id=source_run_id,
-                    claimed_baseline_source_run_id=baseline_source_run_id,
-                ),
+                requested_claim=requested_claim,
                 existing_baseline_source_run_id=established_baseline,
             )
 
-        monitoring_run_tags = self._mlflow.get_run_tags(monitoring_run_id)
-        existing_claim = monitoring_run_tags.get(_BASELINE_CLAIM_TAG)
-        if existing_claim and existing_claim != baseline_source_run_id:
-            raise TimelineConsistencyViolation.request_conflict(
-                requested_claim=TimelineClaim(
-                    monitoring_run_id=monitoring_run_id,
-                    source_run_id=source_run_id,
-                    claimed_baseline_source_run_id=baseline_source_run_id,
-                ),
-                existing_baseline_source_run_id=existing_claim,
-            )
-        if not existing_claim:
+        if requested_claim not in claims:
             self._mlflow.set_monitoring_run_tags(
                 monitoring_run_id,
-                {_BASELINE_CLAIM_TAG: baseline_source_run_id},
+                {_baseline_claim_tag_key(baseline_source_run_id): baseline_source_run_id},
             )
 
         # Read claims again for concurrency safety.
@@ -302,23 +299,10 @@ class MLflowMonitoringGateway:
             experiment_id=experiment_id,
         )
         unique_claim = self._get_unique_claimed_baseline(subject_id, claims)
-        current_claim = next(
-            (claim for claim in claims if claim.monitoring_run_id == monitoring_run_id),
-            None,
-        )
-        if (
-            current_claim is None
-            or current_claim.claimed_baseline_source_run_id != baseline_source_run_id
-        ):
+        if requested_claim not in claims or unique_claim != baseline_source_run_id:
             raise TimelineConsistencyViolation.request_conflict(
-                requested_claim=TimelineClaim(
-                    monitoring_run_id=monitoring_run_id,
-                    source_run_id=source_run_id,
-                    claimed_baseline_source_run_id=baseline_source_run_id,
-                ),
-                existing_baseline_source_run_id=None
-                if current_claim is None
-                else current_claim.claimed_baseline_source_run_id,
+                requested_claim=requested_claim,
+                existing_baseline_source_run_id=unique_claim,
             )
 
         reconciled_baseline = self._resolve_baseline_projection(
@@ -906,34 +890,31 @@ class MLflowMonitoringGateway:
         """Return deterministic durable baseline claims for allocated Monitoring Runs."""
         snapshots = self._mlflow.list_monitoring_runs_with_tag(
             experiment_id=experiment_id,
-            tag_key=_BASELINE_CLAIM_TAG,
-        )
-        allocations_by_run_id = self._read_timeline_allocations(
-            subject_id=subject_id,
-            experiment_id=experiment_id,
+            tag_key=_SOURCE_RUN_TAG,
         )
         claims: list[TimelineClaim] = []
         for snapshot in snapshots:
-            baseline_source_run_id = snapshot.tags.get(_BASELINE_CLAIM_TAG)
-            if not baseline_source_run_id:
-                continue
-            claim_allocation = self._parse_monitoring_run_allocation(subject_id, snapshot)
-            allocation = allocations_by_run_id.get(claim_allocation.monitoring_run_id)
-            if allocation is None:
-                raise GatewayConsistencyViolation.monitoring_run_subject_inconsistent(
-                    subject_id=subject_id,
-                    monitoring_run_id=claim_allocation.monitoring_run_id,
+            allocation = self._parse_monitoring_run_allocation(subject_id, snapshot)
+            for tag_key, baseline_source_run_id in snapshot.tags.items():
+                if not tag_key.startswith(_BASELINE_CLAIM_TAG_PREFIX) or not baseline_source_run_id:
+                    continue
+                claims.append(
+                    TimelineClaim(
+                        monitoring_run_id=allocation.monitoring_run_id,
+                        source_run_id=allocation.key.source_run_id,
+                        claimed_baseline_source_run_id=baseline_source_run_id,
+                    )
                 )
-            claims.append(
-                TimelineClaim(
-                    monitoring_run_id=allocation.monitoring_run_id,
-                    source_run_id=allocation.key.source_run_id,
-                    claimed_baseline_source_run_id=baseline_source_run_id,
-                )
-            )
 
-        # Sort claims by monitoring run id to ensure deterministic ordering.
-        return tuple(sorted(claims, key=lambda claim: claim.monitoring_run_id))
+        return tuple(
+            sorted(
+                claims,
+                key=lambda claim: (
+                    claim.monitoring_run_id,
+                    claim.claimed_baseline_source_run_id,
+                ),
+            )
+        )
 
     @staticmethod
     def _get_unique_claimed_baseline(
