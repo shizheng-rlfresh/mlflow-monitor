@@ -34,6 +34,7 @@ from mlflow_monitor.recipe import SYSTEM_DEFAULT_RECIPE_VERSION, build_system_de
 from mlflow_monitor.recipe_compiler import CompiledRecipe, ComponentRegistry, compile_recipe
 from mlflow_monitor.result_contract import MonitorRunResult
 from mlflow_monitor.utils import canonical_json
+from mlflow_monitor.workflow import PreparedReferencePlanEntry
 
 _PREPARED_CONTEXT_PATH = "state/prepared_context.json"
 _USE_STORED_PREPARED_CONTEXT = object()
@@ -119,9 +120,9 @@ def expected_prepared_context_payload(
     source_run_id: str,
     sequence_index: int,
     compiled_recipe: CompiledRecipe,
-    references: tuple[MonitoringRunReference, ...],
+    reference_plan: tuple[PreparedReferencePlanEntry, ...],
 ) -> dict[str, object]:
-    """Build the complete V0-012 prepared-context artifact contract."""
+    """Build the complete prepared-context artifact contract."""
     contract = compiled_recipe.contract
     return {
         "artifact_schema_version": "v0",
@@ -141,7 +142,7 @@ def expected_prepared_context_payload(
             "data_scope_contract_ref": contract.data_scope_contract_ref,
             "execution_contract_ref": contract.execution_contract_ref,
         },
-        "references": [reference.to_dict() for reference in references],
+        "references": [entry.to_dict() for entry in reference_plan],
     }
 
 
@@ -573,26 +574,42 @@ def test_run_orchestration_persists_complete_prepared_context() -> None:
         contract_checker=DefaultContractChecker(),
     )
 
-    expected_references = (
-        MonitoringRunReference(
+    expected_reference_plan = (
+        PreparedReferencePlanEntry(
             kind=DiffReferenceKind.BASELINE,
-            monitoring_run_id=None,
-            source_run_id="train-run-baseline",
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.BASELINE,
+                monitoring_run_id=None,
+                source_run_id="train-run-baseline",
+            ),
+            unavailable_reason=None,
         ),
-        MonitoringRunReference(
+        PreparedReferencePlanEntry(
             kind=DiffReferenceKind.PREVIOUS,
-            monitoring_run_id=first.monitoring_run_id,
-            source_run_id="train-run-current",
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.PREVIOUS,
+                monitoring_run_id=first.monitoring_run_id,
+                source_run_id="train-run-current",
+            ),
+            unavailable_reason=None,
         ),
-        MonitoringRunReference(
+        PreparedReferencePlanEntry(
             kind=DiffReferenceKind.LKG,
-            monitoring_run_id=first.monitoring_run_id,
-            source_run_id="train-run-current",
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.LKG,
+                monitoring_run_id=first.monitoring_run_id,
+                source_run_id="train-run-current",
+            ),
+            unavailable_reason=None,
         ),
-        MonitoringRunReference(
+        PreparedReferencePlanEntry(
             kind=DiffReferenceKind.CUSTOM,
-            monitoring_run_id=first.monitoring_run_id,
-            source_run_id="train-run-current",
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.CUSTOM,
+                monitoring_run_id=first.monitoring_run_id,
+                source_run_id="train-run-current",
+            ),
+            unavailable_reason=None,
         ),
     )
     assert read_prepared_context(gateway, second.monitoring_run_id) == (
@@ -601,7 +618,7 @@ def test_run_orchestration_persists_complete_prepared_context() -> None:
             source_run_id="train-run-next",
             sequence_index=1,
             compiled_recipe=compiled_recipe,
-            references=expected_references,
+            reference_plan=expected_reference_plan,
         )
     )
 

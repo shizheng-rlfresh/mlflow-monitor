@@ -122,7 +122,20 @@ def test_monitor_run_defaults_to_real_mlflow_gateway(
                 "kind": DiffReferenceKind.BASELINE,
                 "monitoring_run_id": None,
                 "source_run_id": baseline_run_id,
-            }
+                "unavailable_reason": None,
+            },
+            {
+                "kind": DiffReferenceKind.PREVIOUS,
+                "monitoring_run_id": None,
+                "source_run_id": None,
+                "unavailable_reason": "previous_reference_missing",
+            },
+            {
+                "kind": DiffReferenceKind.LKG,
+                "monitoring_run_id": None,
+                "source_run_id": None,
+                "unavailable_reason": "lkg_not_selected",
+            },
         ],
     }
 

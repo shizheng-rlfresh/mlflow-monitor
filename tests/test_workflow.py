@@ -31,7 +31,10 @@ from mlflow_monitor.recipe import SYSTEM_DEFAULT_RECIPE_ID
 from mlflow_monitor.recipe_compiler import CompiledRecipe, compile_recipe
 from mlflow_monitor.workflow import (
     PreparedContext,
+    PreparedReferencePlanEntry,
     execute_contract_check,
+    hydrate_prepared_context,
+    prepared_context_to_dict,
 )
 from mlflow_monitor.workflow import (
     prepare_run_context as _prepare_run_context,
@@ -334,14 +337,162 @@ def make_prepared_context(
         baseline_source_run_id=baseline_source_run_id,
         effective_recipe=compiled_recipe.effective_plan,
         contract=contract,
-        references=(
-            MonitoringRunReference(
+        reference_plan=(
+            PreparedReferencePlanEntry(
                 kind=DiffReferenceKind.BASELINE,
-                monitoring_run_id=None,
-                source_run_id=baseline_source_run_id,
+                reference=MonitoringRunReference(
+                    kind=DiffReferenceKind.BASELINE,
+                    monitoring_run_id=None,
+                    source_run_id=baseline_source_run_id,
+                ),
+                unavailable_reason=None,
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.PREVIOUS,
+                reference=None,
+                unavailable_reason="previous_reference_missing",
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.LKG,
+                reference=None,
+                unavailable_reason="lkg_not_selected",
             ),
         ),
     )
+
+
+def test_prepared_context_exposes_resolved_references_from_fixed_plan() -> None:
+    """Prepared context should retain unavailable planned reference groups."""
+    compiled_recipe = compile_recipe()
+    baseline = MonitoringRunReference(
+        kind=DiffReferenceKind.BASELINE,
+        monitoring_run_id=None,
+        source_run_id="train-run-baseline",
+    )
+    context = PreparedContext(
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-current",
+        subject_id="churn_model",
+        timeline_id="timeline-churn_model",
+        sequence_index=0,
+        baseline_source_run_id="train-run-baseline",
+        effective_recipe=compiled_recipe.effective_plan,
+        contract=compiled_recipe.contract,
+        reference_plan=(
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.BASELINE,
+                reference=baseline,
+                unavailable_reason=None,
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.PREVIOUS,
+                reference=None,
+                unavailable_reason="previous_reference_missing",
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.LKG,
+                reference=None,
+                unavailable_reason="lkg_not_selected",
+            ),
+        ),
+    )
+
+    assert context.references == (baseline,)
+    assert prepared_context_to_dict(context)["references"] == [
+        {
+            "kind": "baseline",
+            "monitoring_run_id": None,
+            "source_run_id": "train-run-baseline",
+            "unavailable_reason": None,
+        },
+        {
+            "kind": "previous",
+            "monitoring_run_id": None,
+            "source_run_id": None,
+            "unavailable_reason": "previous_reference_missing",
+        },
+        {
+            "kind": "lkg",
+            "monitoring_run_id": None,
+            "source_run_id": None,
+            "unavailable_reason": "lkg_not_selected",
+        },
+    ]
+
+
+def test_hydrate_prepared_context_accepts_inconsistent_lkg_plan_shape() -> None:
+    """Hydration should retain nonfatal LKG inconsistency for V0-030 replay."""
+    compiled_recipe = compile_recipe()
+    context = PreparedContext(
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-current",
+        subject_id="churn_model",
+        timeline_id="timeline-churn_model",
+        sequence_index=3,
+        baseline_source_run_id="train-run-baseline",
+        effective_recipe=compiled_recipe.effective_plan,
+        contract=compiled_recipe.contract,
+        reference_plan=(
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.BASELINE,
+                reference=MonitoringRunReference(
+                    kind=DiffReferenceKind.BASELINE,
+                    monitoring_run_id=None,
+                    source_run_id="train-run-baseline",
+                ),
+                unavailable_reason=None,
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.PREVIOUS,
+                reference=None,
+                unavailable_reason="previous_reference_missing",
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.LKG,
+                reference=None,
+                unavailable_reason="lkg_selection_inconsistent",
+            ),
+        ),
+    )
+
+    hydrated = hydrate_prepared_context(
+        prepared_context_to_dict(context),
+        compiled_recipe=compiled_recipe,
+        monitoring_run_id=context.monitoring_run_id,
+        source_run_id=context.source_run_id,
+        subject_id=context.subject_id,
+        timeline_id=context.timeline_id,
+        sequence_index=context.sequence_index,
+    )
+
+    assert hydrated == context
+
+
+def test_hydrate_prepared_context_rejects_resolved_only_legacy_shape() -> None:
+    """Pre-V0-014 prepared artifacts should fail closed without migration."""
+    compiled_recipe = compile_recipe()
+    context = make_prepared_context(contract=compiled_recipe.contract)
+    raw = prepared_context_to_dict(context)
+    references = raw["references"]
+    assert isinstance(references, list)
+    raw["references"] = [
+        {key: value for key, value in reference.items() if key != "unavailable_reason"}
+        for reference in references
+        if isinstance(reference, dict)
+    ]
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        hydrate_prepared_context(
+            raw,
+            compiled_recipe=compiled_recipe,
+            monitoring_run_id=context.monitoring_run_id,
+            source_run_id=context.source_run_id,
+            subject_id=context.subject_id,
+            timeline_id=context.timeline_id,
+            sequence_index=context.sequence_index,
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
 
 
 def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
