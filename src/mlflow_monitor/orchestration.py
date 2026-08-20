@@ -278,6 +278,11 @@ def _run_prepare_monitoring_run_slice(
                 error=rerun_error,
             )
 
+        gateway.reconcile_timeline_baseline(
+            state.subject_id,
+            state.monitoring_run_id,
+            prepared_context.baseline_source_run_id,
+        )
         return prepared_context
 
     try:

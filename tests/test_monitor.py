@@ -418,6 +418,7 @@ class PreparedReplayGateway(InMemoryMonitoringGateway):
         self.block_prepare_resolution = False
         self.prepared_context_override: object = _USE_STORED_PREPARED_CONTEXT
         self.corrupt_timeline_id = False
+        self.baseline_reconciliations: list[tuple[str, str]] = []
         self.last_allocation: CreateOrReuseMonitoringRunResult | None = None
         self._allocation_in_progress = False
 
@@ -431,6 +432,25 @@ class PreparedReplayGateway(InMemoryMonitoringGateway):
             self._allocation_in_progress = False
         self.last_allocation = result
         return result
+
+    def reconcile_timeline_baseline(
+        self,
+        subject_id: str,
+        monitoring_run_id: str,
+        baseline_source_run_id: str,
+    ) -> TimelineState:
+        timeline_state = super().reconcile_timeline_baseline(
+            subject_id,
+            monitoring_run_id,
+            baseline_source_run_id,
+        )
+        self.baseline_reconciliations.append((monitoring_run_id, baseline_source_run_id))
+        return timeline_state
+
+    def simulate_projection_only_prepared_run(self, monitoring_run_id: str) -> None:
+        """Remove the durable claim to model state written before V0-013."""
+        self._baseline_claim_by_monitoring_run_id.pop(monitoring_run_id)
+        self.baseline_reconciliations.clear()
 
     def get_timeline_state(self, subject_id: str) -> TimelineState | None:
         if self.block_prepare_resolution and not self._allocation_in_progress:
@@ -699,6 +719,25 @@ def test_prepared_replay_hydrates_context_without_prepare_resolution() -> None:
 
     assert replay.monitoring_run_id == monitoring_run_id
     assert replay.lifecycle_status is LifecycleStatus.CHECKED
+
+
+def test_prepared_replay_materializes_missing_baseline_claim() -> None:
+    gateway = PreparedReplayGateway(GatewayConfig())
+    add_default_source_runs(gateway)
+    monitoring_run_id = leave_monitoring_run_prepared(gateway)
+    gateway.simulate_projection_only_prepared_run(monitoring_run_id)
+    gateway.block_prepare_resolution = True
+
+    replay = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=DefaultContractChecker(),
+    )
+
+    assert replay.lifecycle_status is LifecycleStatus.CHECKED
+    assert gateway.baseline_reconciliations == [(monitoring_run_id, "train-run-baseline")]
 
 
 def test_prepared_replay_rejects_missing_prepared_context() -> None:
