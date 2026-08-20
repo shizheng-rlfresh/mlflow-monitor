@@ -5,9 +5,9 @@ This module contains backend-agnostic workflow logic for two responsibilities:
 1. Prepare-stage context resolution before contract checking begins.
 2. Contract checking and evaluation after prepare-stage context resolution.
 
-Prepare-stage resolution combines caller inputs (run identity, compiled plan,
+Prepare-stage resolution combines caller inputs (Monitoring Run identity, compiled plan,
 resolved contract, optional first-run baseline input) with gateway-resolved
-state (timeline, source run, prior monitoring runs, and optional references).
+state (Timeline, Source Training Run, prior Monitoring Runs, and optional references).
 The workflow layer decides what must be resolved for a run to proceed, while
 the gateway owns all persistence-specific mechanics.
 """
@@ -550,7 +550,8 @@ def prepare_run_context(
             Run selected as a custom reference.
 
     Raises:
-        PrepareStageError: If required prepare-stage references or inputs are missing.
+        PrepareStageError: If required Prepare inputs are missing or an invocation-owned
+            custom Reference Monitoring Run is invalid.
 
     Returns:
         Success-only prepared context for later workflow stages.

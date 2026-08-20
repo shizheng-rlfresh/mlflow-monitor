@@ -487,7 +487,7 @@ def test_mlflow_gateway_replays_prepared_context_after_check_interruption(
     assert replay.lifecycle_status is LifecycleStatus.CHECKED
 
 
-def test_mlflow_gateway_reuses_baseline_skips_legacy_checked_and_replays(
+def test_mlflow_gateway_skips_legacy_checked_selects_closed_and_replays(
     tracking_uri: str,
     artifact_root_uri: str,
     create_training_run: Callable[..., str],
@@ -532,6 +532,19 @@ def test_mlflow_gateway_reuses_baseline_skips_legacy_checked_and_replays(
             "data_scope": "validation:2026-03-02",
         },
     )
+    reference_source_run_id = create_training_run(
+        raw=raw,
+        experiment_name="training/churn",
+        artifact_root_uri=artifact_root_uri,
+        run_name="reference",
+        metrics={"f1": 0.90},
+        params={"feature_columns": "age"},
+        tags={
+            "python_version": "3.12",
+            "schema.age": "int",
+            "data_scope": "validation:2026-03-01",
+        },
+    )
     gateway = MLflowMonitoringGateway(
         GatewayConfig(),
         tracking_uri=tracking_uri,
@@ -544,6 +557,21 @@ def test_mlflow_gateway_reuses_baseline_skips_legacy_checked_and_replays(
         baseline_source_run_id=baseline_run_id,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
+    )
+    reference_allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id=reference_source_run_id,
+            recipe_id="system_default",
+            recipe_version="v0",
+        )
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=reference_allocation.monitoring_run_id,
+        source_run_id=reference_source_run_id,
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=reference_allocation.sequence_index,
     )
     second = run_orchestration(
         subject_id="churn_model",
@@ -568,14 +596,20 @@ def test_mlflow_gateway_reuses_baseline_skips_legacy_checked_and_replays(
             monitoring_run_id=None,
             source_run_id=baseline_run_id,
         ),
+        MonitoringRunReference(
+            kind=DiffReferenceKind.PREVIOUS,
+            monitoring_run_id=reference_allocation.monitoring_run_id,
+            source_run_id=reference_source_run_id,
+        ),
     )
     assert second.comparability_status is ComparabilityStatus.FAIL
     assert replay.monitoring_run_id == second.monitoring_run_id
     assert replay.references == second.references
     assert experiment.tags["monitoring.latest_run_id"] == second.monitoring_run_id
-    assert experiment.tags["monitoring.next_sequence_index"] == "2"
+    assert experiment.tags["monitoring.next_sequence_index"] == "3"
     assert experiment.tags["monitoring.run.0"] == first.monitoring_run_id
-    assert experiment.tags["monitoring.run.1"] == second.monitoring_run_id
+    assert experiment.tags["monitoring.run.1"] == reference_allocation.monitoring_run_id
+    assert experiment.tags["monitoring.run.2"] == second.monitoring_run_id
 
 
 def test_mlflow_gateway_owned_failure_terminates_failed_and_leaves_training_runs_unchanged(
