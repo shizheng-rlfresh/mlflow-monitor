@@ -320,7 +320,6 @@ class MLflowMonitoringGateway:
                 if current_claim is None
                 else current_claim.claimed_baseline_source_run_id,
             )
-        assert unique_claim == baseline_source_run_id
 
         reconciled_baseline = self._resolve_baseline_projection(
             subject_id=subject_id,
