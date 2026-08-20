@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
 from mlflow_monitor.contract_checker import (
     ContractChecker,
@@ -561,7 +562,11 @@ def prepare_run_context(
         monitoring_run_id,
         baseline_resolution_result.baseline_source_run_id,
     )
-    reconciled_baseline_source_run_id = timeline_state.baseline_source_run_id
+
+    # reconciled_baseline_source_run_id is guaranteed to be a str
+    # if .reconcile_timeline_baseline() returns without raising an exception.
+    # Therefore, adding an error check here is unnecessary, and we can safely cast it to str.
+    reconciled_baseline_source_run_id = cast(str, timeline_state.baseline_source_run_id)
 
     return PreparedContext(
         monitoring_run_id=monitoring_run_id,
