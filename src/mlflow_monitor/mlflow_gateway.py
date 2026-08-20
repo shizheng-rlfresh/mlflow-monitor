@@ -895,14 +895,24 @@ class MLflowMonitoringGateway:
         claims: list[TimelineClaim] = []
         for snapshot in snapshots:
             allocation = self._parse_monitoring_run_allocation(subject_id, snapshot)
-            for tag_key, baseline_source_run_id in snapshot.tags.items():
-                if not tag_key.startswith(_BASELINE_CLAIM_TAG_PREFIX) or not baseline_source_run_id:
+            for tag_key, tag_value in snapshot.tags.items():
+                if not tag_key.startswith(_BASELINE_CLAIM_TAG_PREFIX) or not tag_value:
                     continue
+
+                claimed_baseline_source_run_id = tag_value
+                if tag_key != _baseline_claim_tag_key(claimed_baseline_source_run_id):
+                    raise TimelineConsistencyViolation.claim_address_mismatch(
+                        monitoring_run_id=allocation.monitoring_run_id,
+                        source_run_id=allocation.key.source_run_id,
+                        tag_key=tag_key,
+                        claimed_baseline_source_run_id=claimed_baseline_source_run_id,
+                    )
+
                 claims.append(
                     TimelineClaim(
                         monitoring_run_id=allocation.monitoring_run_id,
                         source_run_id=allocation.key.source_run_id,
-                        claimed_baseline_source_run_id=baseline_source_run_id,
+                        claimed_baseline_source_run_id=claimed_baseline_source_run_id,
                     )
                 )
 

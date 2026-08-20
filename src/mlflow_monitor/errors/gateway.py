@@ -74,6 +74,7 @@ class _TimelineInconsistentReason(StrEnum):
     REQUEST_CONFLICT = "request_conflict"
     CLAIMS_CONFLICT = "claims_conflict"
     PROJECTION_CONFLICT = "projection_conflict"
+    CLAIM_ADDRESS_MISMATCH = "claim_address_mismatch"
 
 
 @dataclass(frozen=True, slots=True)
@@ -530,6 +531,31 @@ class TimelineConsistencyViolation(GatewayConsistencyViolation):
                 ("subject_id", subject_id),
                 ("projected_baseline_source_run_id", projected_baseline_source_run_id),
                 *claim_details,
+            ),
+        )
+
+    @classmethod
+    def claim_address_mismatch(
+        cls,
+        *,
+        monitoring_run_id: str,
+        source_run_id: str,
+        tag_key: str,
+        claimed_baseline_source_run_id: str,
+    ) -> TimelineConsistencyViolation:
+        """Create a violation for a claim tag that does not match its expected address."""
+        return cls._create(
+            reason=_TimelineInconsistentReason.CLAIM_ADDRESS_MISMATCH,
+            message=(
+                f"monitoring_run_id={monitoring_run_id!r} claimed baseline tag={tag_key!r} "
+                "does not match its expected address for "
+                f"claimed_baseline_source_run_id={claimed_baseline_source_run_id!r}."
+            ),
+            details=(
+                ("monitoring_run_id", monitoring_run_id),
+                ("source_run_id", source_run_id),
+                ("tag_key", tag_key),
+                ("claimed_baseline_source_run_id", claimed_baseline_source_run_id),
             ),
         )
 

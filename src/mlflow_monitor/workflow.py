@@ -562,7 +562,6 @@ def prepare_run_context(
         baseline_resolution_result.baseline_source_run_id,
     )
     reconciled_baseline_source_run_id = timeline_state.baseline_source_run_id
-    assert reconciled_baseline_source_run_id is not None
 
     return PreparedContext(
         monitoring_run_id=monitoring_run_id,
