@@ -256,6 +256,7 @@ class MLflowMonitoringGateway:
                 subject_id=subject_id,
                 monitoring_run_id=monitoring_run_id,
             )
+        source_run_id = allocations_by_run_id[monitoring_run_id].key.source_run_id
 
         claims = self._read_baseline_claims(
             subject_id=subject_id,
@@ -271,22 +272,24 @@ class MLflowMonitoringGateway:
         )
         if established_baseline is not None and established_baseline != baseline_source_run_id:
             raise TimelineConsistencyViolation.request_conflict(
-                claim=TimelineClaim(
+                requested_claim=TimelineClaim(
                     monitoring_run_id=monitoring_run_id,
-                    claimed_baseline_source_run_id=established_baseline,
+                    source_run_id=source_run_id,
+                    claimed_baseline_source_run_id=baseline_source_run_id,
                 ),
-                requested_baseline_source_run_id=baseline_source_run_id,
+                existing_baseline_source_run_id=established_baseline,
             )
 
         monitoring_run_tags = self._mlflow.get_run_tags(monitoring_run_id)
         existing_claim = monitoring_run_tags.get(_BASELINE_CLAIM_TAG)
         if existing_claim and existing_claim != baseline_source_run_id:
             raise TimelineConsistencyViolation.request_conflict(
-                claim=TimelineClaim(
+                requested_claim=TimelineClaim(
                     monitoring_run_id=monitoring_run_id,
-                    claimed_baseline_source_run_id=existing_claim,
+                    source_run_id=source_run_id,
+                    claimed_baseline_source_run_id=baseline_source_run_id,
                 ),
-                requested_baseline_source_run_id=baseline_source_run_id,
+                existing_baseline_source_run_id=existing_claim,
             )
         if not existing_claim:
             self._mlflow.set_monitoring_run_tags(
@@ -310,13 +313,14 @@ class MLflowMonitoringGateway:
             or current_claim.claimed_baseline_source_run_id != baseline_source_run_id
         ):
             raise TimelineConsistencyViolation.request_conflict(
-                claim=current_claim
-                if current_claim is not None
-                else TimelineClaim(
+                requested_claim=TimelineClaim(
                     monitoring_run_id=monitoring_run_id,
-                    claimed_baseline_source_run_id=None,
+                    source_run_id=source_run_id,
+                    claimed_baseline_source_run_id=baseline_source_run_id,
                 ),
-                requested_baseline_source_run_id=baseline_source_run_id,
+                existing_baseline_source_run_id=None
+                if current_claim is None
+                else current_claim.claimed_baseline_source_run_id,
             )
         assert unique_claim == baseline_source_run_id
 
@@ -923,6 +927,7 @@ class MLflowMonitoringGateway:
             claims.append(
                 TimelineClaim(
                     monitoring_run_id=allocation.monitoring_run_id,
+                    source_run_id=allocation.key.source_run_id,
                     claimed_baseline_source_run_id=baseline_source_run_id,
                 )
             )

@@ -458,20 +458,24 @@ class TimelineConsistencyViolation(GatewayConsistencyViolation):
     def request_conflict(
         cls,
         *,
-        claim: TimelineClaim,
-        requested_baseline_source_run_id: str,
+        requested_claim: TimelineClaim,
+        existing_baseline_source_run_id: str | None,
     ) -> TimelineConsistencyViolation:
         """Create a violation for one Monitoring Run requesting a conflicting baseline."""
         return cls._create(
             reason=_TimelineInconsistentReason.REQUEST_CONFLICT,
             message=(
-                f"monitoring_run_id={claim.monitoring_run_id!r} requests a different baseline "
-                f"than the claimed one."
+                "Baseline request conflicts with durable Timeline state for "
+                f"monitoring_run_id={requested_claim.monitoring_run_id!r}."
             ),
             details=(
-                ("monitoring_run_id", claim.monitoring_run_id),
-                ("existing_baseline_source_run_id", claim.claimed_baseline_source_run_id),
-                ("requested_baseline_source_run_id", requested_baseline_source_run_id),
+                ("monitoring_run_id", requested_claim.monitoring_run_id),
+                ("source_run_id", requested_claim.source_run_id),
+                ("existing_baseline_source_run_id", existing_baseline_source_run_id),
+                (
+                    "requested_baseline_source_run_id",
+                    requested_claim.claimed_baseline_source_run_id,
+                ),
             ),
         )
 
@@ -488,6 +492,7 @@ class TimelineConsistencyViolation(GatewayConsistencyViolation):
             for claim in claims
             for field in (
                 ("monitoring_run_id", claim.monitoring_run_id),
+                ("source_run_id", claim.source_run_id),
                 ("baseline_source_run_id", claim.claimed_baseline_source_run_id),
             )
         )
@@ -514,6 +519,7 @@ class TimelineConsistencyViolation(GatewayConsistencyViolation):
             for claim in claims
             for field in (
                 ("monitoring_run_id", claim.monitoring_run_id),
+                ("source_run_id", claim.source_run_id),
                 ("baseline_source_run_id", claim.claimed_baseline_source_run_id),
             )
         )

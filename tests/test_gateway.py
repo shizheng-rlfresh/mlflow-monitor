@@ -250,6 +250,7 @@ def test_reconcile_timeline_baseline_rejects_changed_claim() -> None:
     assert exc_info.value.details == (
         ("reason", "request_conflict"),
         ("monitoring_run_id", allocation.monitoring_run_id),
+        ("source_run_id", "train-run-1"),
         ("existing_baseline_source_run_id", "train-run-1"),
         ("requested_baseline_source_run_id", "train-run-2"),
     )

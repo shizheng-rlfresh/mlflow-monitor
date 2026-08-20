@@ -295,12 +295,13 @@ class InMemoryMonitoringGateway:
                 subject_id=subject_id
             )
 
-        allocated_monitoring_run_ids = {
-            allocated_monitoring_run_id
+        source_run_id_by_monitoring_run_id = {
+            allocated_monitoring_run_id: key.source_run_id
             for key, (allocated_monitoring_run_id, _) in self._idempotency_bindings.items()
             if key.subject_id == subject_id
         }
-        if monitoring_run_id not in allocated_monitoring_run_ids:
+        source_run_id = source_run_id_by_monitoring_run_id.get(monitoring_run_id)
+        if source_run_id is None:
             raise GatewayConsistencyViolation.monitoring_run_subject_inconsistent(
                 subject_id=subject_id,
                 monitoring_run_id=monitoring_run_id,
@@ -309,21 +310,23 @@ class InMemoryMonitoringGateway:
         existing_claim = self._baseline_claim_by_monitoring_run_id.get(monitoring_run_id)
         if existing_claim is not None and existing_claim != baseline_source_run_id:
             raise TimelineConsistencyViolation.request_conflict(
-                claim=TimelineClaim(
+                requested_claim=TimelineClaim(
                     monitoring_run_id=monitoring_run_id,
-                    claimed_baseline_source_run_id=existing_claim,
+                    source_run_id=source_run_id,
+                    claimed_baseline_source_run_id=baseline_source_run_id,
                 ),
-                requested_baseline_source_run_id=baseline_source_run_id,
+                existing_baseline_source_run_id=existing_claim,
             )
 
         established_baseline = timeline_state.baseline_source_run_id
         if established_baseline is not None and established_baseline != baseline_source_run_id:
             raise TimelineConsistencyViolation.request_conflict(
-                claim=TimelineClaim(
+                requested_claim=TimelineClaim(
                     monitoring_run_id=monitoring_run_id,
-                    claimed_baseline_source_run_id=established_baseline,
+                    source_run_id=source_run_id,
+                    claimed_baseline_source_run_id=baseline_source_run_id,
                 ),
-                requested_baseline_source_run_id=baseline_source_run_id,
+                existing_baseline_source_run_id=established_baseline,
             )
 
         self._baseline_claim_by_monitoring_run_id[monitoring_run_id] = baseline_source_run_id
@@ -334,11 +337,15 @@ class InMemoryMonitoringGateway:
                 (
                     TimelineClaim(
                         monitoring_run_id=allocated_monitoring_run_id,
+                        source_run_id=allocated_source_run_id,
                         claimed_baseline_source_run_id=self._baseline_claim_by_monitoring_run_id[
                             allocated_monitoring_run_id
                         ],
                     )
-                    for allocated_monitoring_run_id in allocated_monitoring_run_ids
+                    for (
+                        allocated_monitoring_run_id,
+                        allocated_source_run_id,
+                    ) in source_run_id_by_monitoring_run_id.items()
                     if allocated_monitoring_run_id in self._baseline_claim_by_monitoring_run_id
                 ),
                 key=lambda claim: claim.monitoring_run_id,

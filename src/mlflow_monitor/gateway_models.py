@@ -77,15 +77,18 @@ class TimelineState:
 
 @dataclass(frozen=True, slots=True)
 class TimelineClaim:
-    """Immutable claim of a baseline source run for a monitoring timeline.
+    """Baseline claim value for a Monitoring Run on a Timeline.
 
     Attributes:
         monitoring_run_id: Monitoring run identifier making the claim.
+        source_run_id: Source training run identifier for the Monitoring Run
+            making the claim.
         claimed_baseline_source_run_id: Baseline source run id being claimed.
     """
 
     monitoring_run_id: str
-    claimed_baseline_source_run_id: str | None
+    source_run_id: str
+    claimed_baseline_source_run_id: str
 
 
 @dataclass(frozen=True, slots=True)
