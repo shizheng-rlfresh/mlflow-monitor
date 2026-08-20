@@ -409,7 +409,6 @@ def test_reconcile_timeline_baseline_writes_new_participant_claim_before_project
     stub_client = MagicMock()
     stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
     stub_client.get_monitoring_experiment_tags.return_value = {}
-    stub_client.get_run_tags.return_value = dict(current_allocation.tags)
     stub_client.list_monitoring_runs_with_tag.side_effect = lambda experiment_id, tag_key: (
         tuple(durable_runs) if tag_key == "training.source_run_id" else ()
     )
@@ -460,7 +459,6 @@ def test_reconcile_timeline_baseline_accepts_identical_claim_from_concurrent_all
     stub_client = MagicMock()
     stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
     stub_client.get_monitoring_experiment_tags.return_value = {}
-    stub_client.get_run_tags.return_value = dict(current_allocation.tags)
     stub_client.list_monitoring_runs_with_tag.side_effect = lambda experiment_id, tag_key: (
         tuple(durable_runs) if tag_key == "training.source_run_id" else ()
     )
@@ -512,7 +510,6 @@ def test_reconcile_timeline_baseline_rejects_changed_durable_claim_before_writes
     stub_client.get_monitoring_experiment_tags.return_value = {
         _BASELINE_PROJECTION_TAG: "train-run-baseline-a"
     }
-    stub_client.get_run_tags.return_value = dict(claim.tags)
     stub_client.list_monitoring_runs_with_tag.side_effect = lambda experiment_id, tag_key: (
         (claim,) if tag_key == "training.source_run_id" else ()
     )
@@ -554,7 +551,6 @@ def test_reconcile_timeline_baseline_rechecks_claims_before_projection() -> None
     stub_client = MagicMock()
     stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
     stub_client.get_monitoring_experiment_tags.return_value = {}
-    stub_client.get_run_tags.return_value = dict(allocation.tags)
     stub_client.list_monitoring_runs_with_tag.side_effect = lambda experiment_id, tag_key: (
         tuple(durable_runs) if tag_key == "training.source_run_id" else ()
     )
@@ -602,7 +598,6 @@ def test_reconcile_timeline_baseline_preserves_conflicting_claims_on_same_run() 
     stub_client = MagicMock()
     stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
     stub_client.get_monitoring_experiment_tags.return_value = {}
-    stub_client.get_run_tags.return_value = durable_tags
 
     def list_snapshots(experiment_id: str, tag_key: str) -> tuple[MonitoringRunTagSnapshot, ...]:
         assert experiment_id == "experiment-1"
