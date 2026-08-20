@@ -52,11 +52,12 @@ from mlflow_monitor.errors import (
     TimelineConsistencyViolation,
     TrainingRunMutationViolation,
 )
-from mlflow_monitor.gateway import (
+from mlflow_monitor.gateway_models import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
     IdempotencyKey,
     MonitoringRunRecord,
+    TimelineClaim,
     TimelineState,
 )
 from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflowClient
@@ -262,24 +263,29 @@ class MLflowMonitoringGateway:
             allocations_by_run_id=allocations_by_run_id,
         )
         established_baseline = self._resolve_baseline_projection(
+            subject_id=subject_id,
             experiment_id=experiment_id,
             experiment_tags=experiment_tags,
             claims=claims,
             repair_missing_projection=False,
         )
         if established_baseline is not None and established_baseline != baseline_source_run_id:
-            raise TimelineConsistencyViolation.claim_conflict(
-                monitoring_run_id=monitoring_run_id,
-                existing_baseline_source_run_id=established_baseline,
+            raise TimelineConsistencyViolation.request_conflict(
+                claim=TimelineClaim(
+                    monitoring_run_id=monitoring_run_id,
+                    claimed_baseline_source_run_id=established_baseline,
+                ),
                 requested_baseline_source_run_id=baseline_source_run_id,
             )
 
         monitoring_run_tags = self._mlflow.get_run_tags(monitoring_run_id)
         existing_claim = monitoring_run_tags.get(_BASELINE_CLAIM_TAG)
         if existing_claim and existing_claim != baseline_source_run_id:
-            raise TimelineConsistencyViolation.claim_conflict(
-                monitoring_run_id=monitoring_run_id,
-                existing_baseline_source_run_id=existing_claim,
+            raise TimelineConsistencyViolation.request_conflict(
+                claim=TimelineClaim(
+                    monitoring_run_id=monitoring_run_id,
+                    claimed_baseline_source_run_id=existing_claim,
+                ),
                 requested_baseline_source_run_id=baseline_source_run_id,
             )
         if not existing_claim:
@@ -288,25 +294,34 @@ class MLflowMonitoringGateway:
                 {_BASELINE_CLAIM_TAG: baseline_source_run_id},
             )
 
+        # Read claims again for concurrency safety.
         claims = self._read_baseline_claims(
             subject_id=subject_id,
             experiment_id=experiment_id,
             allocations_by_run_id=allocations_by_run_id,
         )
-        unique_claim = self._get_unique_claimed_baseline(claims)
+        unique_claim = self._get_unique_claimed_baseline(subject_id, claims)
         current_claim = next(
-            (claim for run_id, claim in claims if run_id == monitoring_run_id),
+            (claim for claim in claims if claim.monitoring_run_id == monitoring_run_id),
             None,
         )
-        if current_claim != baseline_source_run_id:
-            raise TimelineConsistencyViolation.claim_conflict(
-                monitoring_run_id=monitoring_run_id,
-                existing_baseline_source_run_id=current_claim or "",
+        if (
+            current_claim is None
+            or current_claim.claimed_baseline_source_run_id != baseline_source_run_id
+        ):
+            raise TimelineConsistencyViolation.request_conflict(
+                claim=current_claim
+                if current_claim is not None
+                else TimelineClaim(
+                    monitoring_run_id=monitoring_run_id,
+                    claimed_baseline_source_run_id=None,
+                ),
                 requested_baseline_source_run_id=baseline_source_run_id,
             )
         assert unique_claim == baseline_source_run_id
 
         reconciled_baseline = self._resolve_baseline_projection(
+            subject_id=subject_id,
             experiment_id=experiment_id,
             experiment_tags=self._mlflow.get_monitoring_experiment_tags(experiment_id),
             claims=claims,
@@ -552,6 +567,7 @@ class MLflowMonitoringGateway:
             allocations_by_run_id=allocations_by_run_id,
         )
         baseline_source_run_id = self._resolve_baseline_projection(
+            subject_id=subject_id,
             experiment_id=experiment_id,
             experiment_tags=self._mlflow.get_monitoring_experiment_tags(experiment_id),
             claims=claims,
@@ -887,13 +903,13 @@ class MLflowMonitoringGateway:
         subject_id: str,
         experiment_id: str,
         allocations_by_run_id: Mapping[str, _MonitoringRunAllocation],
-    ) -> tuple[tuple[str, str], ...]:
+    ) -> tuple[TimelineClaim, ...]:
         """Return deterministic durable baseline claims for allocated Monitoring Runs."""
         snapshots = self._mlflow.list_monitoring_runs_with_tag(
             experiment_id=experiment_id,
             tag_key=_BASELINE_CLAIM_TAG,
         )
-        claims: list[tuple[str, str]] = []
+        claims: list[TimelineClaim] = []
         for snapshot in snapshots:
             baseline_source_run_id = snapshot.tags.get(_BASELINE_CLAIM_TAG)
             if not baseline_source_run_id:
@@ -904,34 +920,45 @@ class MLflowMonitoringGateway:
                     subject_id=subject_id,
                     monitoring_run_id=allocation.monitoring_run_id,
                 )
-            claims.append((allocation.monitoring_run_id, baseline_source_run_id))
-        return tuple(sorted(claims))
+            claims.append(
+                TimelineClaim(
+                    monitoring_run_id=allocation.monitoring_run_id,
+                    claimed_baseline_source_run_id=baseline_source_run_id,
+                )
+            )
+
+        # Sort claims by monitoring run id to ensure deterministic ordering.
+        return tuple(sorted(claims, key=lambda claim: claim.monitoring_run_id))
 
     @staticmethod
-    def _get_unique_claimed_baseline(claims: tuple[tuple[str, str], ...]) -> str | None:
+    def _get_unique_claimed_baseline(
+        subject_id: str, claims: tuple[TimelineClaim, ...]
+    ) -> str | None:
         """Return the unique claimed baseline or fail closed on disagreement."""
-        claimed_baselines = {baseline_source_run_id for _, baseline_source_run_id in claims}
+        claimed_baselines = {claim.claimed_baseline_source_run_id for claim in claims}
         if len(claimed_baselines) > 1:
-            raise TimelineConsistencyViolation.conflicting_claims(claims=claims)
+            raise TimelineConsistencyViolation.claims_conflict(claims=claims, subject_id=subject_id)
         return next(iter(claimed_baselines), None)
 
     def _resolve_baseline_projection(
         self,
         *,
+        subject_id: str,
         experiment_id: str,
         experiment_tags: Mapping[str, str],
-        claims: tuple[tuple[str, str], ...],
+        claims: tuple[TimelineClaim, ...],
         repair_missing_projection: bool,
     ) -> str | None:
         """Validate claims and optionally repair their experiment projection."""
         projected_baseline = experiment_tags.get(_BASELINE_PROJECTION_TAG) or None
-        claimed_baseline = self._get_unique_claimed_baseline(claims)
+        claimed_baseline = self._get_unique_claimed_baseline(subject_id, claims)
         if claimed_baseline is None:
             return projected_baseline
         if projected_baseline is not None and projected_baseline != claimed_baseline:
             raise TimelineConsistencyViolation.projection_conflict(
-                projected_baseline_source_run_id=projected_baseline,
                 claims=claims,
+                projected_baseline_source_run_id=projected_baseline,
+                subject_id=subject_id,
             )
         if projected_baseline is None and repair_missing_projection:
             self._set_experiment_tags(

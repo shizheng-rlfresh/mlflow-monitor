@@ -12,7 +12,7 @@ from mlflow_monitor.errors import (
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
 )
-from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
+from mlflow_monitor.gateway_models import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_client import MonitoringRunInfo, MonitoringRunTagSnapshot
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
@@ -351,7 +351,8 @@ def test_get_timeline_state_rejects_conflicting_baseline_claims() -> None:
 
     assert exc_info.value.code == "monitoring_timeline_inconsistent"
     assert exc_info.value.details == (
-        ("reason", "conflicting_claims"),
+        ("reason", "claims_conflict"),
+        ("subject_id", "churn_model"),
         ("monitoring_run_id", "monitoring-run-1"),
         ("baseline_source_run_id", "train-run-baseline-a"),
         ("monitoring_run_id", "monitoring-run-2"),
@@ -385,6 +386,7 @@ def test_get_timeline_state_rejects_contradictory_baseline_projection() -> None:
     assert exc_info.value.code == "monitoring_timeline_inconsistent"
     assert exc_info.value.details == (
         ("reason", "projection_conflict"),
+        ("subject_id", "churn_model"),
         ("projected_baseline_source_run_id", "train-run-projected-baseline"),
         ("monitoring_run_id", "monitoring-run-1"),
         ("baseline_source_run_id", "train-run-claimed-baseline"),
@@ -492,7 +494,7 @@ def test_reconcile_timeline_baseline_rejects_changed_durable_claim_before_writes
 
     assert exc_info.value.code == "monitoring_timeline_inconsistent"
     assert exc_info.value.details == (
-        ("reason", "claim_conflict"),
+        ("reason", "request_conflict"),
         ("monitoring_run_id", "monitoring-run-1"),
         ("existing_baseline_source_run_id", "train-run-baseline-a"),
         ("requested_baseline_source_run_id", "train-run-baseline-b"),
@@ -558,7 +560,7 @@ def test_reconcile_timeline_baseline_rechecks_claims_before_projection() -> None
         )
 
     assert exc_info.value.code == "monitoring_timeline_inconsistent"
-    assert ("reason", "conflicting_claims") in exc_info.value.details
+    assert ("reason", "claims_conflict") in exc_info.value.details
     stub_client.set_monitoring_experiment_tag.assert_not_called()
 
 

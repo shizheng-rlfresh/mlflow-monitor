@@ -9,7 +9,8 @@ from typing import Protocol, cast
 import pytest
 
 from mlflow_monitor.errors import GatewayConsistencyViolation
-from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey, InMemoryMonitoringGateway
+from mlflow_monitor.gateway import InMemoryMonitoringGateway
+from mlflow_monitor.gateway_models import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 
 

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from mlflow_monitor.contract_checker import DefaultContractChecker
-from mlflow_monitor.gateway import GatewayConfig, MonitoringGateway
+from mlflow_monitor.gateway import MonitoringGateway
+from mlflow_monitor.gateway_models import GatewayConfig
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
 from mlflow_monitor.recipe_compiler import CompiledRecipe

@@ -18,11 +18,8 @@ from mlflow_monitor.errors import (
     PrepareStageError,
     TerminalRunRetryError,
 )
-from mlflow_monitor.gateway import (
-    IdempotencyKey,
-    MonitoringGateway,
-    MonitoringRunRecord,
-)
+from mlflow_monitor.gateway import MonitoringGateway
+from mlflow_monitor.gateway_models import IdempotencyKey, MonitoringRunRecord
 from mlflow_monitor.recipe_compiler import (
     SYSTEM_DEFAULT_COMPILED_RECIPE,
     CompiledRecipe,

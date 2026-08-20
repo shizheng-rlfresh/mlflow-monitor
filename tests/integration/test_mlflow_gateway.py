@@ -22,7 +22,7 @@ from mlflow_monitor.domain import (
     LifecycleStatus,
     MonitoringRunReference,
 )
-from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey
+from mlflow_monitor.gateway_models import GatewayConfig, IdempotencyKey
 from mlflow_monitor.mlflow_gateway import MLflowMonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
 from mlflow_monitor.result_contract import MonitorRunResult

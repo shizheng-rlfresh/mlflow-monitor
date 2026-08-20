@@ -16,11 +16,11 @@ from mlflow_monitor.errors import (
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
 )
-from mlflow_monitor.gateway import (
+from mlflow_monitor.gateway import InMemoryMonitoringGateway
+from mlflow_monitor.gateway_models import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
     IdempotencyKey,
-    InMemoryMonitoringGateway,
     TimelineState,
 )
 
@@ -248,7 +248,7 @@ def test_reconcile_timeline_baseline_rejects_changed_claim() -> None:
 
     assert exc_info.value.code == _MONITORING_TIMELINE_INCONSISTENT_FOR_TESTS
     assert exc_info.value.details == (
-        ("reason", "claim_conflict"),
+        ("reason", "request_conflict"),
         ("monitoring_run_id", allocation.monitoring_run_id),
         ("existing_baseline_source_run_id", "train-run-1"),
         ("requested_baseline_source_run_id", "train-run-2"),
