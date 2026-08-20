@@ -487,7 +487,7 @@ def test_mlflow_gateway_replays_prepared_context_after_check_interruption(
     assert replay.lifecycle_status is LifecycleStatus.CHECKED
 
 
-def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
+def test_mlflow_gateway_reuses_baseline_skips_legacy_checked_and_replays(
     tracking_uri: str,
     artifact_root_uri: str,
     create_training_run: Callable[..., str],
@@ -567,11 +567,6 @@ def test_mlflow_gateway_reuses_baseline_resolves_previous_and_idempotent_rerun(
             kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id=baseline_run_id,
-        ),
-        MonitoringRunReference(
-            kind=DiffReferenceKind.PREVIOUS,
-            monitoring_run_id=first.monitoring_run_id,
-            source_run_id=first_current_run_id,
         ),
     )
     assert second.comparability_status is ComparabilityStatus.FAIL

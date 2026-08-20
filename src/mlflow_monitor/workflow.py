@@ -26,12 +26,12 @@ from mlflow_monitor.domain import (
     Contract,
     ContractCheckResult,
     DiffReferenceKind,
+    LifecycleStatus,
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
     PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
-    GatewayConsistencyViolation,
     InvariantViolation,
     PreparedContextConsistencyViolation,
     PrepareStageError,
@@ -611,12 +611,13 @@ def prepare_run_context(
             ),
         )
 
+    custom_reference: MonitoringRunReference | None = None
     if custom_reference_monitoring_run_id is not None:
-        custom_reference_monitoring_run_id = gateway.resolve_timeline_monitoring_run_id(
+        resolved_custom_monitoring_run_id = gateway.resolve_timeline_monitoring_run_id(
             subject_id,
             custom_reference_monitoring_run_id,
         )
-        if custom_reference_monitoring_run_id is None:
+        if resolved_custom_monitoring_run_id is None:
             raise PrepareStageError(
                 code="prepare_custom_reference_not_found",
                 message=(
@@ -624,6 +625,34 @@ def prepare_run_context(
                 ),
                 details=(("subject_id", subject_id),),
             )
+        custom_record = gateway.get_monitoring_run(
+            subject_id,
+            resolved_custom_monitoring_run_id,
+        )
+        if custom_record is None:
+            raise PrepareStageError(
+                code="prepare_custom_reference_not_found",
+                message=(
+                    "Custom reference monitoring run could not be resolved on the subject timeline."
+                ),
+                details=(("subject_id", subject_id),),
+            )
+        if custom_record.lifecycle_status is not LifecycleStatus.CLOSED:
+            raise PrepareStageError(
+                code="prepare_custom_reference_not_closed",
+                message="Custom reference Monitoring Run must be closed.",
+                details=(
+                    (
+                        "custom_reference_monitoring_run_id",
+                        resolved_custom_monitoring_run_id,
+                    ),
+                ),
+            )
+        custom_reference = MonitoringRunReference(
+            kind=DiffReferenceKind.CUSTOM,
+            monitoring_run_id=custom_record.monitoring_run_id,
+            source_run_id=custom_record.source_run_id,
+        )
 
     reference_plan = [
         PreparedReferencePlanEntry(
@@ -637,9 +666,17 @@ def prepare_run_context(
         )
     ]
 
-    timeline_runs = gateway.list_timeline_monitoring_runs(subject_id, exclude_failed=True)
-    if timeline_runs:
-        previous = timeline_runs[-1]
+    previous = max(
+        (
+            record
+            for record in gateway.list_timeline_monitoring_runs(subject_id)
+            if record.lifecycle_status is LifecycleStatus.CLOSED
+            and record.sequence_index < sequence_index
+        ),
+        key=lambda record: record.sequence_index,
+        default=None,
+    )
+    if previous is not None:
         reference_plan.append(
             PreparedReferencePlanEntry(
                 kind=DiffReferenceKind.PREVIOUS,
@@ -660,39 +697,19 @@ def prepare_run_context(
             )
         )
 
-    active_lkg_monitoring_run_id = gateway.resolve_active_lkg_monitoring_run_id(subject_id)
-    if active_lkg_monitoring_run_id is not None:
-        reference_plan.append(
-            PreparedReferencePlanEntry(
-                kind=DiffReferenceKind.LKG,
-                reference=_hydrate_monitoring_run_reference(
-                    kind=DiffReferenceKind.LKG,
-                    subject_id=subject_id,
-                    monitoring_run_id=active_lkg_monitoring_run_id,
-                    gateway=gateway,
-                ),
-                unavailable_reason=None,
-            )
+    reference_plan.append(
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.LKG,
+            reference=None,
+            unavailable_reason="lkg_not_selected",
         )
-    else:
-        reference_plan.append(
-            PreparedReferencePlanEntry(
-                kind=DiffReferenceKind.LKG,
-                reference=None,
-                unavailable_reason="lkg_not_selected",
-            )
-        )
+    )
 
-    if custom_reference_monitoring_run_id is not None:
+    if custom_reference is not None:
         reference_plan.append(
             PreparedReferencePlanEntry(
                 kind=DiffReferenceKind.CUSTOM,
-                reference=_hydrate_monitoring_run_reference(
-                    kind=DiffReferenceKind.CUSTOM,
-                    subject_id=subject_id,
-                    monitoring_run_id=custom_reference_monitoring_run_id,
-                    gateway=gateway,
-                ),
+                reference=custom_reference,
                 unavailable_reason=None,
             )
         )
@@ -718,28 +735,6 @@ def prepare_run_context(
         effective_recipe=compiled_recipe.effective_plan,
         contract=compiled_recipe.contract,
         reference_plan=tuple(reference_plan),
-    )
-
-
-def _hydrate_monitoring_run_reference(
-    *,
-    kind: DiffReferenceKind,
-    subject_id: str,
-    monitoring_run_id: str,
-    gateway: MonitoringGateway,
-) -> MonitoringRunReference:
-    """Freeze a complete reference pair from a resolved Monitoring Run pointer."""
-    record = gateway.get_monitoring_run(subject_id, monitoring_run_id)
-    if record is None:
-        raise GatewayConsistencyViolation.monitoring_reference_inconsistent(
-            kind=kind,
-            monitoring_run_id=monitoring_run_id,
-        )
-
-    return MonitoringRunReference(
-        kind=kind,
-        monitoring_run_id=record.monitoring_run_id,
-        source_run_id=record.source_run_id,
     )
 
 

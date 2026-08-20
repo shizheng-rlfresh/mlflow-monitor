@@ -543,6 +543,21 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
 def test_run_orchestration_persists_complete_prepared_context() -> None:
     gateway = make_gateway()
     compiled_recipe = make_compiled_recipe(metric_names=["f1"])
+    reference_allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-reference",
+            recipe_id=compiled_recipe.identity.recipe_id,
+            recipe_version=compiled_recipe.identity.recipe_version,
+        )
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=reference_allocation.monitoring_run_id,
+        source_run_id="train-run-reference",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=reference_allocation.sequence_index,
+    )
     first = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-current",
@@ -568,7 +583,7 @@ def test_run_orchestration_persists_complete_prepared_context() -> None:
         subject_id="churn_model",
         source_run_id="train-run-next",
         baseline_source_run_id=None,
-        custom_reference_monitoring_run_id=first.monitoring_run_id,
+        custom_reference_monitoring_run_id=reference_allocation.monitoring_run_id,
         recipe=compiled_recipe,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
@@ -588,26 +603,22 @@ def test_run_orchestration_persists_complete_prepared_context() -> None:
             kind=DiffReferenceKind.PREVIOUS,
             reference=MonitoringRunReference(
                 kind=DiffReferenceKind.PREVIOUS,
-                monitoring_run_id=first.monitoring_run_id,
-                source_run_id="train-run-current",
+                monitoring_run_id=reference_allocation.monitoring_run_id,
+                source_run_id="train-run-reference",
             ),
             unavailable_reason=None,
         ),
         PreparedReferencePlanEntry(
             kind=DiffReferenceKind.LKG,
-            reference=MonitoringRunReference(
-                kind=DiffReferenceKind.LKG,
-                monitoring_run_id=first.monitoring_run_id,
-                source_run_id="train-run-current",
-            ),
-            unavailable_reason=None,
+            reference=None,
+            unavailable_reason="lkg_not_selected",
         ),
         PreparedReferencePlanEntry(
             kind=DiffReferenceKind.CUSTOM,
             reference=MonitoringRunReference(
                 kind=DiffReferenceKind.CUSTOM,
-                monitoring_run_id=first.monitoring_run_id,
-                source_run_id="train-run-current",
+                monitoring_run_id=reference_allocation.monitoring_run_id,
+                source_run_id="train-run-reference",
             ),
             unavailable_reason=None,
         ),
@@ -616,7 +627,7 @@ def test_run_orchestration_persists_complete_prepared_context() -> None:
         expected_prepared_context_payload(
             monitoring_run_id=second.monitoring_run_id,
             source_run_id="train-run-next",
-            sequence_index=1,
+            sequence_index=2,
             compiled_recipe=compiled_recipe,
             reference_plan=expected_reference_plan,
         )
@@ -926,11 +937,6 @@ def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
             kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
-        ),
-        MonitoringRunReference(
-            kind=DiffReferenceKind.PREVIOUS,
-            monitoring_run_id=first.monitoring_run_id,
-            source_run_id="train-run-current",
         ),
     )
 
@@ -1399,7 +1405,7 @@ def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> N
     assert second.error is None
 
 
-def test_run_orchestration_checked_rerun_preserves_references() -> None:
+def test_run_orchestration_checked_rerun_ignores_legacy_lkg_pointer() -> None:
     gateway = make_gateway()
     gateway.upsert_monitoring_run(
         subject_id="churn_model",
@@ -1430,11 +1436,6 @@ def test_run_orchestration_checked_rerun_preserves_references() -> None:
             kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
-        ),
-        MonitoringRunReference(
-            kind=DiffReferenceKind.LKG,
-            monitoring_run_id="monitoring-run-lkg",
-            source_run_id="train-run-lkg",
         ),
     )
     assert second.monitoring_run_id == first.monitoring_run_id

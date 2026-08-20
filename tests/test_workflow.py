@@ -519,7 +519,8 @@ def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     assert prepared.source_run_id == "train-run-123"
     assert prepared.baseline_source_run_id == "train-run-baseline"
     assert prepared.previous_monitoring_run_id == fixture.custom_monitoring_run_id
-    assert prepared.active_lkg_monitoring_run_id == fixture.previous_monitoring_run_id
+    assert prepared.active_lkg_monitoring_run_id is None
+    assert prepared.reference_plan[2].unavailable_reason == "lkg_not_selected"
     assert prepared.custom_reference_monitoring_run_id == fixture.custom_monitoring_run_id
     assert prepared.contract == _CONTRACT
     assert prepared.required_metrics == ("auc", "f1")
@@ -801,6 +802,84 @@ def test_prepare_run_context_succeeds_without_previous_run() -> None:
     )
 
     assert prepared.previous_monitoring_run_id is None
+
+
+def test_prepare_selects_greatest_lower_closed_monitoring_run() -> None:
+    """Previous should skip ineligible states and later closed allocations."""
+    fixture = make_gateway_with_timeline()
+    gateway = fixture.gateway
+    compiled_recipe = make_compiled_invocation().compiled_recipe
+
+    for source_run_id, lifecycle_status in (
+        ("train-run-checked", LifecycleStatus.CHECKED),
+        ("train-run-failed", LifecycleStatus.FAILED),
+        ("train-run-prepared", LifecycleStatus.PREPARED),
+    ):
+        allocation = allocate_test_monitoring_run(
+            gateway,
+            subject_id="churn_model",
+            source_run_id=source_run_id,
+            compiled_recipe=compiled_recipe,
+        )
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            monitoring_run_id=allocation.monitoring_run_id,
+            source_run_id=source_run_id,
+            lifecycle_status=lifecycle_status,
+            sequence_index=allocation.sequence_index,
+        )
+
+    closed_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-closed-fail",
+        compiled_recipe=compiled_recipe,
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=closed_allocation.monitoring_run_id,
+        source_run_id="train-run-closed-fail",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=closed_allocation.sequence_index,
+        contract_check_result=ContractCheckResult(
+            status=ComparabilityStatus.FAIL,
+            reasons=(
+                ContractCheckReason(
+                    code="schema_mismatch",
+                    message="Schema is incompatible.",
+                    blocking=True,
+                ),
+            ),
+        ),
+    )
+    current_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-123",
+        compiled_recipe=compiled_recipe,
+    )
+    later_closed_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-later-closed",
+        compiled_recipe=compiled_recipe,
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=later_closed_allocation.monitoring_run_id,
+        source_run_id="train-run-later-closed",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=later_closed_allocation.sequence_index,
+    )
+
+    prepared = prepare_test_context(
+        subject_id="churn_model",
+        compiled_invocation=make_compiled_invocation(),
+        gateway=gateway,
+    )
+
+    assert prepared.sequence_index == current_allocation.sequence_index
+    assert prepared.previous_monitoring_run_id == closed_allocation.monitoring_run_id
 
 
 def test_prepare_run_context_succeeds_without_active_lkg() -> None:
@@ -1094,6 +1173,49 @@ def test_prepare_run_context_fails_when_custom_reference_is_on_another_subject()
         )
 
 
+@pytest.mark.parametrize(
+    "lifecycle_status",
+    (
+        LifecycleStatus.CREATED,
+        LifecycleStatus.PREPARED,
+        LifecycleStatus.CHECKED,
+        LifecycleStatus.ANALYZED,
+        LifecycleStatus.FAILED,
+    ),
+)
+def test_prepare_run_context_fails_when_custom_reference_is_not_closed(
+    lifecycle_status: LifecycleStatus,
+) -> None:
+    """Prepare should reject any non-closed custom Reference Monitoring Run."""
+    fixture = make_gateway_with_timeline()
+    gateway = fixture.gateway
+    compiled_recipe = make_compiled_invocation().compiled_recipe
+    checked_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-checked",
+        compiled_recipe=compiled_recipe,
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=checked_allocation.monitoring_run_id,
+        source_run_id="train-run-checked",
+        lifecycle_status=lifecycle_status,
+        sequence_index=checked_allocation.sequence_index,
+    )
+
+    with pytest.raises(PrepareStageError) as exc_info:
+        prepare_test_context(
+            subject_id="churn_model",
+            compiled_invocation=make_compiled_invocation(
+                custom_reference_monitoring_run_id=checked_allocation.monitoring_run_id
+            ),
+            gateway=gateway,
+        )
+
+    assert exc_info.value.code == "prepare_custom_reference_not_closed"
+
+
 def test_prepare_run_context_fails_for_uninitialized_timeline_with_no_baseline() -> None:
     """Prepare should require a baseline when allocation has not pinned one."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())
@@ -1376,8 +1498,8 @@ def test_prepare_run_context_does_not_bootstrap_when_custom_reference_is_invalid
     assert gateway.baseline_claim_calls == []
 
 
-def test_prepare_does_not_claim_baseline_when_lkg_reference_is_inconsistent() -> None:
-    """Prepare should finish current reference validation before claiming a baseline."""
+def test_prepare_ignores_legacy_lkg_pointer_during_baseline_bootstrap() -> None:
+    """Legacy LKG pointer state should not affect current Prepare integration."""
     gateway = RecordingBaselineClaimGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
@@ -1395,24 +1517,24 @@ def test_prepare_does_not_claim_baseline_when_lkg_reference_is_inconsistent() ->
         "monitoring-run-missing",
     )
 
-    with pytest.raises(GatewayConsistencyViolation) as exc_info:
-        prepare_test_context(
-            subject_id="churn_model",
-            compiled_invocation=make_compiled_invocation(
-                source_run_id="train-run-1",
-                source_experiment="training/churn",
-                required_metrics=("f1",),
-                required_artifacts=("metrics.json",),
-            ),
-            gateway=gateway,
-            baseline_source_run_id="train-run-1",
-        )
+    prepared = prepare_test_context(
+        subject_id="churn_model",
+        compiled_invocation=make_compiled_invocation(
+            source_run_id="train-run-1",
+            source_experiment="training/churn",
+            required_metrics=("f1",),
+            required_artifacts=("metrics.json",),
+        ),
+        gateway=gateway,
+        baseline_source_run_id="train-run-1",
+    )
 
-    assert exc_info.value.code == "monitoring_reference_inconsistent"
-    assert gateway.baseline_claim_calls == []
+    assert prepared.active_lkg_monitoring_run_id is None
+    assert prepared.reference_plan[2].unavailable_reason == "lkg_not_selected"
+    assert len(gateway.baseline_claim_calls) == 1
     assert gateway.get_timeline_state("churn_model") == TimelineState(
         timeline_id="timeline-churn_model",
-        baseline_source_run_id=None,
+        baseline_source_run_id="train-run-1",
     )
 
 
