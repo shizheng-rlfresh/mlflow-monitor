@@ -18,14 +18,16 @@ Design constraints that matter here:
   `create_run()` time.
 - Monitoring-run identity tags are the allocation source of truth, while the
   experiment-tag timeline index is a repairable projection used by normal reads.
+- Monitoring-run baseline claims are the baseline source of truth, while the
+  experiment baseline tag is a repairable projection of their unique value.
 - Final run output is stored as `outputs/result.json` and the MLflow run is
   explicitly terminated by the gateway once orchestration reaches a terminal
   success or owned-failure outcome.
 
 The implementation is intentionally conservative. It preserves the current
-create -> prepare -> check semantics without attempting concurrency hardening,
-broader query support, or more expressive persistence than the current runtime
-supports.
+create -> prepare -> check semantics and detects contradictory durable state
+without locks, winner selection, broader query support, or more expressive
+persistence than the current runtime supports.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from hashlib import sha256
 from typing import Any
 
 from mlflow_monitor.contract_checker import ContractEvidence
@@ -47,21 +50,23 @@ from mlflow_monitor.errors import (
     AllocationConsistencyViolation,
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
+    TimelineConsistencyViolation,
     TrainingRunMutationViolation,
 )
-from mlflow_monitor.gateway import (
+from mlflow_monitor.gateway_models import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
     IdempotencyKey,
     MonitoringRunRecord,
-    TimelinePinBaselineResult,
+    TimelineClaim,
     TimelineState,
 )
 from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflowClient
 from mlflow_monitor.result_contract import MonitorRunResult
 from mlflow_monitor.utils import canonical_json
 
-_BASELINE_TAG = "training.baseline_run_id"
+_BASELINE_CLAIM_TAG_PREFIX = "monitoring.baseline_source_run_id."
+_BASELINE_PROJECTION_TAG = "training.baseline_run_id"
 _IDEMPOTENCY_TAG_SUFFIX = ".monitoring_run_id"
 _LKG_TAG = "monitoring.lkg_run_id"
 _LATEST_TAG = "monitoring.latest_run_id"
@@ -77,6 +82,12 @@ _REFERENCE_TAG_PREFIX = "monitoring.reference."
 _RESULT_ARTIFACT_PATH = "outputs/result.json"
 _VISIBLE_NON_FAILED_STATUSES = frozenset({LifecycleStatus.CHECKED, LifecycleStatus.CLOSED})
 _REFERENCE_KINDS = ("baseline", "previous", "lkg", "custom")
+
+
+def _baseline_claim_tag_key(baseline_source_run_id: str) -> str:
+    """Return the value-addressed tag key for one baseline claim."""
+    digest = sha256(baseline_source_run_id.encode()).hexdigest()
+    return f"{_BASELINE_CLAIM_TAG_PREFIX}{digest}"
 
 
 class RequiredMonitoringRunTags(StrEnum):
@@ -101,9 +112,9 @@ class _MonitoringRunAllocation:
 class MLflowMonitoringGateway:
     """Monitoring gateway backed by real MLflow experiments and runs.
 
-    The gateway translates protocol-level operations such as "pin the
-    subject timeline with baseline" or "create or reuse the monitoring run
-    for this training run" into:
+    The gateway translates protocol-level operations such as reconciling
+    immutable baseline claims or creating or reusing the Monitoring Run for a
+    Source Training Run into:
 
     - monitoring experiment creation/read
     - experiment-tag index maintenance
@@ -207,57 +218,103 @@ class MLflowMonitoringGateway:
             allocated=True,
         )
 
-    def pin_timeline_baseline(
-        self, subject_id: str, baseline_source_run_id: str
-    ) -> TimelinePinBaselineResult:
-        """Pin the experiment-backed Timeline baseline once.
-
-        The monitoring experiment backs the subject Timeline and already exists
-        because Monitoring Run allocation precedes this operation. This method
-        pins the baseline tag when it has not been pinned already.
+    def reconcile_timeline_baseline(
+        self,
+        subject_id: str,
+        monitoring_run_id: str,
+        baseline_source_run_id: str,
+    ) -> TimelineState:
+        """Persist one immutable Monitoring Run claim and reconcile its projection.
 
         Args:
             subject_id: Monitored subject identifier.
-            baseline_source_run_id: Source training run id to pin as baseline.
+            monitoring_run_id: Claiming Monitoring Run identifier.
+            baseline_source_run_id: Immutable Baseline Source Run identifier.
 
         Returns:
-            Timeline identity and whether this call pinned the baseline.
+            Reconciled Timeline state.
+
+        Raises:
+            GatewayConsistencyViolation: If no Timeline allocation exists or
+                the Monitoring Run is not allocated to the subject.
+            TimelineConsistencyViolation: If claims or their projection conflict.
         """
         self._validate_subject_id(subject_id)
         if not baseline_source_run_id:
             raise GatewayNamespaceViolation(message="baseline_source_run_id must be non-empty.")
 
-        timeline_state = self.get_timeline_state(subject_id)
-        if timeline_state is None:
+        experiment_id = self._get_experiment_id(subject_id)
+        if experiment_id is None:
             raise GatewayConsistencyViolation.timeline_state_not_found_for_subject_id(
                 subject_id=subject_id
             )
 
-        if timeline_state.baseline_source_run_id is not None:
-            return TimelinePinBaselineResult(
-                timeline_id=timeline_state.timeline_id,
-                baseline_pinned=False,
-            )
-
-        experiment_id = timeline_state.timeline_id
         experiment_tags = self._mlflow.get_monitoring_experiment_tags(experiment_id)
-        existing_baseline_source_run_id = experiment_tags.get(_BASELINE_TAG)
-        if existing_baseline_source_run_id:
-            return TimelinePinBaselineResult(
-                timeline_id=experiment_id,
-                baseline_pinned=False,
+        allocations_by_run_id = self._read_timeline_allocations(
+            subject_id=subject_id,
+            experiment_id=experiment_id,
+        )
+        if not allocations_by_run_id:
+            raise GatewayConsistencyViolation.timeline_state_not_found_for_subject_id(
+                subject_id=subject_id
+            )
+        if monitoring_run_id not in allocations_by_run_id:
+            raise GatewayConsistencyViolation.monitoring_run_subject_inconsistent(
+                subject_id=subject_id,
+                monitoring_run_id=monitoring_run_id,
+            )
+        source_run_id = allocations_by_run_id[monitoring_run_id].key.source_run_id
+
+        claims = self._read_baseline_claims(
+            subject_id=subject_id,
+            experiment_id=experiment_id,
+        )
+        established_baseline = self._resolve_baseline_projection(
+            subject_id=subject_id,
+            experiment_id=experiment_id,
+            experiment_tags=experiment_tags,
+            claims=claims,
+            repair_missing_projection=False,
+        )
+        requested_claim = TimelineClaim(
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+            claimed_baseline_source_run_id=baseline_source_run_id,
+        )
+        if established_baseline is not None and established_baseline != baseline_source_run_id:
+            raise TimelineConsistencyViolation.request_conflict(
+                requested_claim=requested_claim,
+                existing_baseline_source_run_id=established_baseline,
             )
 
-        self._set_experiment_tags(
-            experiment_id,
-            {
-                _BASELINE_TAG: baseline_source_run_id,
-                _NEXT_SEQUENCE_TAG: str(self._read_next_sequence_index(experiment_tags)),
-            },
+        if requested_claim not in claims:
+            self._mlflow.set_monitoring_run_tags(
+                monitoring_run_id,
+                {_baseline_claim_tag_key(baseline_source_run_id): baseline_source_run_id},
+            )
+
+        # Read claims again for concurrency safety.
+        claims = self._read_baseline_claims(
+            subject_id=subject_id,
+            experiment_id=experiment_id,
         )
-        return TimelinePinBaselineResult(
+        unique_claim = self._get_unique_claimed_baseline(subject_id, claims)
+        if requested_claim not in claims or unique_claim != baseline_source_run_id:
+            raise TimelineConsistencyViolation.request_conflict(
+                requested_claim=requested_claim,
+                existing_baseline_source_run_id=unique_claim,
+            )
+
+        reconciled_baseline = self._resolve_baseline_projection(
+            subject_id=subject_id,
+            experiment_id=experiment_id,
+            experiment_tags=self._mlflow.get_monitoring_experiment_tags(experiment_id),
+            claims=claims,
+            repair_missing_projection=True,
+        )
+        return TimelineState(
             timeline_id=experiment_id,
-            baseline_pinned=True,
+            baseline_source_run_id=reconciled_baseline,
         )
 
     def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
@@ -482,20 +539,24 @@ class MLflowMonitoringGateway:
         if experiment_id is None:
             return None
 
-        experiment_tags = self._mlflow.get_monitoring_experiment_tags(experiment_id)
-        baseline_source_run_id = experiment_tags.get(_BASELINE_TAG)
-
-        allocation_snapshots = self._mlflow.list_monitoring_runs_with_tag(
+        allocations_by_run_id = self._read_timeline_allocations(
+            subject_id=subject_id,
             experiment_id=experiment_id,
-            tag_key=_SOURCE_RUN_TAG,
         )
-
-        if not allocation_snapshots:
+        if not allocations_by_run_id:
             return None
 
-        # validate the records are actual durable snapshots
-        for snapshot in allocation_snapshots:
-            self._parse_monitoring_run_allocation(subject_id, snapshot)
+        claims = self._read_baseline_claims(
+            subject_id=subject_id,
+            experiment_id=experiment_id,
+        )
+        baseline_source_run_id = self._resolve_baseline_projection(
+            subject_id=subject_id,
+            experiment_id=experiment_id,
+            experiment_tags=self._mlflow.get_monitoring_experiment_tags(experiment_id),
+            claims=claims,
+            repair_missing_projection=True,
+        )
 
         return TimelineState(
             timeline_id=experiment_id,
@@ -804,6 +865,104 @@ class MLflowMonitoringGateway:
             return None
         return self._mlflow.get_monitoring_experiment_tags(experiment_id)
 
+    def _read_timeline_allocations(
+        self,
+        *,
+        subject_id: str,
+        experiment_id: str,
+    ) -> dict[str, _MonitoringRunAllocation]:
+        """Return durable Timeline allocations keyed by Monitoring Run identifier."""
+        snapshots = self._mlflow.list_monitoring_runs_with_tag(
+            experiment_id=experiment_id,
+            tag_key=_SOURCE_RUN_TAG,
+        )
+        allocations = (
+            self._parse_monitoring_run_allocation(subject_id, snapshot) for snapshot in snapshots
+        )
+        return {allocation.monitoring_run_id: allocation for allocation in allocations}
+
+    def _read_baseline_claims(
+        self,
+        *,
+        subject_id: str,
+        experiment_id: str,
+    ) -> tuple[TimelineClaim, ...]:
+        """Return deterministic durable baseline claims for allocated Monitoring Runs."""
+        snapshots = self._mlflow.list_monitoring_runs_with_tag(
+            experiment_id=experiment_id,
+            tag_key=_SOURCE_RUN_TAG,
+        )
+        claims: list[TimelineClaim] = []
+        for snapshot in snapshots:
+            allocation = self._parse_monitoring_run_allocation(subject_id, snapshot)
+            for tag_key, tag_value in snapshot.tags.items():
+                if not tag_key.startswith(_BASELINE_CLAIM_TAG_PREFIX) or not tag_value:
+                    continue
+
+                claimed_baseline_source_run_id = tag_value
+                if tag_key != _baseline_claim_tag_key(claimed_baseline_source_run_id):
+                    raise TimelineConsistencyViolation.claim_address_mismatch(
+                        monitoring_run_id=allocation.monitoring_run_id,
+                        source_run_id=allocation.key.source_run_id,
+                        tag_key=tag_key,
+                        claimed_baseline_source_run_id=claimed_baseline_source_run_id,
+                    )
+
+                claims.append(
+                    TimelineClaim(
+                        monitoring_run_id=allocation.monitoring_run_id,
+                        source_run_id=allocation.key.source_run_id,
+                        claimed_baseline_source_run_id=claimed_baseline_source_run_id,
+                    )
+                )
+
+        return tuple(
+            sorted(
+                claims,
+                key=lambda claim: (
+                    claim.monitoring_run_id,
+                    claim.claimed_baseline_source_run_id,
+                ),
+            )
+        )
+
+    @staticmethod
+    def _get_unique_claimed_baseline(
+        subject_id: str, claims: tuple[TimelineClaim, ...]
+    ) -> str | None:
+        """Return the unique claimed baseline or fail closed on disagreement."""
+        claimed_baselines = {claim.claimed_baseline_source_run_id for claim in claims}
+        if len(claimed_baselines) > 1:
+            raise TimelineConsistencyViolation.claims_conflict(claims=claims, subject_id=subject_id)
+        return next(iter(claimed_baselines), None)
+
+    def _resolve_baseline_projection(
+        self,
+        *,
+        subject_id: str,
+        experiment_id: str,
+        experiment_tags: Mapping[str, str],
+        claims: tuple[TimelineClaim, ...],
+        repair_missing_projection: bool,
+    ) -> str | None:
+        """Validate claims and optionally repair their experiment projection."""
+        projected_baseline = experiment_tags.get(_BASELINE_PROJECTION_TAG) or None
+        claimed_baseline = self._get_unique_claimed_baseline(subject_id, claims)
+        if claimed_baseline is None:
+            return projected_baseline
+        if projected_baseline is not None and projected_baseline != claimed_baseline:
+            raise TimelineConsistencyViolation.projection_conflict(
+                claims=claims,
+                projected_baseline_source_run_id=projected_baseline,
+                subject_id=subject_id,
+            )
+        if projected_baseline is None and repair_missing_projection:
+            self._set_experiment_tags(
+                experiment_id,
+                {_BASELINE_PROJECTION_TAG: claimed_baseline},
+            )
+        return claimed_baseline
+
     def _reconcile_monitoring_run_allocations(
         self,
         *,
@@ -821,7 +980,7 @@ class MLflowMonitoringGateway:
         )
         allocations_by_key: dict[IdempotencyKey, _MonitoringRunAllocation] = {}
         allocations_by_sequence: dict[int, _MonitoringRunAllocation] = {}
-        allocations_by_run_id: dict[str, _MonitoringRunAllocation] = {}
+        allocations_by_monitoring_run_id: dict[str, _MonitoringRunAllocation] = {}
         for allocation in allocations:
             existing_key_allocation = allocations_by_key.get(allocation.key)
             if existing_key_allocation is not None:
@@ -838,7 +997,7 @@ class MLflowMonitoringGateway:
                 )
             allocations_by_key[allocation.key] = allocation
             allocations_by_sequence[allocation.sequence_index] = allocation
-            allocations_by_run_id[allocation.monitoring_run_id] = allocation
+            allocations_by_monitoring_run_id[allocation.monitoring_run_id] = allocation
 
         ordered_allocations = tuple(
             sorted(allocations, key=lambda allocation: allocation.sequence_index)
@@ -855,7 +1014,7 @@ class MLflowMonitoringGateway:
             experiment_tags=experiment_tags,
             ordered_allocations=ordered_allocations,
             allocations_by_sequence=allocations_by_sequence,
-            allocations_by_run_id=allocations_by_run_id,
+            allocations_by_monitoring_run_id=allocations_by_monitoring_run_id,
             next_sequence_index=next_sequence_index,
         )
         if repairs:
@@ -924,12 +1083,12 @@ class MLflowMonitoringGateway:
         experiment_tags: Mapping[str, str],
         ordered_allocations: tuple[_MonitoringRunAllocation, ...],
         allocations_by_sequence: Mapping[int, _MonitoringRunAllocation],
-        allocations_by_run_id: Mapping[str, _MonitoringRunAllocation],
+        allocations_by_monitoring_run_id: Mapping[str, _MonitoringRunAllocation],
         next_sequence_index: int,
     ) -> dict[str, str]:
         """Return validated experiment-tag repairs in deterministic write order."""
         self._validate_timeline_index_tags(experiment_tags, allocations_by_sequence)
-        self._validate_allocation_pointer_tags(experiment_tags, allocations_by_run_id)
+        self._validate_allocation_pointer_tags(experiment_tags, allocations_by_monitoring_run_id)
 
         persisted_next_sequence = self._read_next_sequence_index(experiment_tags)
         if persisted_next_sequence > next_sequence_index:

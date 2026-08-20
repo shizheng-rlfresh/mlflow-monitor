@@ -18,11 +18,8 @@ from mlflow_monitor.errors import (
     PrepareStageError,
     TerminalRunRetryError,
 )
-from mlflow_monitor.gateway import (
-    IdempotencyKey,
-    MonitoringGateway,
-    MonitoringRunRecord,
-)
+from mlflow_monitor.gateway import MonitoringGateway
+from mlflow_monitor.gateway_models import IdempotencyKey, MonitoringRunRecord
 from mlflow_monitor.recipe_compiler import (
     SYSTEM_DEFAULT_COMPILED_RECIPE,
     CompiledRecipe,
@@ -281,6 +278,11 @@ def _run_prepare_monitoring_run_slice(
                 error=rerun_error,
             )
 
+        gateway.reconcile_timeline_baseline(
+            state.subject_id,
+            state.monitoring_run_id,
+            prepared_context.baseline_source_run_id,
+        )
         return prepared_context
 
     try:

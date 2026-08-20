@@ -16,14 +16,16 @@ from mlflow_monitor.errors import (
     GatewayNamespaceViolation,
     TrainingRunMutationViolation,
 )
-from mlflow_monitor.gateway import (
+from mlflow_monitor.gateway import InMemoryMonitoringGateway
+from mlflow_monitor.gateway_models import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
     IdempotencyKey,
-    InMemoryMonitoringGateway,
+    TimelineState,
 )
 
 _MONITORING_RUN_UPSERT_FIELD_OVERRIDE_FOR_TESTS = "monitoring_run_upsert_field_override"
+_MONITORING_TIMELINE_INCONSISTENT_FOR_TESTS = "monitoring_timeline_inconsistent"
 
 
 def test_create_or_reuse_monitoring_run_creates_then_reuses() -> None:
@@ -179,7 +181,7 @@ def test_create_or_reuse_monitoring_run_is_monotonic_per_subject() -> None:
     assert fraud_first.sequence_index == 0
 
 
-def test_pin_timeline_baseline_is_deterministic_and_stores_baseline_reference() -> None:
+def test_reconcile_timeline_baseline_is_idempotent_and_preserves_sequence() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     first_allocation = gateway.create_or_reuse_monitoring_run(
         IdempotencyKey(
@@ -190,8 +192,16 @@ def test_pin_timeline_baseline_is_deterministic_and_stores_baseline_reference() 
         )
     )
 
-    first_timeline_result = gateway.pin_timeline_baseline("churn_model", "train-run-1")
-    second_timeline_result = gateway.pin_timeline_baseline("churn_model", "train-run-2")
+    first_timeline_state = gateway.reconcile_timeline_baseline(
+        "churn_model",
+        first_allocation.monitoring_run_id,
+        "train-run-1",
+    )
+    second_timeline_state = gateway.reconcile_timeline_baseline(
+        "churn_model",
+        first_allocation.monitoring_run_id,
+        "train-run-1",
+    )
     second_allocation = gateway.create_or_reuse_monitoring_run(
         IdempotencyKey(
             subject_id="churn_model",
@@ -204,36 +214,85 @@ def test_pin_timeline_baseline_is_deterministic_and_stores_baseline_reference() 
 
     assert first_allocation.timeline_id == "timeline-churn_model"
     assert first_allocation.sequence_index == 0
-    assert first_timeline_result.timeline_id == first_allocation.timeline_id
-    assert second_timeline_result.timeline_id == first_timeline_result.timeline_id
-    assert first_timeline_result.baseline_pinned is True
-    assert second_timeline_result.baseline_pinned is False
+    assert first_timeline_state.timeline_id == first_allocation.timeline_id
+    assert first_timeline_state.baseline_source_run_id == "train-run-1"
+    assert second_timeline_state == first_timeline_state
     assert second_allocation.timeline_id == first_allocation.timeline_id
     assert second_allocation.sequence_index == 1
     assert timeline_state is not None
     assert timeline_state.baseline_source_run_id == "train-run-1"
 
 
-def test_pin_timeline_baseline_requires_an_existing_allocation() -> None:
+def test_reconcile_timeline_baseline_rejects_changed_claim() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-1",
+            recipe_id="default",
+            recipe_version="v0",
+        )
+    )
+    gateway.reconcile_timeline_baseline(
+        "churn_model",
+        allocation.monitoring_run_id,
+        "train-run-1",
+    )
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.reconcile_timeline_baseline(
+            "churn_model",
+            allocation.monitoring_run_id,
+            "train-run-2",
+        )
+
+    assert exc_info.value.code == _MONITORING_TIMELINE_INCONSISTENT_FOR_TESTS
+    assert exc_info.value.details == (
+        ("reason", "request_conflict"),
+        ("monitoring_run_id", allocation.monitoring_run_id),
+        ("source_run_id", "train-run-1"),
+        ("existing_baseline_source_run_id", "train-run-1"),
+        ("requested_baseline_source_run_id", "train-run-2"),
+    )
+    assert gateway.get_timeline_state("churn_model") == TimelineState(
+        timeline_id=allocation.timeline_id,
+        baseline_source_run_id="train-run-1",
+    )
+
+
+def test_reconcile_timeline_baseline_requires_an_existing_allocation() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
 
-    with pytest.raises(
-        GatewayConsistencyViolation,
-        match="Timeline state not found for subject_id='churn_model'.",
-    ):
-        gateway.pin_timeline_baseline("churn_model", "train-run-1")
+    with pytest.raises(GatewayConsistencyViolation):
+        gateway.reconcile_timeline_baseline(
+            "churn_model",
+            "monitoring-run-missing",
+            "train-run-1",
+        )
 
     assert gateway.get_timeline_state("churn_model") is None
 
 
-def test_pin_timeline_baseline_rejects_empty_baseline_source_run_id() -> None:
+def test_reconcile_timeline_baseline_rejects_empty_baseline_source_run_id() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
+    allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-1",
+            recipe_id="default",
+            recipe_version="v0",
+        )
+    )
 
     with pytest.raises(
         GatewayNamespaceViolation,
         match="baseline_source_run_id must be non-empty.",
     ):
-        gateway.pin_timeline_baseline("churn_model", "")
+        gateway.reconcile_timeline_baseline(
+            "churn_model",
+            allocation.monitoring_run_id,
+            "",
+        )
 
 
 def test_set_and_resolve_active_lkg_monitoring_run_id() -> None:
