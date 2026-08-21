@@ -100,8 +100,9 @@ class PreparedReferencePlanEntry:
 
     Attributes:
         kind: Canonical reference kind for this group.
-        reference: Resolved paired reference, or ``None`` when unavailable.
-        unavailable_reason: Prepare-time reason when the reference is unavailable.
+        reference: Resolved paired reference, or null when unavailable.
+        unavailable_reason: Prepare-time reason when the reference is unavailable
+                                for null when reference is available.
     """
 
     kind: DiffReferenceKind
@@ -119,7 +120,7 @@ class PreparedReferencePlanEntry:
         if self.reference is not None:
             if not isinstance(self.reference, MonitoringRunReference):
                 raise ValueError("Resolved prepared reference must be a MonitoringRunReference.")
-            if self.reference.kind is not kind:
+            if self.reference.kind != kind:
                 raise ValueError("Prepared reference kind must match its resolved reference kind.")
             if self.unavailable_reason is not None:
                 raise ValueError("Resolved prepared reference cannot have an unavailable reason.")
