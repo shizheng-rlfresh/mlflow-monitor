@@ -448,6 +448,8 @@ def _hydrate_prepared_reference_plan(
             raise PreparedContextConsistencyViolation.invalid_field_type(
                 field=f"{field}.unavailable_reason"
             )
+        if source_run_id is None and monitoring_run_id is not None:
+            raise PreparedContextConsistencyViolation.invalid_reference(field=field)
         try:
             reference_kind = DiffReferenceKind(kind)
             reference = (

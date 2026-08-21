@@ -468,6 +468,31 @@ def test_hydrate_prepared_context_accepts_inconsistent_lkg_plan_shape() -> None:
     assert hydrated == context
 
 
+def test_hydrate_prepared_context_rejects_unpaired_unavailable_monitoring_run_id() -> None:
+    """Unavailable plan entries should not retain an orphan Monitoring Run ID."""
+    compiled_recipe = compile_recipe()
+    context = make_prepared_context(contract=compiled_recipe.contract)
+    raw = prepared_context_to_dict(context)
+    references = raw["references"]
+    assert isinstance(references, list)
+    previous_reference = references[1]
+    assert isinstance(previous_reference, dict)
+    previous_reference["monitoring_run_id"] = "monitoring-run-orphan"
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        hydrate_prepared_context(
+            raw,
+            compiled_recipe=compiled_recipe,
+            monitoring_run_id=context.monitoring_run_id,
+            source_run_id=context.source_run_id,
+            subject_id=context.subject_id,
+            timeline_id=context.timeline_id,
+            sequence_index=context.sequence_index,
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
+
+
 def test_hydrate_prepared_context_rejects_resolved_only_legacy_shape() -> None:
     """Pre-V0-014 prepared artifacts should fail closed without migration."""
     compiled_recipe = compile_recipe()
