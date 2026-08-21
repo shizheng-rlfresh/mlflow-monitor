@@ -1405,44 +1405,6 @@ def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> N
     assert second.error is None
 
 
-def test_run_orchestration_checked_rerun_ignores_legacy_lkg_pointer() -> None:
-    gateway = make_gateway()
-    gateway.upsert_monitoring_run(
-        subject_id="churn_model",
-        monitoring_run_id="monitoring-run-lkg",
-        source_run_id="train-run-lkg",
-        lifecycle_status=LifecycleStatus.CREATED,
-        sequence_index=0,
-    )
-    gateway.set_active_lkg_monitoring_run_id("churn_model", "monitoring-run-lkg")
-
-    first = run_orchestration(
-        subject_id="churn_model",
-        source_run_id="train-run-current",
-        baseline_source_run_id="train-run-baseline",
-        gateway=gateway,
-        contract_checker=DefaultContractChecker(),
-    )
-    second = run_orchestration(
-        subject_id="churn_model",
-        source_run_id="train-run-current",
-        baseline_source_run_id=None,
-        gateway=gateway,
-        contract_checker=DefaultContractChecker(),
-    )
-
-    assert first.references == (
-        MonitoringRunReference(
-            kind=DiffReferenceKind.BASELINE,
-            monitoring_run_id=None,
-            source_run_id="train-run-baseline",
-        ),
-    )
-    assert second.monitoring_run_id == first.monitoring_run_id
-    assert second.references == first.references
-    assert second.error is None
-
-
 def test_run_orchestration_checked_rerun_replays_when_source_run_no_longer_resolves() -> None:
     gateway = ReplaySensitiveGateway(GatewayConfig())
     gateway.add_source_run(

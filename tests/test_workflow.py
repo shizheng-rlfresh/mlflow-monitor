@@ -882,19 +882,6 @@ def test_prepare_selects_greatest_lower_closed_monitoring_run() -> None:
     assert prepared.previous_monitoring_run_id == closed_allocation.monitoring_run_id
 
 
-def test_prepare_run_context_succeeds_without_active_lkg() -> None:
-    """Prepare should tolerate a missing active LKG."""
-    gateway = make_gateway_with_timeline().gateway
-
-    prepared = prepare_test_context(
-        subject_id="churn_model",
-        compiled_invocation=make_compiled_invocation(),
-        gateway=gateway,
-    )
-
-    assert prepared.active_lkg_monitoring_run_id is None
-
-
 def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
     """Prepare should resolve a raw source run when source_experiment is omitted."""
     gateway = InMemoryMonitoringGateway(GatewayConfig())

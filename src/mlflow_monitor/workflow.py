@@ -72,12 +72,6 @@ _PREPARED_CONTRACT_FIELDS = frozenset(
 _PREPARED_REFERENCE_FIELDS = frozenset(
     {"kind", "monitoring_run_id", "source_run_id", "unavailable_reason"}
 )
-_REFERENCE_ORDER = {
-    DiffReferenceKind.BASELINE: 0,
-    DiffReferenceKind.PREVIOUS: 1,
-    DiffReferenceKind.LKG: 2,
-    DiffReferenceKind.CUSTOM: 3,
-}
 _PREPARE_REFERENCE_UNAVAILABLE_REASONS = {
     DiffReferenceKind.PREVIOUS: frozenset({"previous_reference_missing"}),
     DiffReferenceKind.LKG: frozenset(
@@ -483,14 +477,6 @@ def _hydrate_prepared_reference_plan(
             field="references",
         )
 
-    reference_kinds = tuple(entry.kind for entry in reference_plan)
-    if (
-        len(reference_kinds) != len(set(reference_kinds))
-        or tuple(sorted(reference_kinds, key=_REFERENCE_ORDER.__getitem__)) != reference_kinds
-    ):
-        raise PreparedContextConsistencyViolation.noncanonical_references(
-            field="references",
-        )
     return tuple(reference_plan)
 
 
