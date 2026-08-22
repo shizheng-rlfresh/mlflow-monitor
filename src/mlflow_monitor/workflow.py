@@ -157,7 +157,7 @@ class PreparedContext:
         baseline_source_run_id: Resolved baseline source run id.
         effective_recipe: Resolved effective compiled Recipe.
         contract: Resolved contract.
-        references: Fixed ordered reference plan, including unavailable groups.
+        reference_plan: Fixed ordered reference plan, including unavailable groups.
     """
 
     monitoring_run_id: str
@@ -389,7 +389,7 @@ def hydrate_prepared_context(
         )
     except ValueError as exc:
         raise PreparedContextConsistencyViolation.noncanonical_references(
-            field="references",
+            field="reference_plan",
         ) from exc
 
 
@@ -422,12 +422,12 @@ def _hydrate_prepared_reference_plan(
     """Hydrate the canonical fixed Prepare-stage reference plan."""
     if not isinstance(raw, list):
         raise PreparedContextConsistencyViolation.invalid_field_type(
-            field="references",
+            field="reference_plan",
         )
 
     reference_plan: list[PreparedReferencePlanEntry] = []
     for index, item in enumerate(raw):
-        field = f"references[{index}]"
+        field = f"reference_plan[{index}]"
         if not isinstance(item, Mapping):
             raise PreparedContextConsistencyViolation.invalid_field_type(field=field)
         _require_exact_prepared_fields(item, _PREPARED_REFERENCE_FIELDS, section=field)

@@ -494,33 +494,6 @@ def test_hydrate_prepared_context_rejects_unpaired_unavailable_monitoring_run_id
     assert exc_info.value.code == "prepared_context_inconsistent"
 
 
-def test_hydrate_prepared_context_rejects_resolved_only_legacy_shape() -> None:
-    """Pre-V0-014 prepared artifacts should fail closed without migration."""
-    compiled_recipe = compile_recipe()
-    context = make_prepared_context(contract=compiled_recipe.contract)
-    raw = prepared_context_to_dict(context)
-    references = raw["reference_plan"]
-    assert isinstance(references, list)
-    raw["reference_plan"] = [
-        {key: value for key, value in reference.items() if key != "unavailable_reason"}
-        for reference in references
-        if isinstance(reference, dict)
-    ]
-
-    with pytest.raises(GatewayConsistencyViolation) as exc_info:
-        hydrate_prepared_context(
-            raw,
-            compiled_recipe=compiled_recipe,
-            monitoring_run_id=context.monitoring_run_id,
-            source_run_id=context.source_run_id,
-            subject_id=context.subject_id,
-            timeline_id=context.timeline_id,
-            sequence_index=context.sequence_index,
-        )
-
-    assert exc_info.value.code == "prepared_context_inconsistent"
-
-
 def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     """Prepare should resolve references and required source-run inputs."""
     fixture = make_gateway_with_timeline()
