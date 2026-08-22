@@ -413,6 +413,17 @@ def _run_check_monitoring_run_slice(
             projected_comparability_status=existing_run.comparability_status,
         )
 
+    reconcile_prepared_baseline = (
+        state.existing_monitoring_run is not None
+        and state.existing_monitoring_run.lifecycle_status is LifecycleStatus.PREPARED
+    )
+    if reconcile_prepared_baseline and raw_partial_result is None:
+        gateway.reconcile_timeline_baseline(
+            state.subject_id,
+            state.monitoring_run_id,
+            prepared_context.baseline_source_run_id,
+        )
+
     try:
         contract_check_result = execute_contract_check(
             prepared_context=prepared_context,
@@ -445,10 +456,7 @@ def _run_check_monitoring_run_slice(
         data=contract_check_result_to_dict(prepared_context, contract_check_result),
         path=CONTRACT_CHECK_ARTIFACT_PATH,
     )
-    if (
-        state.existing_monitoring_run is not None
-        and state.existing_monitoring_run.lifecycle_status is LifecycleStatus.PREPARED
-    ):
+    if reconcile_prepared_baseline and raw_partial_result is not None:
         gateway.reconcile_timeline_baseline(
             state.subject_id,
             state.monitoring_run_id,
