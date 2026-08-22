@@ -31,6 +31,7 @@ from mlflow_monitor.result_contract import MonitorRunResult
 
 _PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_baseline"
 _BASELINE_CLAIM_TAG_PREFIX = "monitoring.baseline_source_run_id."
+_CONTRACT_CHECK_ARTIFACT_PATH = "outputs/contract_check.json"
 
 
 def _baseline_claim_tag_key(baseline_source_run_id: str) -> str:
@@ -396,7 +397,7 @@ def test_mlflow_gateway_checked_replay_repairs_incomplete_terminal_finalization(
     monitoring_run_before = raw.get_run(monitoring_run_id)
     assert monitoring_run_before.info.status == "RUNNING"
     assert monitoring_run_before.data.tags["monitoring.lifecycle_status"] == "checked"
-    check_path = Path(raw.download_artifacts(monitoring_run_id, "outputs/contract_check.json"))
+    check_path = Path(raw.download_artifacts(monitoring_run_id, _CONTRACT_CHECK_ARTIFACT_PATH))
     check_payload_before = json.loads(check_path.read_text())
     assert check_payload_before["monitoring_run_id"] == monitoring_run_id
     assert check_payload_before["status"] == "pass"
@@ -425,7 +426,13 @@ def test_mlflow_gateway_checked_replay_repairs_incomplete_terminal_finalization(
     assert payload["monitoring_run_id"] == monitoring_run_id
     assert payload["lifecycle_status"] == "checked"
     assert payload["comparability_status"] == "pass"
-    assert json.loads(check_path.read_text()) == check_payload_before
+    assert (
+        repairing_gateway.read_monitoring_run_json_artifact(
+            monitoring_run_id,
+            _CONTRACT_CHECK_ARTIFACT_PATH,
+        )
+        == check_payload_before
+    )
 
 
 def test_mlflow_gateway_replays_prepared_context_after_check_interruption(

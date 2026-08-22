@@ -449,6 +449,8 @@ class InterruptCheckCommitGateway(InMemoryMonitoringGateway):
         self.last_allocation: CreateOrReuseMonitoringRunResult | None = None
         self._interrupt_checked_commit = True
         self.finalized_results: list[MonitorRunResult] = []
+        self.baseline_reconciliations: list[tuple[str, str]] = []
+        self.persistence_events: list[tuple[str, object]] = []
 
     def create_or_reuse_monitoring_run(
         self, key: IdempotencyKey
@@ -479,6 +481,8 @@ class InterruptCheckCommitGateway(InMemoryMonitoringGateway):
             contract_check_result=contract_check_result,
             references=references,
         )
+        if lifecycle_status is LifecycleStatus.CHECKED:
+            self.persistence_events.append(("lifecycle_status", lifecycle_status))
 
     def finalize_monitoring_run_result(
         self,
@@ -489,12 +493,53 @@ class InterruptCheckCommitGateway(InMemoryMonitoringGateway):
         assert monitoring_run_id == result.monitoring_run_id
         self.finalized_results.append(result)
 
+    def reconcile_timeline_baseline(
+        self,
+        subject_id: str,
+        monitoring_run_id: str,
+        baseline_source_run_id: str,
+    ) -> TimelineState:
+        """Record successful baseline reconciliation during recovery."""
+        timeline_state = super().reconcile_timeline_baseline(
+            subject_id,
+            monitoring_run_id,
+            baseline_source_run_id,
+        )
+        self.baseline_reconciliations.append((monitoring_run_id, baseline_source_run_id))
+        self.persistence_events.append(("baseline_reconciliation", monitoring_run_id))
+        return timeline_state
+
+    def remove_baseline_claim_for_test(self) -> None:
+        """Remove the current claim to require prepared-replay reconciliation."""
+        assert self.last_allocation is not None
+        self._baseline_claim_by_monitoring_run_id.pop(
+            self.last_allocation.monitoring_run_id,
+        )
+        self.baseline_reconciliations.clear()
+        self.persistence_events.clear()
+
+    def has_baseline_claim_for_test(self) -> bool:
+        """Return whether the interrupted Monitoring Run still owns its claim."""
+        assert self.last_allocation is not None
+        return self.last_allocation.monitoring_run_id in self._baseline_claim_by_monitoring_run_id
+
     def replace_contract_check_for_test(self, data: Mapping[str, object]) -> None:
         """Replace partial Check output to simulate persisted contradiction."""
         assert self.last_allocation is not None
         self._monitoring_runs_artifact_store[
             (self.last_allocation.monitoring_run_id, _CONTRACT_CHECK_PATH)
         ] = canonical_json(dict(data))
+
+    def write_monitoring_run_json_artifact(
+        self,
+        monitoring_run_id: str,
+        data: dict[str, object],
+        path: str,
+    ) -> None:
+        """Record successful Check artifact validation or persistence."""
+        super().write_monitoring_run_json_artifact(monitoring_run_id, data, path)
+        if path == _CONTRACT_CHECK_PATH:
+            self.persistence_events.append(("contract_check_artifact", monitoring_run_id))
 
     def delete_contract_check_for_test(self) -> None:
         """Remove persisted Check output to model a legacy checked record."""
@@ -897,6 +942,7 @@ def test_prepared_replay_reuses_identical_partial_contract_check_output() -> Non
     assert stored is not None
     assert stored.lifecycle_status is LifecycleStatus.PREPARED
     assert read_contract_check(gateway, monitoring_run_id) is not None
+    gateway.remove_baseline_claim_for_test()
 
     replay = run_orchestration(
         subject_id="churn_model",
@@ -908,6 +954,12 @@ def test_prepared_replay_reuses_identical_partial_contract_check_output() -> Non
 
     assert replay.lifecycle_status is LifecycleStatus.CHECKED
     assert len(gateway.finalized_results) == 1
+    assert gateway.has_baseline_claim_for_test() is True
+    assert gateway.persistence_events == [
+        ("contract_check_artifact", monitoring_run_id),
+        ("baseline_reconciliation", monitoring_run_id),
+        ("lifecycle_status", LifecycleStatus.CHECKED),
+    ]
 
 
 def test_prepared_replay_rejects_conflicting_partial_contract_check_output() -> None:
@@ -949,6 +1001,8 @@ def test_prepared_replay_rejects_conflicting_partial_contract_check_output() -> 
         schema={"age": "int"},
         data_scope="validation:2026-03-01",
     )
+    gateway.remove_baseline_claim_for_test()
+    assert gateway.has_baseline_claim_for_test() is False
 
     with pytest.raises(GatewayConsistencyViolation):
         run_orchestration(
@@ -965,6 +1019,8 @@ def test_prepared_replay_rejects_conflicting_partial_contract_check_output() -> 
     assert stored.contract_check_result is None
     assert read_contract_check(gateway, monitoring_run_id) == persisted_before
     assert gateway.finalized_results == []
+    assert gateway.has_baseline_claim_for_test() is False
+    assert gateway.baseline_reconciliations == []
 
 
 def test_prepared_replay_rejects_duplicate_reasons_in_partial_contract_check() -> None:
@@ -999,6 +1055,8 @@ def test_prepared_replay_rejects_duplicate_reasons_in_partial_contract_check() -
     assert isinstance(reasons, list)
     reasons.append(dict(reasons[0]))
     gateway.replace_contract_check_for_test(artifact)
+    gateway.remove_baseline_claim_for_test()
+    assert gateway.has_baseline_claim_for_test() is False
 
     with pytest.raises(GatewayConsistencyViolation):
         run_orchestration(
@@ -1013,6 +1071,8 @@ def test_prepared_replay_rejects_duplicate_reasons_in_partial_contract_check() -
     assert stored is not None
     assert stored.lifecycle_status is LifecycleStatus.PREPARED
     assert gateway.finalized_results == []
+    assert gateway.has_baseline_claim_for_test() is False
+    assert gateway.baseline_reconciliations == []
 
 
 def test_checked_replay_rejects_legacy_missing_contract_check_without_mutation() -> None:
@@ -1072,6 +1132,46 @@ def test_checked_replay_rejects_projection_disagreement_without_mutation() -> No
             contract_checker=RaisingContractChecker(),
         )
 
+    assert gateway.get_monitoring_run("churn_model", monitoring_run_id) == stored_before
+    assert read_contract_check(gateway, monitoring_run_id) == artifact_before
+    assert gateway.finalized_results == []
+
+
+@pytest.mark.parametrize(
+    "lifecycle_status",
+    [LifecycleStatus.ANALYZED, LifecycleStatus.CLOSED],
+)
+def test_post_check_replay_fails_closed_without_lifecycle_regression(
+    lifecycle_status: LifecycleStatus,
+) -> None:
+    gateway = InterruptCheckCommitGateway(GatewayConfig())
+    monitoring_run_id = complete_interrupted_check(gateway)
+    stored_checked = gateway.get_monitoring_run("churn_model", monitoring_run_id)
+    assert stored_checked is not None
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=monitoring_run_id,
+        source_run_id=stored_checked.source_run_id,
+        lifecycle_status=lifecycle_status,
+        sequence_index=stored_checked.sequence_index,
+    )
+    stored_before = gateway.get_monitoring_run("churn_model", monitoring_run_id)
+    artifact_before = read_contract_check(gateway, monitoring_run_id)
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id=None,
+            gateway=gateway,
+            contract_checker=RaisingContractChecker(),
+        )
+
+    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert exc_info.value.details == (
+        ("lifecycle_status", "checked"),
+        ("persisted_lifecycle_status", lifecycle_status.value),
+    )
     assert gateway.get_monitoring_run("churn_model", monitoring_run_id) == stored_before
     assert read_contract_check(gateway, monitoring_run_id) == artifact_before
     assert gateway.finalized_results == []

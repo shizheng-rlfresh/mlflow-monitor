@@ -193,6 +193,20 @@ def _short_circuit_existing_monitoring_run(
         )
         return result
 
+    if state.existing_monitoring_run.lifecycle_status in {
+        LifecycleStatus.ANALYZED,
+        LifecycleStatus.CLOSED,
+    }:
+        raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
+            fields=(
+                ("lifecycle_status", LifecycleStatus.CHECKED.value),
+                (
+                    "persisted_lifecycle_status",
+                    state.existing_monitoring_run.lifecycle_status.value,
+                ),
+            ),
+        )
+
     return state
 
 
@@ -261,12 +275,6 @@ def _run_prepare_monitoring_run_slice(
                 error=rerun_error,
             )
 
-        if state.existing_monitoring_run.lifecycle_status is LifecycleStatus.PREPARED:
-            gateway.reconcile_timeline_baseline(
-                state.subject_id,
-                state.monitoring_run_id,
-                prepared_context.baseline_source_run_id,
-            )
         return prepared_context
 
     try:
@@ -398,6 +406,15 @@ def _run_check_monitoring_run_slice(
         data=contract_check_result_to_dict(prepared_context, contract_check_result),
         path=CONTRACT_CHECK_ARTIFACT_PATH,
     )
+    if (
+        state.existing_monitoring_run is not None
+        and state.existing_monitoring_run.lifecycle_status is LifecycleStatus.PREPARED
+    ):
+        gateway.reconcile_timeline_baseline(
+            state.subject_id,
+            state.monitoring_run_id,
+            prepared_context.baseline_source_run_id,
+        )
     gateway.upsert_monitoring_run(
         subject_id=state.subject_id,
         monitoring_run_id=state.monitoring_run_id,
