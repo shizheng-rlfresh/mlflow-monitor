@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from mlflow import MlflowClient
 
+from mlflow_monitor.builtins import SYSTEM_DEFAULT_CONTRACT_ID
 from mlflow_monitor.contract_checker import (
     ContractEvaluationContext,
     DefaultContractChecker,
@@ -257,7 +258,17 @@ def test_mlflow_gateway_first_run_bootstraps_and_finalizes_result(
     assert monitoring_run.data.tags[_baseline_claim_tag_key(baseline_run_id)] == baseline_run_id
 
     artifact_dir = Path(raw.download_artifacts(result.monitoring_run_id, "outputs"))
+    check_payload = json.loads((artifact_dir / "contract_check.json").read_text())
     payload = json.loads((artifact_dir / "result.json").read_text())
+    assert check_payload == {
+        "artifact_schema_version": "v0",
+        "monitoring_run_id": result.monitoring_run_id,
+        "source_run_id": current_run_id,
+        "contract_id": SYSTEM_DEFAULT_CONTRACT_ID,
+        "contract_version": "v0",
+        "status": "pass",
+        "reasons": [],
+    }
     assert payload["monitoring_run_id"] == result.monitoring_run_id
     assert payload["timeline_id"] == experiment.experiment_id
     assert payload["lifecycle_status"] == "checked"
@@ -385,7 +396,10 @@ def test_mlflow_gateway_checked_replay_repairs_incomplete_terminal_finalization(
     monitoring_run_before = raw.get_run(monitoring_run_id)
     assert monitoring_run_before.info.status == "RUNNING"
     assert monitoring_run_before.data.tags["monitoring.lifecycle_status"] == "checked"
-    assert raw.list_artifacts(monitoring_run_id, "outputs") == []
+    check_path = Path(raw.download_artifacts(monitoring_run_id, "outputs/contract_check.json"))
+    check_payload_before = json.loads(check_path.read_text())
+    assert check_payload_before["monitoring_run_id"] == monitoring_run_id
+    assert check_payload_before["status"] == "pass"
 
     repairing_gateway = MLflowMonitoringGateway(
         GatewayConfig(),
@@ -411,6 +425,7 @@ def test_mlflow_gateway_checked_replay_repairs_incomplete_terminal_finalization(
     assert payload["monitoring_run_id"] == monitoring_run_id
     assert payload["lifecycle_status"] == "checked"
     assert payload["comparability_status"] == "pass"
+    assert json.loads(check_path.read_text()) == check_payload_before
 
 
 def test_mlflow_gateway_replays_prepared_context_after_check_interruption(

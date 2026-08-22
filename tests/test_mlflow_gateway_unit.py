@@ -8,7 +8,12 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from mlflow_monitor.domain import DiffReferenceKind, LifecycleStatus, MonitoringRunReference
+from mlflow_monitor.domain import (
+    ComparabilityStatus,
+    DiffReferenceKind,
+    LifecycleStatus,
+    MonitoringRunReference,
+)
 from mlflow_monitor.errors import (
     GatewayConsistencyViolation,
     GatewayNamespaceViolation,
@@ -1193,7 +1198,6 @@ def test_finalize_monitoring_run_result_repairs_only_missing_terminal_side_effec
 @pytest.mark.parametrize(
     ("tag_key", "tag_value"),
     [
-        ("monitoring.comparability_status", "unknown"),
         ("monitoring.sequence_index", "not-an-int"),
         ("monitoring.lifecycle_status", "not-a-status"),
     ],
@@ -1208,6 +1212,7 @@ def test_get_monitoring_run_returns_none_for_malformed_persisted_tags(
         "monitoring.run.0": "monitoring-run-1",
     }
     stub_client.get_run_tags.return_value = {
+        "training.source_run_id": "train-run-1",
         "monitoring.sequence_index": "0",
         "monitoring.lifecycle_status": "checked",
         "monitoring.comparability_status": "pass",
@@ -1218,6 +1223,56 @@ def test_get_monitoring_run_returns_none_for_malformed_persisted_tags(
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     assert gateway.get_monitoring_run("churn_model", "monitoring-run-1") is None
+
+
+def test_get_monitoring_run_rejects_invalid_comparability_projection() -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.0": "monitoring-run-1",
+    }
+    stub_client.get_run_tags.return_value = {
+        "training.source_run_id": "train-run-1",
+        "monitoring.sequence_index": "0",
+        "monitoring.lifecycle_status": "checked",
+        "monitoring.comparability_status": "unknown",
+    }
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        gateway.get_monitoring_run("churn_model", "monitoring-run-1")
+
+    assert exc_info.value.code == "monitoring_run_json_artifact_inconsistent"
+    assert exc_info.value.details == (
+        ("monitoring_run_id", "monitoring-run-1"),
+        ("path", "outputs/contract_check.json"),
+    )
+    assert "unknown" not in exc_info.value.message
+
+
+def test_get_monitoring_run_does_not_synthesize_check_result_from_projection() -> None:
+    stub_client = MagicMock()
+    stub_client.get_monitoring_experiment_id_by_name.return_value = "experiment-1"
+    stub_client.get_monitoring_experiment_tags.return_value = {
+        "monitoring.run.0": "monitoring-run-1",
+    }
+    stub_client.get_run_tags.return_value = {
+        "training.source_run_id": "train-run-1",
+        "monitoring.sequence_index": "0",
+        "monitoring.lifecycle_status": "checked",
+        "monitoring.comparability_status": "pass",
+    }
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    record = gateway.get_monitoring_run("churn_model", "monitoring-run-1")
+
+    assert record is not None
+    assert record.comparability_status is ComparabilityStatus.PASS
+    assert record.contract_check_result is None
 
 
 def test_get_monitoring_run_hydrates_source_and_reference_pairs() -> None:
