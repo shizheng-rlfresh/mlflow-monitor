@@ -494,6 +494,56 @@ def test_hydrate_prepared_context_rejects_unpaired_unavailable_monitoring_run_id
     assert exc_info.value.code == "prepared_context_inconsistent"
 
 
+def test_hydrate_prepared_context_reports_reference_plan_for_baseline_mismatch() -> None:
+    """Baseline mismatches should identify the persisted reference-plan field."""
+    compiled_recipe = compile_recipe()
+    context = make_prepared_context(contract=compiled_recipe.contract)
+    raw = prepared_context_to_dict(context)
+    reference_plan = raw["reference_plan"]
+    assert isinstance(reference_plan, list)
+    baseline_reference = reference_plan[0]
+    assert isinstance(baseline_reference, dict)
+    baseline_reference["source_run_id"] = "train-run-other"
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        hydrate_prepared_context(
+            raw,
+            compiled_recipe=compiled_recipe,
+            monitoring_run_id=context.monitoring_run_id,
+            source_run_id=context.source_run_id,
+            subject_id=context.subject_id,
+            timeline_id=context.timeline_id,
+            sequence_index=context.sequence_index,
+        )
+
+    assert exc_info.value.details == (
+        ("reason", "baseline_reference_mismatch"),
+        ("field", "reference_plan"),
+    )
+
+
+def test_hydrate_prepared_context_rejects_obsolete_prepared_context_schema() -> None:
+    """Resolved-only prepared artifacts should fail closed without migration."""
+    compiled_recipe = compile_recipe()
+    context = make_prepared_context(contract=compiled_recipe.contract)
+    raw = prepared_context_to_dict(context)
+    del raw["reference_plan"]
+    raw["references"] = [reference.to_dict() for reference in context.references]
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        hydrate_prepared_context(
+            raw,
+            compiled_recipe=compiled_recipe,
+            monitoring_run_id=context.monitoring_run_id,
+            source_run_id=context.source_run_id,
+            subject_id=context.subject_id,
+            timeline_id=context.timeline_id,
+            sequence_index=context.sequence_index,
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
+
+
 def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     """Prepare should resolve references and required source-run inputs."""
     fixture = make_gateway_with_timeline()

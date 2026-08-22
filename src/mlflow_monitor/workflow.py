@@ -172,19 +172,19 @@ class PreparedContext:
 
     def __post_init__(self) -> None:
         """Freeze and validate the canonical ordered reference plan."""
-        references = tuple(self.reference_plan)
+        reference_plan = tuple(self.reference_plan)
         expected_kinds = (
             DiffReferenceKind.BASELINE,
             DiffReferenceKind.PREVIOUS,
             DiffReferenceKind.LKG,
         )
-        actual_kinds = tuple(entry.kind for entry in references)
+        actual_kinds = tuple(entry.kind for entry in reference_plan)
         if actual_kinds not in (expected_kinds, (*expected_kinds, DiffReferenceKind.CUSTOM)):
             raise ValueError(
-                "PreparedContext references must contain baseline, previous, LKG, "
+                "PreparedContext reference_plan must contain baseline, previous, LKG, "
                 "and optional custom groups in canonical order."
             )
-        baseline_reference = references[0].reference
+        baseline_reference = reference_plan[0].reference
         if baseline_reference != MonitoringRunReference(
             kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
@@ -193,7 +193,7 @@ class PreparedContext:
             raise ValueError(
                 "PreparedContext baseline reference must match baseline_source_run_id."
             )
-        object.__setattr__(self, "reference_plan", references)
+        object.__setattr__(self, "reference_plan", reference_plan)
 
     @property
     def references(self) -> tuple[MonitoringRunReference, ...]:
@@ -477,7 +477,7 @@ def _hydrate_prepared_reference_plan(
         source_run_id=baseline_source_run_id,
     ):
         raise PreparedContextConsistencyViolation.baseline_reference_mismatch(
-            field="references",
+            field="reference_plan",
         )
 
     return tuple(reference_plan)
