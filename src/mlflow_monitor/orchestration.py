@@ -176,7 +176,25 @@ def _short_circuit_existing_monitoring_run(
     if state.existing_monitoring_run is None:
         return state
 
-    if state.existing_monitoring_run.lifecycle_status is LifecycleStatus.FAILED:
+    result = _handle_nonresumable_check_lifecycle(
+        state=state,
+        existing_monitoring_run=state.existing_monitoring_run,
+        gateway=gateway,
+    )
+    if result is not None:
+        return result
+
+    return state
+
+
+def _handle_nonresumable_check_lifecycle(
+    *,
+    state: OrchestrationState,
+    existing_monitoring_run: MonitoringRunRecord,
+    gateway: MonitoringGateway,
+) -> MonitorRunResult | None:
+    """Replay or reject a lifecycle that cannot resume through Check."""
+    if existing_monitoring_run.lifecycle_status is LifecycleStatus.FAILED:
         result = _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
@@ -193,7 +211,7 @@ def _short_circuit_existing_monitoring_run(
         )
         return result
 
-    if state.existing_monitoring_run.lifecycle_status in {
+    if existing_monitoring_run.lifecycle_status in {
         LifecycleStatus.ANALYZED,
         LifecycleStatus.CLOSED,
     }:
@@ -202,12 +220,12 @@ def _short_circuit_existing_monitoring_run(
                 ("lifecycle_status", LifecycleStatus.CHECKED.value),
                 (
                     "persisted_lifecycle_status",
-                    state.existing_monitoring_run.lifecycle_status.value,
+                    existing_monitoring_run.lifecycle_status.value,
                 ),
             ),
         )
 
-    return state
+    return None
 
 
 def _run_prepare_monitoring_run_slice(
@@ -339,7 +357,21 @@ def _run_check_monitoring_run_slice(
 ) -> MonitorRunResult:
     """Run the check slice, including persistence and success replay handling."""
     existing_run = gateway.get_monitoring_run(state.subject_id, state.monitoring_run_id)
-    if existing_run is not None and existing_run.lifecycle_status is LifecycleStatus.CHECKED:
+    if existing_run is None:
+        raise GatewayConsistencyViolation.monitoring_run_subject_inconsistent(
+            subject_id=state.subject_id,
+            monitoring_run_id=state.monitoring_run_id,
+        )
+
+    terminal_result = _handle_nonresumable_check_lifecycle(
+        state=state,
+        existing_monitoring_run=existing_run,
+        gateway=gateway,
+    )
+    if terminal_result is not None:
+        return terminal_result
+
+    if existing_run.lifecycle_status is LifecycleStatus.CHECKED:
         raw_contract_check_result = _read_contract_check_artifact(
             gateway=gateway,
             monitoring_run_id=state.monitoring_run_id,
@@ -362,17 +394,24 @@ def _run_check_monitoring_run_slice(
         )
         return result
 
-    if existing_run is not None and existing_run.lifecycle_status is LifecycleStatus.PREPARED:
-        raw_partial_result = _read_contract_check_artifact(
-            gateway=gateway,
-            monitoring_run_id=state.monitoring_run_id,
+    if existing_run.lifecycle_status is not LifecycleStatus.PREPARED:
+        raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
+            fields=(
+                ("lifecycle_status", LifecycleStatus.CHECKED.value),
+                ("persisted_lifecycle_status", existing_run.lifecycle_status.value),
+            ),
         )
-        if raw_partial_result is not None:
-            hydrate_contract_check_result(
-                raw_partial_result,
-                prepared_context=prepared_context,
-                projected_comparability_status=existing_run.comparability_status,
-            )
+
+    raw_partial_result = _read_contract_check_artifact(
+        gateway=gateway,
+        monitoring_run_id=state.monitoring_run_id,
+    )
+    if raw_partial_result is not None:
+        hydrate_contract_check_result(
+            raw_partial_result,
+            prepared_context=prepared_context,
+            projected_comparability_status=existing_run.comparability_status,
+        )
 
     try:
         contract_check_result = execute_contract_check(

@@ -448,6 +448,7 @@ class InterruptCheckCommitGateway(InMemoryMonitoringGateway):
         super().__init__(config)
         self.last_allocation: CreateOrReuseMonitoringRunResult | None = None
         self._interrupt_checked_commit = True
+        self._lifecycle_advance_after_allocation: LifecycleStatus | None = None
         self.finalized_results: list[MonitorRunResult] = []
         self.baseline_reconciliations: list[tuple[str, str]] = []
         self.persistence_events: list[tuple[str, object]] = []
@@ -457,7 +458,24 @@ class InterruptCheckCommitGateway(InMemoryMonitoringGateway):
     ) -> CreateOrReuseMonitoringRunResult:
         result = super().create_or_reuse_monitoring_run(key)
         self.last_allocation = result
+        if self._lifecycle_advance_after_allocation is not None:
+            assert result.existing_monitoring_run is not None
+            self.upsert_monitoring_run(
+                subject_id=key.subject_id,
+                monitoring_run_id=result.monitoring_run_id,
+                source_run_id=result.source_run_id,
+                lifecycle_status=self._lifecycle_advance_after_allocation,
+                sequence_index=result.sequence_index,
+            )
+            self._lifecycle_advance_after_allocation = None
         return result
+
+    def advance_lifecycle_after_allocation_for_test(
+        self,
+        lifecycle_status: LifecycleStatus,
+    ) -> None:
+        """Advance persisted lifecycle after the next allocation snapshot."""
+        self._lifecycle_advance_after_allocation = lifecycle_status
 
     def upsert_monitoring_run(
         self,
@@ -1175,6 +1193,67 @@ def test_post_check_replay_fails_closed_without_lifecycle_regression(
     assert gateway.get_monitoring_run("churn_model", monitoring_run_id) == stored_before
     assert read_contract_check(gateway, monitoring_run_id) == artifact_before
     assert gateway.finalized_results == []
+
+
+@pytest.mark.parametrize(
+    "lifecycle_status",
+    [LifecycleStatus.ANALYZED, LifecycleStatus.CLOSED],
+)
+def test_checked_replay_rechecks_post_check_lifecycle_before_check_execution(
+    lifecycle_status: LifecycleStatus,
+) -> None:
+    gateway = InterruptCheckCommitGateway(GatewayConfig())
+    monitoring_run_id = complete_interrupted_check(gateway)
+    artifact_before = read_contract_check(gateway, monitoring_run_id)
+    baseline_reconciliations_before = list(gateway.baseline_reconciliations)
+    persistence_events_before = list(gateway.persistence_events)
+    gateway.advance_lifecycle_after_allocation_for_test(lifecycle_status)
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        run_orchestration(
+            subject_id="churn_model",
+            source_run_id="train-run-current",
+            baseline_source_run_id=None,
+            gateway=gateway,
+            contract_checker=RaisingContractChecker(),
+        )
+
+    assert exc_info.value.code == "monitoring_run_upsert_field_override"
+    assert exc_info.value.details == (
+        ("lifecycle_status", "checked"),
+        ("persisted_lifecycle_status", lifecycle_status.value),
+    )
+    stored = gateway.get_monitoring_run("churn_model", monitoring_run_id)
+    assert stored is not None
+    assert stored.lifecycle_status is lifecycle_status
+    assert read_contract_check(gateway, monitoring_run_id) == artifact_before
+    assert gateway.finalized_results == []
+    assert gateway.baseline_reconciliations == baseline_reconciliations_before
+    assert gateway.persistence_events == persistence_events_before
+
+
+def test_checked_replay_rechecks_failed_lifecycle_before_check_execution() -> None:
+    gateway = InterruptCheckCommitGateway(GatewayConfig())
+    monitoring_run_id = complete_interrupted_check(gateway)
+    artifact_before = read_contract_check(gateway, monitoring_run_id)
+    baseline_reconciliations_before = list(gateway.baseline_reconciliations)
+    gateway.advance_lifecycle_after_allocation_for_test(LifecycleStatus.FAILED)
+
+    replay = run_orchestration(
+        subject_id="churn_model",
+        source_run_id="train-run-current",
+        baseline_source_run_id=None,
+        gateway=gateway,
+        contract_checker=RaisingContractChecker(),
+    )
+
+    stored = gateway.get_monitoring_run("churn_model", monitoring_run_id)
+    assert stored is not None
+    assert stored.lifecycle_status is LifecycleStatus.FAILED
+    assert replay.lifecycle_status is LifecycleStatus.FAILED
+    assert read_contract_check(gateway, monitoring_run_id) == artifact_before
+    assert gateway.finalized_results == [replay]
+    assert gateway.baseline_reconciliations == baseline_reconciliations_before
 
 
 def test_prepared_replay_hydrates_context_without_prepare_resolution() -> None:
