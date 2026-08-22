@@ -1,7 +1,6 @@
 <!-- Add the following note to the top of your pull request description if you are using a coding agent to plan, implement, and/or prepare your pull request.
 
-> **Coding agent authorship note:** This pull request was [planned, implemented,
-reviewed, or prepared] by [coding agent name]. [add any necessary context about the coding agent's role in the PR or leave it blank].
+> **Coding agent authorship note:** This pull request was [planned, implemented, or prepared] by [coding agent name]. [add any necessary context about the coding agent's role in the PR or leave it blank].
 
 An example is PR [#128](https://github.com/shizheng-rlfresh/mlflow-monitor/pull/128)
 
