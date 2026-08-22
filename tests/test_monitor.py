@@ -34,6 +34,7 @@ from mlflow_monitor.recipe import SYSTEM_DEFAULT_RECIPE_VERSION, build_system_de
 from mlflow_monitor.recipe_compiler import CompiledRecipe, ComponentRegistry, compile_recipe
 from mlflow_monitor.result_contract import MonitorRunResult
 from mlflow_monitor.utils import canonical_json
+from mlflow_monitor.workflow import PreparedReferencePlanEntry
 
 _PREPARED_CONTEXT_PATH = "state/prepared_context.json"
 _USE_STORED_PREPARED_CONTEXT = object()
@@ -119,9 +120,9 @@ def expected_prepared_context_payload(
     source_run_id: str,
     sequence_index: int,
     compiled_recipe: CompiledRecipe,
-    references: tuple[MonitoringRunReference, ...],
+    reference_plan: tuple[PreparedReferencePlanEntry, ...],
 ) -> dict[str, object]:
-    """Build the complete V0-012 prepared-context artifact contract."""
+    """Build the complete prepared-context artifact contract."""
     contract = compiled_recipe.contract
     return {
         "artifact_schema_version": "v0",
@@ -141,7 +142,7 @@ def expected_prepared_context_payload(
             "data_scope_contract_ref": contract.data_scope_contract_ref,
             "execution_contract_ref": contract.execution_contract_ref,
         },
-        "references": [reference.to_dict() for reference in references],
+        "reference_plan": [entry.to_dict() for entry in reference_plan],
     }
 
 
@@ -542,6 +543,21 @@ def test_run_orchestration_first_run_persists_checked_state() -> None:
 def test_run_orchestration_persists_complete_prepared_context() -> None:
     gateway = make_gateway()
     compiled_recipe = make_compiled_recipe(metric_names=["f1"])
+    reference_allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            subject_id="churn_model",
+            source_run_id="train-run-reference",
+            recipe_id=compiled_recipe.identity.recipe_id,
+            recipe_version=compiled_recipe.identity.recipe_version,
+        )
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=reference_allocation.monitoring_run_id,
+        source_run_id="train-run-reference",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=reference_allocation.sequence_index,
+    )
     first = run_orchestration(
         subject_id="churn_model",
         source_run_id="train-run-current",
@@ -567,41 +583,53 @@ def test_run_orchestration_persists_complete_prepared_context() -> None:
         subject_id="churn_model",
         source_run_id="train-run-next",
         baseline_source_run_id=None,
-        custom_reference_monitoring_run_id=first.monitoring_run_id,
+        custom_reference_monitoring_run_id=reference_allocation.monitoring_run_id,
         recipe=compiled_recipe,
         gateway=gateway,
         contract_checker=DefaultContractChecker(),
     )
 
-    expected_references = (
-        MonitoringRunReference(
+    expected_reference_plan = (
+        PreparedReferencePlanEntry(
             kind=DiffReferenceKind.BASELINE,
-            monitoring_run_id=None,
-            source_run_id="train-run-baseline",
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.BASELINE,
+                monitoring_run_id=None,
+                source_run_id="train-run-baseline",
+            ),
+            unavailable_reason=None,
         ),
-        MonitoringRunReference(
+        PreparedReferencePlanEntry(
             kind=DiffReferenceKind.PREVIOUS,
-            monitoring_run_id=first.monitoring_run_id,
-            source_run_id="train-run-current",
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.PREVIOUS,
+                monitoring_run_id=reference_allocation.monitoring_run_id,
+                source_run_id="train-run-reference",
+            ),
+            unavailable_reason=None,
         ),
-        MonitoringRunReference(
+        PreparedReferencePlanEntry(
             kind=DiffReferenceKind.LKG,
-            monitoring_run_id=first.monitoring_run_id,
-            source_run_id="train-run-current",
+            reference=None,
+            unavailable_reason="lkg_not_selected",
         ),
-        MonitoringRunReference(
+        PreparedReferencePlanEntry(
             kind=DiffReferenceKind.CUSTOM,
-            monitoring_run_id=first.monitoring_run_id,
-            source_run_id="train-run-current",
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.CUSTOM,
+                monitoring_run_id=reference_allocation.monitoring_run_id,
+                source_run_id="train-run-reference",
+            ),
+            unavailable_reason=None,
         ),
     )
     assert read_prepared_context(gateway, second.monitoring_run_id) == (
         expected_prepared_context_payload(
             monitoring_run_id=second.monitoring_run_id,
             source_run_id="train-run-next",
-            sequence_index=1,
+            sequence_index=2,
             compiled_recipe=compiled_recipe,
-            references=expected_references,
+            reference_plan=expected_reference_plan,
         )
     )
 
@@ -909,11 +937,6 @@ def test_run_orchestration_later_run_can_omit_baseline_source_run_id() -> None:
             kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
             source_run_id="train-run-baseline",
-        ),
-        MonitoringRunReference(
-            kind=DiffReferenceKind.PREVIOUS,
-            monitoring_run_id=first.monitoring_run_id,
-            source_run_id="train-run-current",
         ),
     )
 
@@ -1379,49 +1402,6 @@ def test_run_orchestration_checked_rerun_omitting_baseline_replays_result() -> N
             source_run_id="train-run-baseline",
         ),
     )
-    assert second.error is None
-
-
-def test_run_orchestration_checked_rerun_preserves_references() -> None:
-    gateway = make_gateway()
-    gateway.upsert_monitoring_run(
-        subject_id="churn_model",
-        monitoring_run_id="monitoring-run-lkg",
-        source_run_id="train-run-lkg",
-        lifecycle_status=LifecycleStatus.CREATED,
-        sequence_index=0,
-    )
-    gateway.set_active_lkg_monitoring_run_id("churn_model", "monitoring-run-lkg")
-
-    first = run_orchestration(
-        subject_id="churn_model",
-        source_run_id="train-run-current",
-        baseline_source_run_id="train-run-baseline",
-        gateway=gateway,
-        contract_checker=DefaultContractChecker(),
-    )
-    second = run_orchestration(
-        subject_id="churn_model",
-        source_run_id="train-run-current",
-        baseline_source_run_id=None,
-        gateway=gateway,
-        contract_checker=DefaultContractChecker(),
-    )
-
-    assert first.references == (
-        MonitoringRunReference(
-            kind=DiffReferenceKind.BASELINE,
-            monitoring_run_id=None,
-            source_run_id="train-run-baseline",
-        ),
-        MonitoringRunReference(
-            kind=DiffReferenceKind.LKG,
-            monitoring_run_id="monitoring-run-lkg",
-            source_run_id="train-run-lkg",
-        ),
-    )
-    assert second.monitoring_run_id == first.monitoring_run_id
-    assert second.references == first.references
     assert second.error is None
 
 

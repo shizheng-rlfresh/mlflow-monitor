@@ -31,7 +31,10 @@ from mlflow_monitor.recipe import SYSTEM_DEFAULT_RECIPE_ID
 from mlflow_monitor.recipe_compiler import CompiledRecipe, compile_recipe
 from mlflow_monitor.workflow import (
     PreparedContext,
+    PreparedReferencePlanEntry,
     execute_contract_check,
+    hydrate_prepared_context,
+    prepared_context_to_dict,
 )
 from mlflow_monitor.workflow import (
     prepare_run_context as _prepare_run_context,
@@ -334,14 +337,211 @@ def make_prepared_context(
         baseline_source_run_id=baseline_source_run_id,
         effective_recipe=compiled_recipe.effective_plan,
         contract=contract,
-        references=(
-            MonitoringRunReference(
+        reference_plan=(
+            PreparedReferencePlanEntry(
                 kind=DiffReferenceKind.BASELINE,
-                monitoring_run_id=None,
-                source_run_id=baseline_source_run_id,
+                reference=MonitoringRunReference(
+                    kind=DiffReferenceKind.BASELINE,
+                    monitoring_run_id=None,
+                    source_run_id=baseline_source_run_id,
+                ),
+                unavailable_reason=None,
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.PREVIOUS,
+                reference=None,
+                unavailable_reason="previous_reference_missing",
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.LKG,
+                reference=None,
+                unavailable_reason="lkg_not_selected",
             ),
         ),
     )
+
+
+def test_prepared_context_exposes_resolved_references_from_fixed_plan() -> None:
+    """Prepared context should retain unavailable planned reference groups."""
+    compiled_recipe = compile_recipe()
+    baseline = MonitoringRunReference(
+        kind=DiffReferenceKind.BASELINE,
+        monitoring_run_id=None,
+        source_run_id="train-run-baseline",
+    )
+    reference_plan = (
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.BASELINE,
+            reference=baseline,
+            unavailable_reason=None,
+        ),
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.PREVIOUS,
+            reference=None,
+            unavailable_reason="previous_reference_missing",
+        ),
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.LKG,
+            reference=None,
+            unavailable_reason="lkg_not_selected",
+        ),
+    )
+    context = PreparedContext(
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-current",
+        subject_id="churn_model",
+        timeline_id="timeline-churn_model",
+        sequence_index=0,
+        baseline_source_run_id="train-run-baseline",
+        effective_recipe=compiled_recipe.effective_plan,
+        contract=compiled_recipe.contract,
+        reference_plan=reference_plan,
+    )
+
+    assert context.references == (baseline,)
+    assert prepared_context_to_dict(context)["reference_plan"] == [
+        {
+            "kind": "baseline",
+            "monitoring_run_id": None,
+            "source_run_id": "train-run-baseline",
+            "unavailable_reason": None,
+        },
+        {
+            "kind": "previous",
+            "monitoring_run_id": None,
+            "source_run_id": None,
+            "unavailable_reason": "previous_reference_missing",
+        },
+        {
+            "kind": "lkg",
+            "monitoring_run_id": None,
+            "source_run_id": None,
+            "unavailable_reason": "lkg_not_selected",
+        },
+    ]
+
+
+def test_hydrate_prepared_context_accepts_inconsistent_lkg_plan_shape() -> None:
+    """Hydration should retain nonfatal LKG inconsistency for V0-030 replay."""
+    compiled_recipe = compile_recipe()
+    context = PreparedContext(
+        monitoring_run_id="monitoring-run-1",
+        source_run_id="train-run-current",
+        subject_id="churn_model",
+        timeline_id="timeline-churn_model",
+        sequence_index=3,
+        baseline_source_run_id="train-run-baseline",
+        effective_recipe=compiled_recipe.effective_plan,
+        contract=compiled_recipe.contract,
+        reference_plan=(
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.BASELINE,
+                reference=MonitoringRunReference(
+                    kind=DiffReferenceKind.BASELINE,
+                    monitoring_run_id=None,
+                    source_run_id="train-run-baseline",
+                ),
+                unavailable_reason=None,
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.PREVIOUS,
+                reference=None,
+                unavailable_reason="previous_reference_missing",
+            ),
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.LKG,
+                reference=None,
+                unavailable_reason="lkg_selection_inconsistent",
+            ),
+        ),
+    )
+
+    hydrated = hydrate_prepared_context(
+        prepared_context_to_dict(context),
+        compiled_recipe=compiled_recipe,
+        monitoring_run_id=context.monitoring_run_id,
+        source_run_id=context.source_run_id,
+        subject_id=context.subject_id,
+        timeline_id=context.timeline_id,
+        sequence_index=context.sequence_index,
+    )
+
+    assert hydrated == context
+
+
+def test_hydrate_prepared_context_rejects_unpaired_unavailable_monitoring_run_id() -> None:
+    """Unavailable plan entries should not retain an orphan Monitoring Run ID."""
+    compiled_recipe = compile_recipe()
+    context = make_prepared_context(contract=compiled_recipe.contract)
+    raw = prepared_context_to_dict(context)
+    references = raw["reference_plan"]
+    assert isinstance(references, list)
+    previous_reference = references[1]
+    assert isinstance(previous_reference, dict)
+    previous_reference["monitoring_run_id"] = "monitoring-run-orphan"
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        hydrate_prepared_context(
+            raw,
+            compiled_recipe=compiled_recipe,
+            monitoring_run_id=context.monitoring_run_id,
+            source_run_id=context.source_run_id,
+            subject_id=context.subject_id,
+            timeline_id=context.timeline_id,
+            sequence_index=context.sequence_index,
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
+
+
+def test_hydrate_prepared_context_reports_reference_plan_for_baseline_mismatch() -> None:
+    """Baseline mismatches should identify the persisted reference-plan field."""
+    compiled_recipe = compile_recipe()
+    context = make_prepared_context(contract=compiled_recipe.contract)
+    raw = prepared_context_to_dict(context)
+    reference_plan = raw["reference_plan"]
+    assert isinstance(reference_plan, list)
+    baseline_reference = reference_plan[0]
+    assert isinstance(baseline_reference, dict)
+    baseline_reference["source_run_id"] = "train-run-other"
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        hydrate_prepared_context(
+            raw,
+            compiled_recipe=compiled_recipe,
+            monitoring_run_id=context.monitoring_run_id,
+            source_run_id=context.source_run_id,
+            subject_id=context.subject_id,
+            timeline_id=context.timeline_id,
+            sequence_index=context.sequence_index,
+        )
+
+    assert exc_info.value.details == (
+        ("reason", "baseline_reference_mismatch"),
+        ("field", "reference_plan"),
+    )
+
+
+def test_hydrate_prepared_context_rejects_obsolete_prepared_context_schema() -> None:
+    """Resolved-only prepared artifacts should fail closed without migration."""
+    compiled_recipe = compile_recipe()
+    context = make_prepared_context(contract=compiled_recipe.contract)
+    raw = prepared_context_to_dict(context)
+    del raw["reference_plan"]
+    raw["references"] = [reference.to_dict() for reference in context.references]
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        hydrate_prepared_context(
+            raw,
+            compiled_recipe=compiled_recipe,
+            monitoring_run_id=context.monitoring_run_id,
+            source_run_id=context.source_run_id,
+            subject_id=context.subject_id,
+            timeline_id=context.timeline_id,
+            sequence_index=context.sequence_index,
+        )
+
+    assert exc_info.value.code == "prepared_context_inconsistent"
 
 
 def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
@@ -368,7 +568,8 @@ def test_prepare_run_context_succeeds_with_initialized_timeline() -> None:
     assert prepared.source_run_id == "train-run-123"
     assert prepared.baseline_source_run_id == "train-run-baseline"
     assert prepared.previous_monitoring_run_id == fixture.custom_monitoring_run_id
-    assert prepared.active_lkg_monitoring_run_id == fixture.previous_monitoring_run_id
+    assert prepared.active_lkg_monitoring_run_id is None
+    assert prepared.reference_plan[2].unavailable_reason == "lkg_not_selected"
     assert prepared.custom_reference_monitoring_run_id == fixture.custom_monitoring_run_id
     assert prepared.contract == _CONTRACT
     assert prepared.required_metrics == ("auc", "f1")
@@ -652,9 +853,73 @@ def test_prepare_run_context_succeeds_without_previous_run() -> None:
     assert prepared.previous_monitoring_run_id is None
 
 
-def test_prepare_run_context_succeeds_without_active_lkg() -> None:
-    """Prepare should tolerate a missing active LKG."""
-    gateway = make_gateway_with_timeline().gateway
+def test_prepare_selects_greatest_lower_closed_monitoring_run() -> None:
+    """Previous should skip ineligible states and later closed allocations."""
+    fixture = make_gateway_with_timeline()
+    gateway = fixture.gateway
+    compiled_recipe = make_compiled_invocation().compiled_recipe
+
+    for source_run_id, lifecycle_status in (
+        ("train-run-checked", LifecycleStatus.CHECKED),
+        ("train-run-failed", LifecycleStatus.FAILED),
+        ("train-run-prepared", LifecycleStatus.PREPARED),
+    ):
+        allocation = allocate_test_monitoring_run(
+            gateway,
+            subject_id="churn_model",
+            source_run_id=source_run_id,
+            compiled_recipe=compiled_recipe,
+        )
+        gateway.upsert_monitoring_run(
+            subject_id="churn_model",
+            monitoring_run_id=allocation.monitoring_run_id,
+            source_run_id=source_run_id,
+            lifecycle_status=lifecycle_status,
+            sequence_index=allocation.sequence_index,
+        )
+
+    closed_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-closed-fail",
+        compiled_recipe=compiled_recipe,
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=closed_allocation.monitoring_run_id,
+        source_run_id="train-run-closed-fail",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=closed_allocation.sequence_index,
+        contract_check_result=ContractCheckResult(
+            status=ComparabilityStatus.FAIL,
+            reasons=(
+                ContractCheckReason(
+                    code="schema_mismatch",
+                    message="Schema is incompatible.",
+                    blocking=True,
+                ),
+            ),
+        ),
+    )
+    current_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-123",
+        compiled_recipe=compiled_recipe,
+    )
+    later_closed_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-later-closed",
+        compiled_recipe=compiled_recipe,
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=later_closed_allocation.monitoring_run_id,
+        source_run_id="train-run-later-closed",
+        lifecycle_status=LifecycleStatus.CLOSED,
+        sequence_index=later_closed_allocation.sequence_index,
+    )
 
     prepared = prepare_test_context(
         subject_id="churn_model",
@@ -662,7 +927,8 @@ def test_prepare_run_context_succeeds_without_active_lkg() -> None:
         gateway=gateway,
     )
 
-    assert prepared.active_lkg_monitoring_run_id is None
+    assert prepared.sequence_index == current_allocation.sequence_index
+    assert prepared.previous_monitoring_run_id == closed_allocation.monitoring_run_id
 
 
 def test_prepare_run_context_allows_omitted_source_experiment_filter() -> None:
@@ -941,6 +1207,49 @@ def test_prepare_run_context_fails_when_custom_reference_is_on_another_subject()
             ),
             gateway=gateway,
         )
+
+
+@pytest.mark.parametrize(
+    "lifecycle_status",
+    (
+        LifecycleStatus.CREATED,
+        LifecycleStatus.PREPARED,
+        LifecycleStatus.CHECKED,
+        LifecycleStatus.ANALYZED,
+        LifecycleStatus.FAILED,
+    ),
+)
+def test_prepare_run_context_fails_when_custom_reference_is_not_closed(
+    lifecycle_status: LifecycleStatus,
+) -> None:
+    """Prepare should reject any non-closed custom Reference Monitoring Run."""
+    fixture = make_gateway_with_timeline()
+    gateway = fixture.gateway
+    compiled_recipe = make_compiled_invocation().compiled_recipe
+    checked_allocation = allocate_test_monitoring_run(
+        gateway,
+        subject_id="churn_model",
+        source_run_id="train-run-checked",
+        compiled_recipe=compiled_recipe,
+    )
+    gateway.upsert_monitoring_run(
+        subject_id="churn_model",
+        monitoring_run_id=checked_allocation.monitoring_run_id,
+        source_run_id="train-run-checked",
+        lifecycle_status=lifecycle_status,
+        sequence_index=checked_allocation.sequence_index,
+    )
+
+    with pytest.raises(PrepareStageError) as exc_info:
+        prepare_test_context(
+            subject_id="churn_model",
+            compiled_invocation=make_compiled_invocation(
+                custom_reference_monitoring_run_id=checked_allocation.monitoring_run_id
+            ),
+            gateway=gateway,
+        )
+
+    assert exc_info.value.code == "prepare_custom_reference_not_closed"
 
 
 def test_prepare_run_context_fails_for_uninitialized_timeline_with_no_baseline() -> None:
@@ -1225,8 +1534,8 @@ def test_prepare_run_context_does_not_bootstrap_when_custom_reference_is_invalid
     assert gateway.baseline_claim_calls == []
 
 
-def test_prepare_does_not_claim_baseline_when_lkg_reference_is_inconsistent() -> None:
-    """Prepare should finish current reference validation before claiming a baseline."""
+def test_prepare_ignores_legacy_lkg_pointer_during_baseline_bootstrap() -> None:
+    """Legacy LKG pointer state should not affect current Prepare integration."""
     gateway = RecordingBaselineClaimGateway(GatewayConfig())
     gateway.add_source_run(
         subject_id="churn_model",
@@ -1244,24 +1553,24 @@ def test_prepare_does_not_claim_baseline_when_lkg_reference_is_inconsistent() ->
         "monitoring-run-missing",
     )
 
-    with pytest.raises(GatewayConsistencyViolation) as exc_info:
-        prepare_test_context(
-            subject_id="churn_model",
-            compiled_invocation=make_compiled_invocation(
-                source_run_id="train-run-1",
-                source_experiment="training/churn",
-                required_metrics=("f1",),
-                required_artifacts=("metrics.json",),
-            ),
-            gateway=gateway,
-            baseline_source_run_id="train-run-1",
-        )
+    prepared = prepare_test_context(
+        subject_id="churn_model",
+        compiled_invocation=make_compiled_invocation(
+            source_run_id="train-run-1",
+            source_experiment="training/churn",
+            required_metrics=("f1",),
+            required_artifacts=("metrics.json",),
+        ),
+        gateway=gateway,
+        baseline_source_run_id="train-run-1",
+    )
 
-    assert exc_info.value.code == "monitoring_reference_inconsistent"
-    assert gateway.baseline_claim_calls == []
+    assert prepared.active_lkg_monitoring_run_id is None
+    assert prepared.reference_plan[2].unavailable_reason == "lkg_not_selected"
+    assert len(gateway.baseline_claim_calls) == 1
     assert gateway.get_timeline_state("churn_model") == TimelineState(
         timeline_id="timeline-churn_model",
-        baseline_source_run_id=None,
+        baseline_source_run_id="train-run-1",
     )
 
 

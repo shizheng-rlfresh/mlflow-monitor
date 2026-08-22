@@ -5,9 +5,9 @@ This module contains backend-agnostic workflow logic for two responsibilities:
 1. Prepare-stage context resolution before contract checking begins.
 2. Contract checking and evaluation after prepare-stage context resolution.
 
-Prepare-stage resolution combines caller inputs (run identity, compiled plan,
+Prepare-stage resolution combines caller inputs (Monitoring Run identity, compiled plan,
 resolved contract, optional first-run baseline input) with gateway-resolved
-state (timeline, source run, prior monitoring runs, and optional references).
+state (Timeline, Source Training Run, prior Monitoring Runs, and optional references).
 The workflow layer decides what must be resolved for a run to proceed, while
 the gateway owns all persistence-specific mechanics.
 """
@@ -26,12 +26,12 @@ from mlflow_monitor.domain import (
     Contract,
     ContractCheckResult,
     DiffReferenceKind,
+    LifecycleStatus,
     MonitoringRunReference,
 )
 from mlflow_monitor.errors import (
     PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
     CheckStageError,
-    GatewayConsistencyViolation,
     InvariantViolation,
     PreparedContextConsistencyViolation,
     PrepareStageError,
@@ -55,7 +55,7 @@ _PREPARED_CONTEXT_FIELDS = frozenset(
         "baseline_source_run_id",
         "effective_recipe",
         "contract",
-        "references",
+        "reference_plan",
     }
 )
 _PREPARED_CONTRACT_FIELDS = frozenset(
@@ -69,12 +69,17 @@ _PREPARED_CONTRACT_FIELDS = frozenset(
         "execution_contract_ref",
     }
 )
-_PREPARED_REFERENCE_FIELDS = frozenset({"kind", "monitoring_run_id", "source_run_id"})
-_REFERENCE_ORDER = {
-    DiffReferenceKind.BASELINE: 0,
-    DiffReferenceKind.PREVIOUS: 1,
-    DiffReferenceKind.LKG: 2,
-    DiffReferenceKind.CUSTOM: 3,
+_PREPARED_REFERENCE_FIELDS = frozenset(
+    {"kind", "monitoring_run_id", "source_run_id", "unavailable_reason"}
+)
+_PREPARE_REFERENCE_UNAVAILABLE_REASONS = {
+    DiffReferenceKind.PREVIOUS: frozenset({"previous_reference_missing"}),
+    DiffReferenceKind.LKG: frozenset(
+        {
+            "lkg_not_selected",
+            "lkg_selection_inconsistent",
+        }
+    ),
 }
 
 
@@ -90,6 +95,56 @@ class BaselineResolutionResult:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedReferencePlanEntry:
+    """One fixed reference group frozen during Prepare.
+
+    Attributes:
+        kind: Canonical reference kind for this group.
+        reference: Resolved paired reference, or null when unavailable.
+        unavailable_reason: Prepare-time reason when the reference is unavailable
+                                for null when reference is available.
+    """
+
+    kind: DiffReferenceKind
+    reference: MonitoringRunReference | None
+    unavailable_reason: str | None
+
+    def __post_init__(self) -> None:
+        """Validate resolved and unavailable plan-entry shapes."""
+        try:
+            kind = DiffReferenceKind(self.kind)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported prepared reference kind {self.kind!r}.") from exc
+        object.__setattr__(self, "kind", kind)
+
+        if self.reference is not None:
+            if not isinstance(self.reference, MonitoringRunReference):
+                raise ValueError("Resolved prepared reference must be a MonitoringRunReference.")
+            if self.reference.kind != kind:
+                raise ValueError("Prepared reference kind must match its resolved reference kind.")
+            if self.unavailable_reason is not None:
+                raise ValueError("Resolved prepared reference cannot have an unavailable reason.")
+            return
+
+        allowed_reasons = _PREPARE_REFERENCE_UNAVAILABLE_REASONS.get(kind, frozenset())
+        if self.unavailable_reason not in allowed_reasons:
+            raise ValueError(
+                f"Unavailable {kind.value!r} prepared reference requires one of "
+                f"{tuple(sorted(allowed_reasons))!r}."
+            )
+
+    def to_dict(self) -> dict[str, str | None]:
+        """Serialize this fixed reference group deterministically."""
+        reference = self.reference
+        return {
+            "kind": self.kind.value,
+            "monitoring_run_id": None if reference is None else reference.monitoring_run_id,
+            "source_run_id": None if reference is None else reference.source_run_id,
+            "unavailable_reason": self.unavailable_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedContext:
     """Resolved prepare-stage context required before contract checking.
 
@@ -102,7 +157,7 @@ class PreparedContext:
         baseline_source_run_id: Resolved baseline source run id.
         effective_recipe: Resolved effective compiled Recipe.
         contract: Resolved contract.
-        references: Tuple of resolved monitoring run references.
+        reference_plan: Fixed ordered reference plan, including unavailable groups.
     """
 
     monitoring_run_id: str
@@ -113,11 +168,39 @@ class PreparedContext:
     baseline_source_run_id: str
     effective_recipe: EffectiveRecipePlan
     contract: Contract
-    references: tuple[MonitoringRunReference, ...]
+    reference_plan: tuple[PreparedReferencePlanEntry, ...]
 
     def __post_init__(self) -> None:
-        """Freeze the ordered resolved references."""
-        object.__setattr__(self, "references", tuple(self.references))
+        """Freeze and validate the canonical ordered reference plan."""
+        reference_plan = tuple(self.reference_plan)
+        expected_kinds = (
+            DiffReferenceKind.BASELINE,
+            DiffReferenceKind.PREVIOUS,
+            DiffReferenceKind.LKG,
+        )
+        actual_kinds = tuple(entry.kind for entry in reference_plan)
+        if actual_kinds not in (expected_kinds, (*expected_kinds, DiffReferenceKind.CUSTOM)):
+            raise ValueError(
+                "PreparedContext reference_plan must contain baseline, previous, LKG, "
+                "and optional custom groups in canonical order."
+            )
+        baseline_reference = reference_plan[0].reference
+        if baseline_reference != MonitoringRunReference(
+            kind=DiffReferenceKind.BASELINE,
+            monitoring_run_id=None,
+            source_run_id=self.baseline_source_run_id,
+        ):
+            raise ValueError(
+                "PreparedContext baseline reference must match baseline_source_run_id."
+            )
+        object.__setattr__(self, "reference_plan", reference_plan)
+
+    @property
+    def references(self) -> tuple[MonitoringRunReference, ...]:
+        """Return resolved references from the frozen plan in canonical order."""
+        return tuple(
+            entry.reference for entry in self.reference_plan if entry.reference is not None
+        )
 
     @property
     def recipe_id(self) -> str:
@@ -200,7 +283,7 @@ def prepared_context_to_dict(context: PreparedContext) -> dict[str, object]:
             "data_scope_contract_ref": contract.data_scope_contract_ref,
             "execution_contract_ref": contract.execution_contract_ref,
         },
-        "references": [reference.to_dict() for reference in context.references],
+        "reference_plan": [entry.to_dict() for entry in context.reference_plan],
     }
 
 
@@ -288,21 +371,26 @@ def hydrate_prepared_context(
             field="contract",
         )
 
-    references = _hydrate_prepared_references(
-        raw.get("references"),
+    reference_plan = _hydrate_prepared_reference_plan(
+        raw.get("reference_plan"),
         baseline_source_run_id=baseline_source_run_id,
     )
-    return PreparedContext(
-        monitoring_run_id=monitoring_run_id,
-        source_run_id=source_run_id,
-        subject_id=subject_id,
-        timeline_id=timeline_id,
-        sequence_index=sequence_index,
-        baseline_source_run_id=baseline_source_run_id,
-        effective_recipe=compiled_recipe.effective_plan,
-        contract=contract,
-        references=references,
-    )
+    try:
+        return PreparedContext(
+            monitoring_run_id=monitoring_run_id,
+            source_run_id=source_run_id,
+            subject_id=subject_id,
+            timeline_id=timeline_id,
+            sequence_index=sequence_index,
+            baseline_source_run_id=baseline_source_run_id,
+            effective_recipe=compiled_recipe.effective_plan,
+            contract=contract,
+            reference_plan=reference_plan,
+        )
+    except ValueError as exc:
+        raise PreparedContextConsistencyViolation.noncanonical_references(
+            field="reference_plan",
+        ) from exc
 
 
 def _hydrate_prepared_contract(raw: object) -> Contract:
@@ -326,64 +414,73 @@ def _hydrate_prepared_contract(raw: object) -> Contract:
     )
 
 
-def _hydrate_prepared_references(
+def _hydrate_prepared_reference_plan(
     raw: object,
     *,
     baseline_source_run_id: str,
-) -> tuple[MonitoringRunReference, ...]:
-    """Hydrate canonical resolved Monitoring Run references."""
+) -> tuple[PreparedReferencePlanEntry, ...]:
+    """Hydrate the canonical fixed Prepare-stage reference plan."""
     if not isinstance(raw, list):
         raise PreparedContextConsistencyViolation.invalid_field_type(
-            field="references",
+            field="reference_plan",
         )
 
-    references: list[MonitoringRunReference] = []
+    reference_plan: list[PreparedReferencePlanEntry] = []
     for index, item in enumerate(raw):
-        field = f"references[{index}]"
+        field = f"reference_plan[{index}]"
         if not isinstance(item, Mapping):
             raise PreparedContextConsistencyViolation.invalid_field_type(field=field)
         _require_exact_prepared_fields(item, _PREPARED_REFERENCE_FIELDS, section=field)
         kind = item.get("kind")
         monitoring_run_id = item.get("monitoring_run_id")
         source_run_id = item.get("source_run_id")
+        unavailable_reason = item.get("unavailable_reason")
         if not isinstance(kind, str):
             raise PreparedContextConsistencyViolation.invalid_field_type(field=f"{field}.kind")
         if monitoring_run_id is not None and not isinstance(monitoring_run_id, str):
             raise PreparedContextConsistencyViolation.invalid_field_type(
                 field=f"{field}.monitoring_run_id"
             )
-        if not isinstance(source_run_id, str):
+        if source_run_id is not None and not isinstance(source_run_id, str):
             raise PreparedContextConsistencyViolation.invalid_field_type(
                 field=f"{field}.source_run_id"
             )
+        if unavailable_reason is not None and not isinstance(unavailable_reason, str):
+            raise PreparedContextConsistencyViolation.invalid_field_type(
+                field=f"{field}.unavailable_reason"
+            )
+        if source_run_id is None and monitoring_run_id is not None:
+            raise PreparedContextConsistencyViolation.invalid_reference(field=field)
         try:
-            reference = MonitoringRunReference(
-                kind=DiffReferenceKind(kind),
-                monitoring_run_id=monitoring_run_id,
-                source_run_id=source_run_id,
+            reference_kind = DiffReferenceKind(kind)
+            reference = (
+                None
+                if source_run_id is None
+                else MonitoringRunReference(
+                    kind=reference_kind,
+                    monitoring_run_id=monitoring_run_id,
+                    source_run_id=source_run_id,
+                )
+            )
+            entry = PreparedReferencePlanEntry(
+                kind=reference_kind,
+                reference=reference,
+                unavailable_reason=unavailable_reason,
             )
         except ValueError as exc:
             raise PreparedContextConsistencyViolation.invalid_reference(field=field) from exc
-        references.append(reference)
+        reference_plan.append(entry)
 
-    if not references or references[0] != MonitoringRunReference(
+    if not reference_plan or reference_plan[0].reference != MonitoringRunReference(
         kind=DiffReferenceKind.BASELINE,
         monitoring_run_id=None,
         source_run_id=baseline_source_run_id,
     ):
         raise PreparedContextConsistencyViolation.baseline_reference_mismatch(
-            field="references",
+            field="reference_plan",
         )
 
-    reference_kinds = tuple(reference.kind for reference in references)
-    if (
-        len(reference_kinds) != len(set(reference_kinds))
-        or tuple(sorted(reference_kinds, key=_REFERENCE_ORDER.__getitem__)) != reference_kinds
-    ):
-        raise PreparedContextConsistencyViolation.noncanonical_references(
-            field="references",
-        )
-    return tuple(references)
+    return tuple(reference_plan)
 
 
 def _require_exact_prepared_fields(
@@ -442,7 +539,8 @@ def prepare_run_context(
             Run selected as a custom reference.
 
     Raises:
-        PrepareStageError: If required prepare-stage references or inputs are missing.
+        PrepareStageError: If required Prepare inputs are missing or an invocation-owned
+            custom Reference Monitoring Run is invalid.
 
     Returns:
         Success-only prepared context for later workflow stages.
@@ -503,12 +601,13 @@ def prepare_run_context(
             ),
         )
 
+    custom_reference: MonitoringRunReference | None = None
     if custom_reference_monitoring_run_id is not None:
-        custom_reference_monitoring_run_id = gateway.resolve_timeline_monitoring_run_id(
+        resolved_custom_monitoring_run_id = gateway.resolve_timeline_monitoring_run_id(
             subject_id,
             custom_reference_monitoring_run_id,
         )
-        if custom_reference_monitoring_run_id is None:
+        if resolved_custom_monitoring_run_id is None:
             raise PrepareStageError(
                 code="prepare_custom_reference_not_found",
                 message=(
@@ -516,44 +615,92 @@ def prepare_run_context(
                 ),
                 details=(("subject_id", subject_id),),
             )
+        custom_record = gateway.get_monitoring_run(
+            subject_id,
+            resolved_custom_monitoring_run_id,
+        )
+        if custom_record is None:
+            raise PrepareStageError(
+                code="prepare_custom_reference_not_found",
+                message=(
+                    "Custom reference monitoring run could not be resolved on the subject timeline."
+                ),
+                details=(("subject_id", subject_id),),
+            )
+        if custom_record.lifecycle_status is not LifecycleStatus.CLOSED:
+            raise PrepareStageError(
+                code="prepare_custom_reference_not_closed",
+                message="Custom reference Monitoring Run must be closed.",
+                details=(
+                    (
+                        "custom_reference_monitoring_run_id",
+                        resolved_custom_monitoring_run_id,
+                    ),
+                ),
+            )
+        custom_reference = MonitoringRunReference(
+            kind=DiffReferenceKind.CUSTOM,
+            monitoring_run_id=custom_record.monitoring_run_id,
+            source_run_id=custom_record.source_run_id,
+        )
 
-    references = [
-        MonitoringRunReference(
+    reference_plan = [
+        PreparedReferencePlanEntry(
             kind=DiffReferenceKind.BASELINE,
-            monitoring_run_id=None,
-            source_run_id=baseline_resolution_result.baseline_source_run_id,
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.BASELINE,
+                monitoring_run_id=None,
+                source_run_id=baseline_resolution_result.baseline_source_run_id,
+            ),
+            unavailable_reason=None,
         )
     ]
 
-    timeline_runs = gateway.list_timeline_monitoring_runs(subject_id, exclude_failed=True)
-    if timeline_runs:
-        previous = timeline_runs[-1]
-        references.append(
-            MonitoringRunReference(
+    previous = max(
+        (
+            record
+            for record in gateway.list_timeline_monitoring_runs(subject_id)
+            if record.lifecycle_status is LifecycleStatus.CLOSED
+            and record.sequence_index < sequence_index
+        ),
+        key=lambda record: record.sequence_index,
+        default=None,
+    )
+    if previous is not None:
+        reference_plan.append(
+            PreparedReferencePlanEntry(
                 kind=DiffReferenceKind.PREVIOUS,
-                monitoring_run_id=previous.monitoring_run_id,
-                source_run_id=previous.source_run_id,
+                reference=MonitoringRunReference(
+                    kind=DiffReferenceKind.PREVIOUS,
+                    monitoring_run_id=previous.monitoring_run_id,
+                    source_run_id=previous.source_run_id,
+                ),
+                unavailable_reason=None,
+            )
+        )
+    else:
+        reference_plan.append(
+            PreparedReferencePlanEntry(
+                kind=DiffReferenceKind.PREVIOUS,
+                reference=None,
+                unavailable_reason="previous_reference_missing",
             )
         )
 
-    active_lkg_monitoring_run_id = gateway.resolve_active_lkg_monitoring_run_id(subject_id)
-    if active_lkg_monitoring_run_id is not None:
-        references.append(
-            _hydrate_monitoring_run_reference(
-                kind=DiffReferenceKind.LKG,
-                subject_id=subject_id,
-                monitoring_run_id=active_lkg_monitoring_run_id,
-                gateway=gateway,
-            )
+    reference_plan.append(
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.LKG,
+            reference=None,
+            unavailable_reason="lkg_not_selected",
         )
+    )
 
-    if custom_reference_monitoring_run_id is not None:
-        references.append(
-            _hydrate_monitoring_run_reference(
+    if custom_reference is not None:
+        reference_plan.append(
+            PreparedReferencePlanEntry(
                 kind=DiffReferenceKind.CUSTOM,
-                subject_id=subject_id,
-                monitoring_run_id=custom_reference_monitoring_run_id,
-                gateway=gateway,
+                reference=custom_reference,
+                unavailable_reason=None,
             )
         )
 
@@ -577,29 +724,7 @@ def prepare_run_context(
         baseline_source_run_id=reconciled_baseline_source_run_id,
         effective_recipe=compiled_recipe.effective_plan,
         contract=compiled_recipe.contract,
-        references=tuple(references),
-    )
-
-
-def _hydrate_monitoring_run_reference(
-    *,
-    kind: DiffReferenceKind,
-    subject_id: str,
-    monitoring_run_id: str,
-    gateway: MonitoringGateway,
-) -> MonitoringRunReference:
-    """Freeze a complete reference pair from a resolved Monitoring Run pointer."""
-    record = gateway.get_monitoring_run(subject_id, monitoring_run_id)
-    if record is None:
-        raise GatewayConsistencyViolation.monitoring_reference_inconsistent(
-            kind=kind,
-            monitoring_run_id=monitoring_run_id,
-        )
-
-    return MonitoringRunReference(
-        kind=kind,
-        monitoring_run_id=record.monitoring_run_id,
-        source_run_id=record.source_run_id,
+        reference_plan=tuple(reference_plan),
     )
 
 
