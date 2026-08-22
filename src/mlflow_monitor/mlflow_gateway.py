@@ -79,6 +79,7 @@ _COMPARABILITY_STATUS_TAG = "monitoring.comparability_status"
 _RECIPE_ID_TAG = "monitoring.recipe_id"
 _RECIPE_VERSION_TAG = "monitoring.recipe_version"
 _REFERENCE_TAG_PREFIX = "monitoring.reference."
+_CONTRACT_CHECK_ARTIFACT_PATH = "outputs/contract_check.json"
 _RESULT_ARTIFACT_PATH = "outputs/result.json"
 _VISIBLE_NON_FAILED_STATUSES = frozenset({LifecycleStatus.CHECKED, LifecycleStatus.CLOSED})
 _REFERENCE_KINDS = ("baseline", "previous", "lkg", "custom")
@@ -432,13 +433,14 @@ class MLflowMonitoringGateway:
             subject timeline and contains the minimum required tags; otherwise
             `None`.
 
+        Raises:
+            GatewayConsistencyViolation: If a nonempty comparability projection
+                is not a supported status.
+
         Notes:
-            The current implementation persists comparability status but not the full structured
-            `ContractCheckReason` payloads. When reconstructing a checked run
-            from MLflow, this gateway therefore rebuilds only the status-facing
-            portion of `ContractCheckResult` and leaves `reasons=()`. That is
-            sufficient for the current replay semantics, which only consult the
-            terminal lifecycle and overall comparability outcome.
+            Comparability status is a metadata projection. The authoritative
+            Check result, including reasons, is hydrated separately from
+            ``outputs/contract_check.json`` by orchestration.
         """
         self._validate_subject_id(subject_id)
         if self.resolve_timeline_monitoring_run_id(subject_id, monitoring_run_id) is None:
@@ -454,23 +456,23 @@ class MLflowMonitoringGateway:
             return None
 
         try:
-            comparability_status_value = run_tags.get(_COMPARABILITY_STATUS_TAG)
+            sequence_index = int(sequence_index_value)
+            lifecycle_status = LifecycleStatus(lifecycle_status_value)
+        except ValueError:
+            return None
+
+        comparability_status_value = run_tags.get(_COMPARABILITY_STATUS_TAG)
+        try:
             comparability_status = (
                 None
                 if not comparability_status_value
                 else ComparabilityStatus(comparability_status_value)
             )
-            sequence_index = int(sequence_index_value)
-            lifecycle_status = LifecycleStatus(lifecycle_status_value)
-        except ValueError:
-            return None
-        # MVP persistence stores the comparability outcome, not the original
-        # reason list. Replay paths only need the terminal status.
-        contract_check_result = (
-            None
-            if comparability_status is None
-            else ContractCheckResult(status=comparability_status, reasons=())
-        )
+        except ValueError as exc:
+            raise GatewayConsistencyViolation.monitoring_run_json_artifact_inconsistent(
+                monitoring_run_id=monitoring_run_id,
+                path=_CONTRACT_CHECK_ARTIFACT_PATH,
+            ) from exc
 
         return MonitoringRunRecord(
             monitoring_run_id=monitoring_run_id,
@@ -478,7 +480,7 @@ class MLflowMonitoringGateway:
             sequence_index=sequence_index,
             lifecycle_status=lifecycle_status,
             comparability_status=comparability_status,
-            contract_check_result=contract_check_result,
+            contract_check_result=None,
             references=self._parse_references(run_tags),
         )
 

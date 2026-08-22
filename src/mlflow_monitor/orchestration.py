@@ -26,9 +26,12 @@ from mlflow_monitor.recipe_compiler import (
 )
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 from mlflow_monitor.workflow import (
+    CONTRACT_CHECK_ARTIFACT_PATH,
     PREPARED_CONTEXT_ARTIFACT_PATH,
     PreparedContext,
+    contract_check_result_to_dict,
     execute_contract_check,
+    hydrate_contract_check_result,
     hydrate_prepared_context,
     prepare_run_context,
     prepared_context_to_dict,
@@ -173,7 +176,25 @@ def _short_circuit_existing_monitoring_run(
     if state.existing_monitoring_run is None:
         return state
 
-    if state.existing_monitoring_run.lifecycle_status is LifecycleStatus.FAILED:
+    result = _handle_nonresumable_check_lifecycle(
+        state=state,
+        existing_monitoring_run=state.existing_monitoring_run,
+        gateway=gateway,
+    )
+    if result is not None:
+        return result
+
+    return state
+
+
+def _handle_nonresumable_check_lifecycle(
+    *,
+    state: OrchestrationState,
+    existing_monitoring_run: MonitoringRunRecord,
+    gateway: MonitoringGateway,
+) -> MonitorRunResult | None:
+    """Replay or reject a lifecycle that cannot resume through Check."""
+    if existing_monitoring_run.lifecycle_status is LifecycleStatus.FAILED:
         result = _build_failure_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
@@ -190,35 +211,21 @@ def _short_circuit_existing_monitoring_run(
         )
         return result
 
-    if state.existing_monitoring_run.contract_check_result is None:
-        return state
-
-    replay_error = _validate_checked_monitoring_run_rerun_inputs(
-        subject_id=state.subject_id,
-        baseline_source_run_id=state.baseline_source_run_id,
-        source_experiment=state.compiled_recipe.source_requirements.source_experiment,
-        gateway=gateway,
-    )
-    if replay_error is not None:
-        return _build_failure_monitoring_run_result(
-            subject_id=state.subject_id,
-            monitoring_run_id=state.monitoring_run_id,
-            timeline_id=state.timeline_id,
-            stage="prepare",
-            error=replay_error,
+    if existing_monitoring_run.lifecycle_status in {
+        LifecycleStatus.ANALYZED,
+        LifecycleStatus.CLOSED,
+    }:
+        raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
+            fields=(
+                ("lifecycle_status", LifecycleStatus.CHECKED.value),
+                (
+                    "persisted_lifecycle_status",
+                    existing_monitoring_run.lifecycle_status.value,
+                ),
+            ),
         )
 
-    result = _build_existing_checked_monitoring_run_result(
-        subject_id=state.subject_id,
-        monitoring_run_id=state.monitoring_run_id,
-        timeline_id=state.timeline_id,
-        existing_monitoring_run=state.existing_monitoring_run,
-    )
-    gateway.finalize_monitoring_run_result(
-        monitoring_run_id=state.monitoring_run_id,
-        result=result,
-    )
-    return result
+    return None
 
 
 def _run_prepare_monitoring_run_slice(
@@ -237,7 +244,8 @@ def _run_prepare_monitoring_run_slice(
 
     if (
         state.existing_monitoring_run is not None
-        and state.existing_monitoring_run.lifecycle_status is LifecycleStatus.PREPARED
+        and state.existing_monitoring_run.lifecycle_status
+        in {LifecycleStatus.PREPARED, LifecycleStatus.CHECKED}
     ):
         try:
             raw_prepared_context = gateway.read_monitoring_run_json_artifact(
@@ -261,13 +269,20 @@ def _run_prepare_monitoring_run_slice(
             sequence_index=state.sequence_index,
         )
 
-        rerun_error = _validate_rerun_baseline_input(
-            subject_id=state.subject_id,
-            supplied_baseline_source_run_id=state.baseline_source_run_id,
-            expected_baseline_source_run_id=prepared_context.baseline_source_run_id,
-            source_experiment=state.compiled_recipe.source_requirements.source_experiment,
-            gateway=gateway,
-        )
+        if state.existing_monitoring_run.lifecycle_status is LifecycleStatus.CHECKED:
+            rerun_error = _validate_checked_monitoring_run_rerun_inputs(
+                subject_id=state.subject_id,
+                supplied_baseline_source_run_id=state.baseline_source_run_id,
+                expected_baseline_source_run_id=prepared_context.baseline_source_run_id,
+            )
+        else:
+            rerun_error = _validate_rerun_baseline_input(
+                subject_id=state.subject_id,
+                supplied_baseline_source_run_id=state.baseline_source_run_id,
+                expected_baseline_source_run_id=prepared_context.baseline_source_run_id,
+                source_experiment=state.compiled_recipe.source_requirements.source_experiment,
+                gateway=gateway,
+            )
 
         if rerun_error is not None:
             return _build_failure_monitoring_run_result(
@@ -278,11 +293,6 @@ def _run_prepare_monitoring_run_slice(
                 error=rerun_error,
             )
 
-        gateway.reconcile_timeline_baseline(
-            state.subject_id,
-            state.monitoring_run_id,
-            prepared_context.baseline_source_run_id,
-        )
         return prepared_context
 
     try:
@@ -347,18 +357,72 @@ def _run_check_monitoring_run_slice(
 ) -> MonitorRunResult:
     """Run the check slice, including persistence and success replay handling."""
     existing_run = gateway.get_monitoring_run(state.subject_id, state.monitoring_run_id)
-    if existing_run is not None and existing_run.contract_check_result is not None:
+    if existing_run is None:
+        raise GatewayConsistencyViolation.monitoring_run_subject_inconsistent(
+            subject_id=state.subject_id,
+            monitoring_run_id=state.monitoring_run_id,
+        )
+
+    terminal_result = _handle_nonresumable_check_lifecycle(
+        state=state,
+        existing_monitoring_run=existing_run,
+        gateway=gateway,
+    )
+    if terminal_result is not None:
+        return terminal_result
+
+    if existing_run.lifecycle_status is LifecycleStatus.CHECKED:
+        raw_contract_check_result = _read_contract_check_artifact(
+            gateway=gateway,
+            monitoring_run_id=state.monitoring_run_id,
+        )
+        contract_check_result = hydrate_contract_check_result(
+            raw_contract_check_result,
+            prepared_context=prepared_context,
+            projected_comparability_status=existing_run.comparability_status,
+        )
         result = _build_existing_checked_monitoring_run_result(
             subject_id=state.subject_id,
             monitoring_run_id=state.monitoring_run_id,
             timeline_id=state.timeline_id,
-            existing_monitoring_run=existing_run,
+            prepared_context=prepared_context,
+            contract_check_result=contract_check_result,
         )
         gateway.finalize_monitoring_run_result(
             monitoring_run_id=state.monitoring_run_id,
             result=result,
         )
         return result
+
+    if existing_run.lifecycle_status is not LifecycleStatus.PREPARED:
+        raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
+            fields=(
+                ("lifecycle_status", LifecycleStatus.CHECKED.value),
+                ("persisted_lifecycle_status", existing_run.lifecycle_status.value),
+            ),
+        )
+
+    raw_partial_result = _read_contract_check_artifact(
+        gateway=gateway,
+        monitoring_run_id=state.monitoring_run_id,
+    )
+    if raw_partial_result is not None:
+        hydrate_contract_check_result(
+            raw_partial_result,
+            prepared_context=prepared_context,
+            projected_comparability_status=existing_run.comparability_status,
+        )
+
+    reconcile_prepared_baseline = (
+        state.existing_monitoring_run is not None
+        and state.existing_monitoring_run.lifecycle_status is LifecycleStatus.PREPARED
+    )
+    if reconcile_prepared_baseline and raw_partial_result is None:
+        gateway.reconcile_timeline_baseline(
+            state.subject_id,
+            state.monitoring_run_id,
+            prepared_context.baseline_source_run_id,
+        )
 
     try:
         contract_check_result = execute_contract_check(
@@ -387,6 +451,17 @@ def _run_check_monitoring_run_slice(
         )
         return result
 
+    gateway.write_monitoring_run_json_artifact(
+        monitoring_run_id=state.monitoring_run_id,
+        data=contract_check_result_to_dict(prepared_context, contract_check_result),
+        path=CONTRACT_CHECK_ARTIFACT_PATH,
+    )
+    if reconcile_prepared_baseline and raw_partial_result is not None:
+        gateway.reconcile_timeline_baseline(
+            state.subject_id,
+            state.monitoring_run_id,
+            prepared_context.baseline_source_run_id,
+        )
     gateway.upsert_monitoring_run(
         subject_id=state.subject_id,
         monitoring_run_id=state.monitoring_run_id,
@@ -449,7 +524,8 @@ def _build_existing_checked_monitoring_run_result(
     subject_id: str,
     monitoring_run_id: str,
     timeline_id: str,
-    existing_monitoring_run: MonitoringRunRecord,
+    prepared_context: PreparedContext,
+    contract_check_result: ContractCheckResult,
 ) -> MonitorRunResult:
     """Build a success result for an already checked idempotent run.
 
@@ -457,7 +533,8 @@ def _build_existing_checked_monitoring_run_result(
         subject_id: The ID of the monitored subject this run is associated with.
         monitoring_run_id: The ID of the monitoring run.
         timeline_id: The Timeline identity returned by monitoring-run allocation.
-        existing_monitoring_run: The previously persisted monitoring run record for this run.
+        prepared_context: Committed prepared state for the Monitoring Run.
+        contract_check_result: Complete hydrated Check result.
 
     Returns:
         The canonical success result for an already checked run.
@@ -467,15 +544,33 @@ def _build_existing_checked_monitoring_run_result(
         subject_id=subject_id,
         timeline_id=timeline_id,
         lifecycle_status=LifecycleStatus.CHECKED,
-        comparability_status=existing_monitoring_run.contract_check_result.status
-        if existing_monitoring_run.contract_check_result is not None
-        else None,
+        comparability_status=contract_check_result.status,
         summary=None,
         finding_ids=(),
         diff_ids=(),
-        references=existing_monitoring_run.references,
+        references=prepared_context.references,
         error=None,
     )
+
+
+def _read_contract_check_artifact(
+    *,
+    gateway: MonitoringGateway,
+    monitoring_run_id: str,
+) -> dict[str, object] | None:
+    """Read persisted Check output and normalize malformed JSON as inconsistency."""
+    try:
+        return gateway.read_monitoring_run_json_artifact(
+            monitoring_run_id,
+            CONTRACT_CHECK_ARTIFACT_PATH,
+        )
+    except (GatewayConsistencyViolation, GatewayNamespaceViolation):
+        raise
+    except ValueError as exc:
+        raise GatewayConsistencyViolation.monitoring_run_json_artifact_inconsistent(
+            monitoring_run_id=monitoring_run_id,
+            path=CONTRACT_CHECK_ARTIFACT_PATH,
+        ) from exc
 
 
 def _build_failure_monitoring_run_result(
@@ -616,44 +711,26 @@ def _validate_rerun_baseline_input(
 def _validate_checked_monitoring_run_rerun_inputs(
     *,
     subject_id: str,
-    baseline_source_run_id: str | None,
-    source_experiment: str | None,
-    gateway: MonitoringGateway,
+    supplied_baseline_source_run_id: str | None,
+    expected_baseline_source_run_id: str,
 ) -> PrepareStageError | None:
-    """Validate caller-controlled checked-rerun inputs without re-running prepare."""
-    timeline_state = gateway.get_timeline_state(subject_id)
-    if timeline_state is None:
-        return PrepareStageError(
-            code="prepare_timeline_initialization_failed",
-            message=(
-                f"Timeline initialization did not materialize state for subject_id={subject_id}."
-            ),
-            details=(("subject_id", subject_id),),
-        )
-
-    if baseline_source_run_id is None:
+    """Validate checked replay inputs against committed prepared state."""
+    if supplied_baseline_source_run_id is None:
         return None
-
-    resolved_baseline_source_run_id = gateway.resolve_source_run_id(
-        subject_id=subject_id,
-        source_experiment=source_experiment,
-        source_run_id=baseline_source_run_id,
-    )
-    if resolved_baseline_source_run_id == timeline_state.baseline_source_run_id:
+    if supplied_baseline_source_run_id == expected_baseline_source_run_id:
         return None
 
     return PrepareStageError(
         code=PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
         message=(
-            f"Provided baseline_source_run_id={baseline_source_run_id!r} "
-            f"with resolved_baseline_source_run_id={resolved_baseline_source_run_id!r} "
-            "does not match existing timeline pinned "
-            f"baseline_source_run_id={timeline_state.baseline_source_run_id!r} "
+            f"Provided baseline_source_run_id={supplied_baseline_source_run_id!r} "
+            "does not match committed prepared "
+            f"baseline_source_run_id={expected_baseline_source_run_id!r} "
             f"for subject_id={subject_id}. Overriding an existing timeline's baseline "
             "is not allowed."
         ),
         details=(
             ("subject_id", subject_id),
-            ("baseline_source_run_id", baseline_source_run_id),
+            ("baseline_source_run_id", supplied_baseline_source_run_id),
         ),
     )

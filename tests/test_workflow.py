@@ -32,7 +32,9 @@ from mlflow_monitor.recipe_compiler import CompiledRecipe, compile_recipe
 from mlflow_monitor.workflow import (
     PreparedContext,
     PreparedReferencePlanEntry,
+    contract_check_result_to_dict,
     execute_contract_check,
+    hydrate_contract_check_result,
     hydrate_prepared_context,
     prepared_context_to_dict,
 )
@@ -359,6 +361,159 @@ def make_prepared_context(
             ),
         ),
     )
+
+
+def test_contract_check_result_to_dict_preserves_complete_ordered_output() -> None:
+    """Contract Check artifacts should retain identity and exact reason order."""
+    context = make_prepared_context(contract=_CONTRACT)
+    result = ContractCheckResult(
+        status=ComparabilityStatus.FAIL,
+        reasons=(
+            ContractCheckReason(
+                code="environment_mismatch",
+                message="Execution environment does not match the baseline.",
+                blocking=False,
+            ),
+            ContractCheckReason(
+                code="schema_mismatch",
+                message="Data schema does not match the baseline.",
+                blocking=True,
+            ),
+        ),
+    )
+
+    assert contract_check_result_to_dict(context, result) == {
+        "artifact_schema_version": "v0",
+        "monitoring_run_id": "monitoring-run-1",
+        "source_run_id": "train-run-123",
+        "contract_id": SYSTEM_DEFAULT_CONTRACT_ID,
+        "contract_version": "v0",
+        "status": "fail",
+        "reasons": [
+            {
+                "code": "environment_mismatch",
+                "message": "Execution environment does not match the baseline.",
+                "blocking": False,
+            },
+            {
+                "code": "schema_mismatch",
+                "message": "Data schema does not match the baseline.",
+                "blocking": True,
+            },
+        ],
+    }
+
+
+def test_hydrate_contract_check_result_preserves_complete_ordered_output() -> None:
+    """Hydration should reconstruct exact persisted reason content and order."""
+    context = make_prepared_context(contract=_CONTRACT)
+    expected = ContractCheckResult(
+        status=ComparabilityStatus.FAIL,
+        reasons=(
+            ContractCheckReason(
+                code="environment_mismatch",
+                message="Execution environment does not match the baseline.",
+                blocking=False,
+            ),
+            ContractCheckReason(
+                code="schema_mismatch",
+                message="Data schema does not match the baseline.",
+                blocking=True,
+            ),
+        ),
+    )
+
+    hydrated = hydrate_contract_check_result(
+        contract_check_result_to_dict(context, expected),
+        prepared_context=context,
+        projected_comparability_status=ComparabilityStatus.FAIL,
+    )
+
+    assert hydrated == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        {"artifact_schema_version": "v0"},
+    ],
+)
+def test_hydrate_contract_check_result_rejects_missing_or_malformed_artifact(
+    raw: dict[str, object] | None,
+) -> None:
+    """Committed Check hydration should fail closed with bounded diagnostics."""
+    context = make_prepared_context(contract=_CONTRACT)
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        hydrate_contract_check_result(
+            raw,
+            prepared_context=context,
+            projected_comparability_status=ComparabilityStatus.PASS,
+        )
+
+    assert exc_info.value.code == "monitoring_run_json_artifact_inconsistent"
+    assert exc_info.value.details == (
+        ("monitoring_run_id", context.monitoring_run_id),
+        ("path", "outputs/contract_check.json"),
+    )
+
+
+def test_hydrate_contract_check_result_rejects_persisted_duplicate_reason_codes() -> None:
+    """Persisted duplicate reasons are consistency failures, not Check failures."""
+    context = make_prepared_context(contract=_CONTRACT)
+    reason = {
+        "code": "environment_mismatch",
+        "message": "Execution environment does not match the baseline.",
+        "blocking": False,
+    }
+    raw = contract_check_result_to_dict(
+        context,
+        ContractCheckResult(
+            status=ComparabilityStatus.WARN,
+            reasons=(ContractCheckReason(**reason),),
+        ),
+    )
+    raw["reasons"] = [reason, reason]
+
+    with pytest.raises(GatewayConsistencyViolation) as exc_info:
+        hydrate_contract_check_result(
+            raw,
+            prepared_context=context,
+            projected_comparability_status=ComparabilityStatus.WARN,
+        )
+
+    assert exc_info.value.code == "monitoring_run_json_artifact_inconsistent"
+
+
+def test_hydrate_contract_check_result_rejects_projection_disagreement() -> None:
+    """A nonempty contradictory comparability projection should fail closed."""
+    context = make_prepared_context(contract=_CONTRACT)
+    raw = contract_check_result_to_dict(
+        context,
+        ContractCheckResult(status=ComparabilityStatus.PASS, reasons=()),
+    )
+
+    with pytest.raises(GatewayConsistencyViolation):
+        hydrate_contract_check_result(
+            raw,
+            prepared_context=context,
+            projected_comparability_status=ComparabilityStatus.FAIL,
+        )
+
+
+def test_hydrate_contract_check_result_accepts_missing_projection() -> None:
+    """A missing comparability projection is noncontradictory."""
+    context = make_prepared_context(contract=_CONTRACT)
+    expected = ContractCheckResult(status=ComparabilityStatus.PASS, reasons=())
+
+    hydrated = hydrate_contract_check_result(
+        contract_check_result_to_dict(context, expected),
+        prepared_context=context,
+        projected_comparability_status=None,
+    )
+
+    assert hydrated == expected
 
 
 def test_prepared_context_exposes_resolved_references_from_fixed_plan() -> None:
