@@ -55,7 +55,7 @@ _PREPARED_CONTEXT_FIELDS = frozenset(
         "baseline_source_run_id",
         "effective_recipe",
         "contract",
-        "references",
+        "reference_plan",
     }
 )
 _PREPARED_CONTRACT_FIELDS = frozenset(
@@ -157,7 +157,7 @@ class PreparedContext:
         baseline_source_run_id: Resolved baseline source run id.
         effective_recipe: Resolved effective compiled Recipe.
         contract: Resolved contract.
-        reference_plan: Fixed ordered reference plan, including unavailable groups.
+        references: Fixed ordered reference plan, including unavailable groups.
     """
 
     monitoring_run_id: str
@@ -172,19 +172,19 @@ class PreparedContext:
 
     def __post_init__(self) -> None:
         """Freeze and validate the canonical ordered reference plan."""
-        reference_plan = tuple(self.reference_plan)
+        references = tuple(self.reference_plan)
         expected_kinds = (
             DiffReferenceKind.BASELINE,
             DiffReferenceKind.PREVIOUS,
             DiffReferenceKind.LKG,
         )
-        actual_kinds = tuple(entry.kind for entry in reference_plan)
+        actual_kinds = tuple(entry.kind for entry in references)
         if actual_kinds not in (expected_kinds, (*expected_kinds, DiffReferenceKind.CUSTOM)):
             raise ValueError(
-                "PreparedContext reference_plan must contain baseline, previous, LKG, "
+                "PreparedContext references must contain baseline, previous, LKG, "
                 "and optional custom groups in canonical order."
             )
-        baseline_reference = reference_plan[0].reference
+        baseline_reference = references[0].reference
         if baseline_reference != MonitoringRunReference(
             kind=DiffReferenceKind.BASELINE,
             monitoring_run_id=None,
@@ -193,7 +193,7 @@ class PreparedContext:
             raise ValueError(
                 "PreparedContext baseline reference must match baseline_source_run_id."
             )
-        object.__setattr__(self, "reference_plan", reference_plan)
+        object.__setattr__(self, "reference_plan", references)
 
     @property
     def references(self) -> tuple[MonitoringRunReference, ...]:
@@ -283,7 +283,7 @@ def prepared_context_to_dict(context: PreparedContext) -> dict[str, object]:
             "data_scope_contract_ref": contract.data_scope_contract_ref,
             "execution_contract_ref": contract.execution_contract_ref,
         },
-        "references": [entry.to_dict() for entry in context.reference_plan],
+        "reference_plan": [entry.to_dict() for entry in context.reference_plan],
     }
 
 
@@ -372,7 +372,7 @@ def hydrate_prepared_context(
         )
 
     reference_plan = _hydrate_prepared_reference_plan(
-        raw.get("references"),
+        raw.get("reference_plan"),
         baseline_source_run_id=baseline_source_run_id,
     )
     try:

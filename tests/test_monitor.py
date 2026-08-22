@@ -142,7 +142,7 @@ def expected_prepared_context_payload(
             "data_scope_contract_ref": contract.data_scope_contract_ref,
             "execution_contract_ref": contract.execution_contract_ref,
         },
-        "references": [entry.to_dict() for entry in reference_plan],
+        "reference_plan": [entry.to_dict() for entry in reference_plan],
     }
 
 

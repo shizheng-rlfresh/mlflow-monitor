@@ -369,6 +369,23 @@ def test_prepared_context_exposes_resolved_references_from_fixed_plan() -> None:
         monitoring_run_id=None,
         source_run_id="train-run-baseline",
     )
+    reference_plan = (
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.BASELINE,
+            reference=baseline,
+            unavailable_reason=None,
+        ),
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.PREVIOUS,
+            reference=None,
+            unavailable_reason="previous_reference_missing",
+        ),
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.LKG,
+            reference=None,
+            unavailable_reason="lkg_not_selected",
+        ),
+    )
     context = PreparedContext(
         monitoring_run_id="monitoring-run-1",
         source_run_id="train-run-current",
@@ -378,27 +395,11 @@ def test_prepared_context_exposes_resolved_references_from_fixed_plan() -> None:
         baseline_source_run_id="train-run-baseline",
         effective_recipe=compiled_recipe.effective_plan,
         contract=compiled_recipe.contract,
-        reference_plan=(
-            PreparedReferencePlanEntry(
-                kind=DiffReferenceKind.BASELINE,
-                reference=baseline,
-                unavailable_reason=None,
-            ),
-            PreparedReferencePlanEntry(
-                kind=DiffReferenceKind.PREVIOUS,
-                reference=None,
-                unavailable_reason="previous_reference_missing",
-            ),
-            PreparedReferencePlanEntry(
-                kind=DiffReferenceKind.LKG,
-                reference=None,
-                unavailable_reason="lkg_not_selected",
-            ),
-        ),
+        reference_plan=reference_plan,
     )
 
     assert context.references == (baseline,)
-    assert prepared_context_to_dict(context)["references"] == [
+    assert prepared_context_to_dict(context)["reference_plan"] == [
         {
             "kind": "baseline",
             "monitoring_run_id": None,
@@ -473,7 +474,7 @@ def test_hydrate_prepared_context_rejects_unpaired_unavailable_monitoring_run_id
     compiled_recipe = compile_recipe()
     context = make_prepared_context(contract=compiled_recipe.contract)
     raw = prepared_context_to_dict(context)
-    references = raw["references"]
+    references = raw["reference_plan"]
     assert isinstance(references, list)
     previous_reference = references[1]
     assert isinstance(previous_reference, dict)
@@ -498,9 +499,9 @@ def test_hydrate_prepared_context_rejects_resolved_only_legacy_shape() -> None:
     compiled_recipe = compile_recipe()
     context = make_prepared_context(contract=compiled_recipe.contract)
     raw = prepared_context_to_dict(context)
-    references = raw["references"]
+    references = raw["reference_plan"]
     assert isinstance(references, list)
-    raw["references"] = [
+    raw["reference_plan"] = [
         {key: value for key, value in reference.items() if key != "unavailable_reason"}
         for reference in references
         if isinstance(reference, dict)
