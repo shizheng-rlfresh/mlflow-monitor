@@ -852,13 +852,13 @@ class InMemoryMonitoringGateway:
     def get_source_run_metrics(
         self,
         source_run_id: str,
-        metric_names: list[str] | None = None,
+        metric_names: Sequence[str] | None = None,
     ) -> dict[str, float] | None:
         """Return a dictionary of metric names to values for a source run.
 
         Args:
             source_run_id: Identifier of the source training run.
-            metric_names: Optional list of metric names to filter the returned metrics.
+            metric_names: Optional sequence of metric names to filter the returned metrics.
 
         Returns:
             A dictionary mapping metric names to their values for the source run,

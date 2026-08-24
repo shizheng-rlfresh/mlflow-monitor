@@ -852,13 +852,13 @@ class MLflowMonitoringGateway:
     def get_source_run_metrics(
         self,
         source_run_id: str,
-        metric_names: list[str] | None = None,
+        metric_names: Sequence[str] | None = None,
     ) -> dict[str, float] | None:
         """Return a dictionary of metric names to values for a source run.
 
         Args:
             source_run_id: Source training run id.
-            metric_names: Optional list of metric names to filter the result.
+            metric_names: Optional sequence of metric names to filter the result.
 
         Returns:
             A dictionary mapping metric names to their latest values, or None
