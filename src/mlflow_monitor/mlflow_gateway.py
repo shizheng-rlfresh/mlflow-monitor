@@ -620,6 +620,8 @@ class MLflowMonitoringGateway:
             order from the request.
         """
         source_run_metrics = self._mlflow.get_run_metrics(source_run_id)
+        if source_run_metrics is None:
+            return tuple(required_metrics)
         return tuple(
             metric_name
             for metric_name in dict.fromkeys(required_metrics)
@@ -845,6 +847,24 @@ class MLflowMonitoringGateway:
             monitoring_run_id=monitoring_run_id,
             path=path,
         )
+
+    def get_source_run_metrics(
+        self,
+        source_run_id: str,
+        metric_names: list[str] | None = None,
+    ) -> dict[str, float] | None:
+        """Return a dictionary of metric names to values for a source run.
+
+        Args:
+            source_run_id: Source training run id.
+            metric_names: Optional list of metric names to filter the result.
+
+        Returns:
+            A dictionary mapping metric names to their latest values, or None
+            if the source run does not exist. If `metric_names` is provided,
+            only those metrics will be included in the result.
+        """
+        ...
 
     def _get_or_create_experiment_id(self, subject_id: str) -> str:
         """Return the monitoring experiment id for a subject, creating it if needed."""
