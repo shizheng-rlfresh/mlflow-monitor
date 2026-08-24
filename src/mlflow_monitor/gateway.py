@@ -190,6 +190,14 @@ class MonitoringGateway(Protocol):
         """Write one dictionary payload as a JSON artifact on a monitoring run."""
         ...
 
+    def get_source_run_metrics(
+        self,
+        source_run_id: str,
+        metric_names: Sequence[str] | None = None,
+    ) -> dict[str, float] | None:
+        """Return a dictionary of metric names to values for a source run."""
+        ...
+
 
 class InMemoryMonitoringGateway:
     """Deterministic in-memory gateway implementation for testing and local use."""
@@ -840,6 +848,54 @@ class InMemoryMonitoringGateway:
             monitoring_run_id=monitoring_run_id,
             path=path,
         )
+
+    def get_source_run_metrics(
+        self,
+        source_run_id: str,
+        metric_names: Sequence[str] | None = None,
+    ) -> dict[str, float] | None:
+        """Return a dictionary of metric names to values for a source run.
+
+        Args:
+            source_run_id: Identifier of the source training run.
+            metric_names: Optional sequence of selected metric names to filter the returned metrics.
+
+        Returns:
+            A dictionary mapping metric names to their latest values, or None
+                if the source run does not exist.
+
+        Notes:
+            1. If source_run_id is not found, None is returned.
+            2. If metric_names is None, all source run metrics are returned. If source run metrics
+                are empty, {} is returned.
+            3. If metric_names is provided and source_run_id is found, the selected metrics are
+                returned in sorted order without duplicates. If selected metrics are not present
+                in the source run, they are omitted from the result.
+
+        """
+        source_run = self._source_runs_by_id.get(source_run_id)
+        if source_run is None:
+            return None
+
+        source_run_metrics = source_run.metrics
+
+        # If no specific metric names are provided, return all metrics,
+        # sorted for deterministic ordering.
+        if metric_names is None:
+            return {
+                metric_name: source_run_metrics[metric_name]
+                for metric_name in dict.fromkeys(
+                    sorted(source_run_metrics.keys())
+                )  # dedupe and sorted for deterministic ordering
+            }
+
+        return {
+            metric_name: source_run_metrics[metric_name]
+            for metric_name in dict.fromkeys(
+                sorted(metric_names)
+            )  # dedupe and sorted for deterministic ordering
+            if metric_name in source_run_metrics
+        }
 
     def _encode_monitoring_run_json_artifact(
         self,

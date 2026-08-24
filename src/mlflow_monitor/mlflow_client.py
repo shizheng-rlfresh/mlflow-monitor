@@ -330,17 +330,19 @@ class MonitorMLflowClient:
             return
         return run.info.run_name
 
-    def get_run_metrics(self, run_id: str) -> dict[str, float]:
+    def get_run_metrics(self, run_id: str) -> dict[str, float] | None:
         """Return run metrics as a plain dictionary.
 
         Args:
             run_id: Training or monitoring run identifier to inspect.
 
         Returns:
-            A copied metric mapping. Missing runs normalize to `{}`.
+            A copied metric mapping. Missing runs normalize to None.
         """
         run = self.get_run(run_id)
         if run is None:
+            return None
+        if not run.data.metrics:
             return {}
         return dict(run.data.metrics)
 

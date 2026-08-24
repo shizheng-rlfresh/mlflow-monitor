@@ -525,6 +525,87 @@ def test_resolve_source_run_id_returns_none_for_missing_or_mismatched_run() -> N
     )
 
 
+@pytest.mark.parametrize(
+    ("metric_names", "expected_metrics", "expected_metric_names"),
+    [
+        (
+            None,
+            {"accuracy": 0.85, "f1": 0.91, "recall": 0.78},
+            ("accuracy", "f1", "recall"),
+        ),
+        ((), {}, ()),
+        (("f1", "missing", "Accuracy"), {"f1": 0.91}, ("f1",)),
+    ],
+)
+def test_get_source_run_metrics_applies_three_state_selection(
+    metric_names: tuple[str, ...] | None,
+    expected_metrics: dict[str, float],
+    expected_metric_names: tuple[str, ...],
+) -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-1",
+        source_experiment="training/churn",
+        metrics={"recall": 0.78, "f1": 0.91, "accuracy": 0.85},
+        artifacts=(),
+        environment={},
+        features=(),
+        schema={},
+        data_scope=None,
+    )
+
+    result = gateway.get_source_run_metrics(
+        source_run_id="train-run-1",
+        metric_names=metric_names,
+    )
+    print(result, expected_metrics)
+    assert result == expected_metrics
+    assert result is not None
+    assert tuple(result) == expected_metric_names
+
+
+def test_get_source_run_metrics_distinguishes_missing_run_from_empty_metrics() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-empty",
+        source_experiment="training/churn",
+        metrics={},
+        artifacts=(),
+        environment={},
+        features=(),
+        schema={},
+        data_scope=None,
+    )
+
+    assert gateway.get_source_run_metrics("train-run-missing") is None
+    assert gateway.get_source_run_metrics("train-run-missing", metric_names=()) is None
+    assert gateway.get_source_run_metrics("train-run-empty") == {}
+
+
+def test_get_source_run_metrics_returns_detached_metrics() -> None:
+    gateway = InMemoryMonitoringGateway(GatewayConfig())
+    gateway.add_source_run(
+        subject_id="churn_model",
+        source_run_id="train-run-1",
+        source_experiment="training/churn",
+        metrics={"f1": 0.91},
+        artifacts=(),
+        environment={},
+        features=(),
+        schema={},
+        data_scope=None,
+    )
+
+    first = gateway.get_source_run_metrics("train-run-1")
+
+    assert first is not None
+    first["f1"] = 0.0
+    first["injected"] = 1.0
+    assert gateway.get_source_run_metrics("train-run-1") == {"f1": 0.91}
+
+
 def test_missing_required_metrics_returns_missing_names_in_request_order() -> None:
     gateway = InMemoryMonitoringGateway(GatewayConfig())
     gateway.add_source_run(
