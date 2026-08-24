@@ -864,7 +864,24 @@ class InMemoryMonitoringGateway:
             A dictionary mapping metric names to their values for the source run,
                 or None if the run is not found.
         """
-        ...
+        source_run_record = self._source_runs_by_id.get(source_run_id)
+        if source_run_record is None:
+            return None
+
+        source_run_metrics = source_run_record.metrics
+
+        # If no specific metric names are provided, return all metrics,
+        # sorted for deterministic ordering.
+        if metric_names is None:
+            return dict(sorted(source_run_metrics.items(), key=lambda item: item[0]))
+
+        return {
+            metric_name: source_run_metrics[metric_name]
+            for metric_name in dict.fromkeys(
+                sorted(metric_names)
+            )  # sorted for deterministic ordering
+            if metric_name in source_run_metrics
+        }
 
     def _encode_monitoring_run_json_artifact(
         self,

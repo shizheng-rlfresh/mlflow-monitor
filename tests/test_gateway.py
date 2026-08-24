@@ -559,7 +559,7 @@ def test_get_source_run_metrics_applies_three_state_selection(
         source_run_id="train-run-1",
         metric_names=metric_names,
     )
-
+    print(result, expected_metrics)
     assert result == expected_metrics
     assert result is not None
     assert tuple(result) == expected_metric_names
