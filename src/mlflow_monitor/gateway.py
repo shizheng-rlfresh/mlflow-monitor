@@ -864,11 +864,11 @@ class InMemoryMonitoringGateway:
             A dictionary mapping metric names to their values for the source run,
                 or None if the run is not found.
         """
-        source_run_record = self._source_runs_by_id.get(source_run_id)
-        if source_run_record is None:
+        source_run = self._source_runs_by_id.get(source_run_id)
+        if source_run is None:
             return None
 
-        source_run_metrics = source_run_record.metrics
+        source_run_metrics = source_run.metrics
 
         # If no specific metric names are provided, return all metrics,
         # sorted for deterministic ordering.
@@ -879,7 +879,7 @@ class InMemoryMonitoringGateway:
             metric_name: source_run_metrics[metric_name]
             for metric_name in dict.fromkeys(
                 sorted(metric_names)
-            )  # sorted for deterministic ordering
+            )  # dedupe and sorted for deterministic ordering
             if metric_name in source_run_metrics
         }
 

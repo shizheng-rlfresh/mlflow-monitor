@@ -621,7 +621,7 @@ class MLflowMonitoringGateway:
         """
         source_run_metrics = self._mlflow.get_run_metrics(source_run_id)
         if source_run_metrics is None:
-            return tuple(required_metrics)
+            return tuple(dict.fromkeys(required_metrics))
         return tuple(
             metric_name
             for metric_name in dict.fromkeys(required_metrics)
@@ -865,7 +865,25 @@ class MLflowMonitoringGateway:
             if the source run does not exist. If `metric_names` is provided,
             only those metrics will be included in the result.
         """
-        ...
+        source_run_metrics = self._mlflow.get_run_metrics(source_run_id)
+
+        # if null metrics, no source run exists, return None
+        if source_run_metrics is None:
+            return None
+
+        # if null selected metrics, return all metrics sorted by name for deterministic ordering
+        if metric_names is None:
+            return dict(sorted(source_run_metrics.items(), key=lambda item: item[0]))
+
+        # if selected metrics, return only those metrics that exist in the source run,
+        # deduplicated and sorted for deterministic ordering
+        return {
+            metric_name: source_run_metrics[metric_name]
+            for metric_name in dict.fromkeys(
+                metric_names
+            )  # dedupe and sorted for deterministic ordering
+            if metric_name in source_run_metrics
+        }
 
     def _get_or_create_experiment_id(self, subject_id: str) -> str:
         """Return the monitoring experiment id for a subject, creating it if needed."""

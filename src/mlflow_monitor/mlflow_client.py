@@ -342,6 +342,8 @@ class MonitorMLflowClient:
         run = self.get_run(run_id)
         if run is None:
             return None
+        if not run.data.metrics:
+            return {}
         return dict(run.data.metrics)
 
     def get_run_params(self, run_id: str) -> dict[str, str]:
