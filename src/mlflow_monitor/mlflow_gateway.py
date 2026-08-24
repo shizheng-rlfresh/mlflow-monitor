@@ -857,13 +857,21 @@ class MLflowMonitoringGateway:
         """Return a dictionary of metric names to values for a source run.
 
         Args:
-            source_run_id: Source training run id.
-            metric_names: Optional sequence of metric names to filter the result.
+            source_run_id: Identifier of the source training run.
+            metric_names: Optional sequence of selected metric names to filter the returned metrics.
 
         Returns:
             A dictionary mapping metric names to their latest values, or None
-            if the source run does not exist. If `metric_names` is provided,
-            only those metrics will be included in the result.
+                if the source run does not exist.
+
+        Notes:
+            1. If source_run_id is not found, None is returned.
+            2. If metric_names is None, all source run metrics are returned. If source run metrics
+                are empty, {} is returned.
+            3. If metric_names is provided and source_run_id is found, the selected metrics are
+                returned in sorted order without duplicates. If selected metrics are not present
+                in the source run, they are omitted from the result.
+
         """
         source_run_metrics = self._mlflow.get_run_metrics(source_run_id)
 
@@ -873,14 +881,19 @@ class MLflowMonitoringGateway:
 
         # if null selected metrics, return all metrics sorted by name for deterministic ordering
         if metric_names is None:
-            return dict(sorted(source_run_metrics.items(), key=lambda item: item[0]))
+            return {
+                metric_name: source_run_metrics[metric_name]
+                for metric_name in dict.fromkeys(
+                    sorted(source_run_metrics.keys())
+                )  # sorted for deterministic ordering
+            }
 
         # if selected metrics, return only those metrics that exist in the source run,
         # deduplicated and sorted for deterministic ordering
         return {
             metric_name: source_run_metrics[metric_name]
             for metric_name in dict.fromkeys(
-                metric_names
+                sorted(metric_names)
             )  # dedupe and sorted for deterministic ordering
             if metric_name in source_run_metrics
         }
