@@ -707,8 +707,9 @@ class MLflowMonitoringGateway:
             and not key.startswith("schema.")
             and key not in {"data_scope", "feature_columns"}
         }
+        metrics = self._mlflow.get_run_metrics(source_run_id)
         return ContractEvidence(
-            metrics=self._mlflow.get_run_metrics(source_run_id),
+            metrics=metrics if metrics is not None else {},
             environment=environment,
             features=features,
             schema=schema,
