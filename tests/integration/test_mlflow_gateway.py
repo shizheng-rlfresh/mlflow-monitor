@@ -692,6 +692,65 @@ def test_mlflow_gateway_resolve_source_run_id_honors_source_experiment_filter(
     )
 
 
+def test_mlflow_gateway_reads_selected_final_source_metrics_without_mutation(
+    tracking_uri: str,
+    artifact_root_uri: str,
+    snapshot_training_run: Callable[..., dict[str, Any]],
+    assert_training_run_unchanged: Callable[..., None],
+) -> None:
+    raw = MlflowClient(tracking_uri=tracking_uri)
+    experiment_id = raw.create_experiment(
+        "training/selected-metrics",
+        artifact_location=artifact_root_uri,
+    )
+    source_run = raw.create_run(experiment_id, tags={"mlflow.runName": "current"})
+    source_run_id = source_run.info.run_id
+    raw.log_metric(source_run_id, "f1", 0.81, step=0)
+    raw.log_metric(source_run_id, "f1", 0.91, step=1)
+    raw.log_metric(source_run_id, "recall", 0.78)
+    raw.log_metric(source_run_id, "accuracy", 0.85)
+    raw.log_param(source_run_id, "feature_columns", "age,income")
+    raw.set_tag(source_run_id, "schema.age", "int")
+    raw.set_terminated(source_run_id, status="FINISHED")
+
+    empty_source_run = raw.create_run(
+        experiment_id,
+        tags={"mlflow.runName": "empty"},
+    )
+    empty_source_run_id = empty_source_run.info.run_id
+    raw.set_terminated(empty_source_run_id, status="FINISHED")
+    source_snapshot = snapshot_training_run(raw=raw, run_id=source_run_id)
+    empty_source_snapshot = snapshot_training_run(raw=raw, run_id=empty_source_run_id)
+    gateway = MLflowMonitoringGateway(
+        GatewayConfig(),
+        tracking_uri=tracking_uri,
+        artifact_location=artifact_root_uri,
+    )
+
+    all_metrics = gateway.get_source_run_metrics(source_run_id)
+
+    assert all_metrics == {"accuracy": 0.85, "f1": 0.91, "recall": 0.78}
+    assert all_metrics is not None
+    assert tuple(all_metrics) == ("accuracy", "f1", "recall")
+    assert gateway.get_source_run_metrics(source_run_id, metric_names=()) == {}
+    assert gateway.get_source_run_metrics(
+        source_run_id,
+        metric_names=("f1", "missing", "Accuracy"),
+    ) == {"f1": 0.91}
+    assert gateway.get_source_run_metrics(empty_source_run_id) == {}
+    assert gateway.get_source_run_metrics("missing-source-run") is None
+    assert_training_run_unchanged(
+        raw=raw,
+        run_id=source_run_id,
+        snapshot=source_snapshot,
+    )
+    assert_training_run_unchanged(
+        raw=raw,
+        run_id=empty_source_run_id,
+        snapshot=empty_source_snapshot,
+    )
+
+
 def test_mlflow_gateway_resolve_source_run_id_rejects_monitoring_owned_runs(
     tracking_uri: str,
     artifact_root_uri: str,

@@ -103,6 +103,64 @@ def _baseline_claim_snapshot(
     )
 
 
+@pytest.mark.parametrize(
+    ("source_metrics", "metric_names", "expected_metrics", "expected_metric_names"),
+    [
+        (
+            {"recall": 0.78, "f1": 0.91, "accuracy": 0.85},
+            None,
+            {"accuracy": 0.85, "f1": 0.91, "recall": 0.78},
+            ("accuracy", "f1", "recall"),
+        ),
+        ({"f1": 0.91}, (), {}, ()),
+        (
+            {"f1": 0.91, "accuracy": 0.85},
+            ("f1", "missing", "Accuracy"),
+            {"f1": 0.91},
+            ("f1",),
+        ),
+        (None, None, None, None),
+    ],
+)
+def test_get_source_run_metrics_applies_three_state_selection(
+    source_metrics: dict[str, float] | None,
+    metric_names: tuple[str, ...] | None,
+    expected_metrics: dict[str, float] | None,
+    expected_metric_names: tuple[str, ...] | None,
+) -> None:
+    stub_client = MagicMock()
+    stub_client.get_run_metrics.return_value = source_metrics
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    result = gateway.get_source_run_metrics(
+        source_run_id="train-run-1",
+        metric_names=metric_names,
+    )
+
+    assert result == expected_metrics
+    if result is not None:
+        assert tuple(result) == expected_metric_names
+    assert stub_client.method_calls == [call.get_run_metrics("train-run-1")]
+
+
+def test_missing_required_metrics_deduplicates_when_source_run_is_missing() -> None:
+    stub_client = MagicMock()
+    stub_client.get_run_metrics.return_value = None
+
+    with patch("mlflow_monitor.mlflow_gateway.MonitorMLflowClient", return_value=stub_client):
+        gateway = MLflowMonitoringGateway(GatewayConfig())
+
+    missing = gateway.get_missing_source_run_metrics(
+        source_run_id="train-run-missing",
+        required_metrics=("f1", "f1", "auc"),
+    )
+
+    assert missing == ("f1", "auc")
+    stub_client.get_run_metrics.assert_called_once_with("train-run-missing")
+
+
 @pytest.mark.parametrize("persisted_tag_count", range(5))
 def test_create_or_reuse_monitoring_run_repairs_partial_allocation_index(
     persisted_tag_count: int,
