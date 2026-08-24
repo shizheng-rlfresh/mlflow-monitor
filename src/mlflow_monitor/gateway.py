@@ -190,6 +190,14 @@ class MonitoringGateway(Protocol):
         """Write one dictionary payload as a JSON artifact on a monitoring run."""
         ...
 
+    def get_source_run_metrics(
+        self,
+        source_run_id: str,
+        metric_names: Sequence[str] | None = None,
+    ) -> dict[str, float] | None:
+        """Return a dictionary of metric names to values for a source run."""
+        ...
+
 
 class InMemoryMonitoringGateway:
     """Deterministic in-memory gateway implementation for testing and local use."""
@@ -840,6 +848,23 @@ class InMemoryMonitoringGateway:
             monitoring_run_id=monitoring_run_id,
             path=path,
         )
+
+    def get_source_run_metrics(
+        self,
+        source_run_id: str,
+        metric_names: list[str] | None = None,
+    ) -> dict[str, float] | None:
+        """Return a dictionary of metric names to values for a source run.
+
+        Args:
+            source_run_id: Identifier of the source training run.
+            metric_names: Optional list of metric names to filter the returned metrics.
+
+        Returns:
+            A dictionary mapping metric names to their values for the source run,
+                or None if the run is not found.
+        """
+        ...
 
     def _encode_monitoring_run_json_artifact(
         self,
