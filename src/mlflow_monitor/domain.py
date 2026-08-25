@@ -111,16 +111,18 @@ CONTRACT_CHECK_REASON_CODE_BLOCKING = MappingProxyType(
 
 REFERENCE_COMPARISON_STATUS_TO_REASON = MappingProxyType(
     {
-        ReferenceComparisonStatus.COMPLETED: set(),
-        ReferenceComparisonStatus.SKIPPED: {
-            ReferenceComparisonSkippedReason.CURRENT_NOT_COMPARABLE
-        },
-        ReferenceComparisonStatus.UNAVAILABLE: {
-            ReferenceComparisonUnavailableReason.PREVIOUS_REFERENCE_MISSING,
-            ReferenceComparisonUnavailableReason.LKG_NOT_SELECTED,
-            ReferenceComparisonUnavailableReason.LKG_SELECTION_INCONSISTENT,
-            ReferenceComparisonUnavailableReason.REFERENCE_SOURCE_RUN_MISSING,
-        },
+        ReferenceComparisonStatus.COMPLETED: frozenset(),
+        ReferenceComparisonStatus.SKIPPED: frozenset(
+            (ReferenceComparisonSkippedReason.CURRENT_NOT_COMPARABLE,)
+        ),
+        ReferenceComparisonStatus.UNAVAILABLE: frozenset(
+            (
+                ReferenceComparisonUnavailableReason.PREVIOUS_REFERENCE_MISSING,
+                ReferenceComparisonUnavailableReason.LKG_NOT_SELECTED,
+                ReferenceComparisonUnavailableReason.LKG_SELECTION_INCONSISTENT,
+                ReferenceComparisonUnavailableReason.REFERENCE_SOURCE_RUN_MISSING,
+            )
+        ),
     }
 )
 

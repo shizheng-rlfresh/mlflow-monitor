@@ -1,7 +1,7 @@
 """Diffs and Coverages computation module for mlflow-monitor."""
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
@@ -31,7 +31,7 @@ class ComputedDiffCoverage:
 def compute_diffs_and_coverage(
     monitoring_run_id: str,
     source_run_id: str,
-    metric_names: Sequence[str],
+    metric_names: tuple[str, ...],
     current_metrics: dict[str, float],
     reference_plan: tuple[PreparedReferencePlanEntry, ...],
     reference_metrics_by_source_run_id: ReferenceMetricsBySourceRunId,
@@ -40,15 +40,21 @@ def compute_diffs_and_coverage(
 
     Args:
         monitoring_run_id: Identifier of the monitoring run.
-        source_run_id: Identifier of the source run to compare against.
-        metric_names: List of metric names to compute diffs and coverages for.
-        current_metrics: Dictionary of current metrics with metric names as keys and their values as floats.
-        reference_plan: Tuple of prepared reference plan entries.
-        reference_metrics_by_source_run_id: Dictionary mapping source run IDs to their corresponding metrics dictionaries.
+        source_run_id: Identifier of the source run of the monitoring run.
+        metric_names: Canonically ordered, unique selected metric names. An empty tuple selects
+            no metrics
+        current_metrics: Dictionary of current metrics with metric names as keys and their values
+            as floats.
+        reference_plan: Tuple of prepared reference plan entries to be used for comparison.
+        reference_metrics_by_source_run_id: Dictionary mapping source run IDs to their corresponding
+            metrics dictionaries.
 
     Returns:
         An instance of `ComputedDiffCoverage` containing the diffs and coverages for each metric.
-    """  # noqa: E501
+
+    Raises:
+        ValueError: If the metric names list is empty or contains duplicates.
+    """
     diffs: list[Diff] = []
     coverages: list[ReferenceComparisonCoverage] = []
 
