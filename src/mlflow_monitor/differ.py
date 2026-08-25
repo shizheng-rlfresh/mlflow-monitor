@@ -1,7 +1,7 @@
 """Diffs and Coverages computation module for mlflow-monitor."""
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -14,6 +14,9 @@ from mlflow_monitor.domain import (
 )
 from mlflow_monitor.identity import make_diff_id
 from mlflow_monitor.workflow import PreparedReferencePlanEntry
+
+MetricValue = Mapping[str, float]
+ReferenceMetricsBySourceRunId = Mapping[str, MetricValue | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +33,7 @@ def compute_diffs_and_coverage(
     metric_names: Sequence[str],
     current_metrics: dict[str, float],
     reference_plan: tuple[PreparedReferencePlanEntry, ...],
-    reference_metrics_by_source_run_id: dict[str, dict[str, float] | None],
+    reference_metrics_by_source_run_id: ReferenceMetricsBySourceRunId,
 ) -> ComputedDiffCoverage:
     """Compute diffs and coverages for the given metrics and reference plan.
 
