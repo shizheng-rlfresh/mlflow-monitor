@@ -1,4 +1,4 @@
-"""Custom exception types for generic gateway inconsistencies."""
+"""Custom exception types for gateway inconsistencies."""
 
 from __future__ import annotations
 
