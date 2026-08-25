@@ -1,6 +1,6 @@
 """Specifications for pure atomic Diff and coverage computation."""
 
-from mlflow_monitor.differ import compute_diffs_and_coverage
+from mlflow_monitor.differ import ComputedDiffCoverage, compute_diffs_and_coverage
 from mlflow_monitor.domain import (
     Diff,
     DiffReference,
@@ -130,7 +130,7 @@ def _expected_completed_coverage(
 def test_compute_diffs_and_coverage_materializes_atomic_diffs_and_completed_groups() -> None:
     reference_plan = _resolved_reference_plan()
 
-    diffs, coverage = compute_diffs_and_coverage(
+    result: ComputedDiffCoverage = compute_diffs_and_coverage(
         monitoring_run_id=MONITORING_RUN_ID,
         source_run_id=SOURCE_RUN_ID,
         metric_names=METRIC_NAMES,
@@ -140,9 +140,9 @@ def test_compute_diffs_and_coverage_materializes_atomic_diffs_and_completed_grou
     )
 
     expected_diffs = _expected_diffs(reference_plan)
-    assert diffs == expected_diffs
-    assert diffs[0].diff_id == DIFF_ID_FIXTURE
-    assert tuple((diff.reference.kind, diff.metric_name) for diff in diffs) == (
+    assert result.diffs == expected_diffs
+    assert result.diffs[0].diff_id == DIFF_ID_FIXTURE
+    assert tuple((diff.reference.kind, diff.metric_name) for diff in result.diffs) == (
         (DiffReferenceKind.BASELINE, "accuracy"),
         (DiffReferenceKind.BASELINE, "precision"),
         (DiffReferenceKind.PREVIOUS, "accuracy"),
@@ -152,7 +152,7 @@ def test_compute_diffs_and_coverage_materializes_atomic_diffs_and_completed_grou
         (DiffReferenceKind.CUSTOM, "accuracy"),
         (DiffReferenceKind.CUSTOM, "precision"),
     )
-    assert coverage == _expected_completed_coverage(reference_plan, expected_diffs)
+    assert result.coverages == _expected_completed_coverage(reference_plan, expected_diffs)
 
 
 def test_compute_diffs_and_coverage_completes_resolved_groups_for_empty_selection() -> None:
@@ -163,7 +163,7 @@ def test_compute_diffs_and_coverage_completes_resolved_groups_for_empty_selectio
         if plan_entry.reference is not None
     }
 
-    diffs, coverage = compute_diffs_and_coverage(
+    result: ComputedDiffCoverage = compute_diffs_and_coverage(
         monitoring_run_id=MONITORING_RUN_ID,
         source_run_id=SOURCE_RUN_ID,
         metric_names=(),
@@ -172,7 +172,7 @@ def test_compute_diffs_and_coverage_completes_resolved_groups_for_empty_selectio
         reference_metrics_by_source_run_id=empty_reference_metrics,
     )
 
-    assert diffs == ()
+    assert result.diffs == ()
     expected_coverage: list[ReferenceComparisonCoverage] = []
     for plan_entry in reference_plan:
         assert plan_entry.reference is not None
@@ -186,4 +186,4 @@ def test_compute_diffs_and_coverage_completes_resolved_groups_for_empty_selectio
                 reason=None,
             )
         )
-    assert coverage == tuple(expected_coverage)
+    assert result.coverages == tuple(expected_coverage)
