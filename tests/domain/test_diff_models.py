@@ -5,8 +5,14 @@ from typing import Any
 
 import pytest
 
-import mlflow_monitor.domain as domain
-from mlflow_monitor.domain import Diff, DiffReference, DiffReferenceKind
+from mlflow_monitor.domain import (
+    Diff,
+    DiffReference,
+    DiffReferenceKind,
+    MetricComparisonUnavailable,
+    ReferenceComparisonCoverage,
+    ReferenceComparisonStatus,
+)
 
 METRIC_UNAVAILABILITY_REASONS = (
     "current_metric_missing",
@@ -16,10 +22,6 @@ METRIC_UNAVAILABILITY_REASONS = (
     "delta_not_finite",
 )
 _ONE_METRIC_UNAVAILABILITY = object()
-
-
-def _domain_type(name: str) -> Any:
-    return getattr(domain, name)
 
 
 def _baseline_reference() -> DiffReference:
@@ -67,23 +69,20 @@ def _metric_unavailability(**overrides: object) -> Any:
         "reason": "reference_metric_missing",
     }
     values.update(overrides)
-    model_type = _domain_type("MetricComparisonUnavailable")
-    return model_type(**values)
+    return MetricComparisonUnavailable(**values)  # type: ignore[arg-type]
 
 
 def _coverage(**overrides: object) -> Any:
-    status_type = _domain_type("ReferenceComparisonStatus")
     values: dict[str, object] = {
         "reference_kind": DiffReferenceKind.BASELINE,
         "reference": _baseline_reference(),
-        "status": status_type.COMPLETED,
+        "status": ReferenceComparisonStatus.COMPLETED,
         "diff_ids": (),
         "metric_unavailability": (),
         "reason": None,
     }
     values.update(overrides)
-    model_type = _domain_type("ReferenceComparisonCoverage")
-    return model_type(**values)
+    return ReferenceComparisonCoverage(**values)  # type: ignore[arg-type]
 
 
 def test_diff_reference_kind_contains_only_metric_reference_kinds() -> None:
@@ -96,7 +95,7 @@ def test_diff_reference_kind_contains_only_metric_reference_kinds() -> None:
 
 
 def test_diff_has_one_atomic_metric_shape() -> None:
-    assert tuple(field.name for field in fields(domain.Diff)) == (
+    assert tuple(field.name for field in fields(Diff)) == (
         "diff_id",
         "monitoring_run_id",
         "source_run_id",
@@ -151,9 +150,7 @@ def test_diff_rejects_delta_that_does_not_equal_current_minus_reference() -> Non
 
 
 def test_reference_comparison_status_vocabulary_is_fixed() -> None:
-    status_type = _domain_type("ReferenceComparisonStatus")
-
-    assert {status.value for status in status_type} == {
+    assert {status.value for status in ReferenceComparisonStatus} == {
         "completed",
         "skipped",
         "unavailable",
@@ -218,10 +215,9 @@ def test_completed_coverage_allows_an_empty_metric_selection() -> None:
 
 
 def test_skipped_coverage_requires_a_resolved_reference_and_exact_reason() -> None:
-    status_type = _domain_type("ReferenceComparisonStatus")
 
     coverage = _coverage(
-        status=status_type.SKIPPED,
+        status=ReferenceComparisonStatus.SKIPPED,
         reason="current_not_comparable",
     )
 
@@ -248,12 +244,11 @@ def test_unavailable_coverage_accepts_each_reference_reason(
     reference: DiffReference | None,
     reason: str,
 ) -> None:
-    status_type = _domain_type("ReferenceComparisonStatus")
 
     coverage = _coverage(
         reference_kind=reference_kind,
         reference=reference,
-        status=status_type.UNAVAILABLE,
+        status=ReferenceComparisonStatus.UNAVAILABLE,
         reason=reason,
     )
 
@@ -347,13 +342,12 @@ def test_coverage_rejects_status_inconsistent_shapes(
     status_name: str,
     overrides: dict[str, object],
 ) -> None:
-    status_type = _domain_type("ReferenceComparisonStatus")
     overrides = dict(overrides)
     if overrides.get("metric_unavailability") is _ONE_METRIC_UNAVAILABILITY:
         overrides["metric_unavailability"] = (_metric_unavailability(),)
 
     with pytest.raises(ValueError):
-        _coverage(status=getattr(status_type, status_name), **overrides)
+        _coverage(status=getattr(ReferenceComparisonStatus, status_name), **overrides)
 
 
 def test_coverage_rejects_unknown_status() -> None:
@@ -373,12 +367,10 @@ def test_coverage_reference_kind_must_match_resolved_reference(
     status_name: str,
     reason: str | None,
 ) -> None:
-    status_type = _domain_type("ReferenceComparisonStatus")
-
     with pytest.raises(ValueError):
         _coverage(
             reference_kind=DiffReferenceKind.PREVIOUS,
             reference=_baseline_reference(),
-            status=getattr(status_type, status_name),
+            status=getattr(ReferenceComparisonStatus, status_name),
             reason=reason,
         )

@@ -50,27 +50,27 @@ def _selection(**overrides: object) -> LKGSelection:
 
 
 def test_timeline_models_have_the_approved_shapes() -> None:
-    assert tuple(field.name for field in fields(domain.TimelineEntry)) == (
+    assert tuple(field.name for field in fields(TimelineEntry)) == (
         "monitoring_run_id",
         "source_run_id",
         "sequence_index",
         "lifecycle_status",
         "comparability_status",
     )
-    assert tuple(field.name for field in fields(domain.Timeline)) == (
+    assert tuple(field.name for field in fields(Timeline)) == (
         "timeline_id",
         "subject_id",
         "baseline_source_run_id",
         "entries",
     )
-    assert tuple(field.name for field in fields(domain.LKGSelection)) == (
+    assert tuple(field.name for field in fields(LKGSelection)) == (
         "lkg_selection_id",
         "timeline_id",
         "monitoring_run_id",
         "source_run_id",
         "supersedes_lkg_selection_ids",
     )
-    assert not hasattr(domain, "LKG")
+    assert not hasattr(domain, "LKG")  # v0 specific so we do not add LKG to the domain namespace.
 
 
 @pytest.mark.parametrize(
