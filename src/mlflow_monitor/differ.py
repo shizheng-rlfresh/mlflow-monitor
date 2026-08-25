@@ -9,6 +9,7 @@ from mlflow_monitor.domain import (
     Diff,
     DiffReference,
     MetricComparisonUnavailable,
+    MetricComparisonUnavailableReason,
     ReferenceComparisonCoverage,
     ReferenceComparisonStatus,
 )
@@ -48,23 +49,23 @@ def compute_diffs_and_coverage(
     Returns:
         An instance of `ComputedDiffCoverage` containing the diffs and coverages for each metric.
     """  # noqa: E501
-    diffs = []
-    coverages = []
+    diffs: list[Diff] = []
+    coverages: list[ReferenceComparisonCoverage] = []
 
     for reference_entry in reference_plan:
-        _diff_ids = []
-        _metric_unavailability: list[MetricComparisonUnavailable] = []
-        _status = ReferenceComparisonStatus.COMPLETED
+        reference_diff_ids: list[str] = []
+        reference_metric_unavailability: list[MetricComparisonUnavailable] = []
 
         reference_kind = reference_entry.kind
 
+        # missing reference means the reference is not available for comparison.
+        # so we mark the coverage as unavailable and continue to the next reference entry.
         if reference_entry.reference is None:
-            _status = ReferenceComparisonStatus.UNAVAILABLE
             coverages.append(
                 ReferenceComparisonCoverage(
                     reference_kind=reference_kind,
                     reference=None,
-                    status=_status,
+                    status=ReferenceComparisonStatus.UNAVAILABLE,
                     diff_ids=(),
                     metric_unavailability=(),
                     reason=reference_entry.unavailable_reason,
@@ -75,20 +76,22 @@ def compute_diffs_and_coverage(
         reference_monitoring_run_id = reference_entry.reference.monitoring_run_id
         reference_source_run_id = reference_entry.reference.source_run_id
 
-        _diff_reference = DiffReference(
+        diff_reference = DiffReference(
             kind=reference_kind,
             monitoring_run_id=reference_monitoring_run_id,
             source_run_id=reference_source_run_id,
         )
 
         reference_metrics = reference_metrics_by_source_run_id.get(reference_source_run_id)
+
+        # missing reference metrics means the reference is not available for comparison.
+        # so we mark the coverage as unavailable and continue to the next reference entry.
         if reference_metrics is None:
-            _status = ReferenceComparisonStatus.UNAVAILABLE
             coverages.append(
                 ReferenceComparisonCoverage(
                     reference_kind=reference_kind,
-                    reference=_diff_reference,
-                    status=_status,
+                    reference=diff_reference,
+                    status=ReferenceComparisonStatus.UNAVAILABLE,
                     diff_ids=(),
                     metric_unavailability=(),
                     reason="reference_source_run_missing",
@@ -96,13 +99,14 @@ def compute_diffs_and_coverage(
             )
             continue
 
+        # if reference is available for comparison, we continue to process diffs for each metric.
         for metric_name in metric_names:
             current_value = current_metrics.get(metric_name, None)
             reference_value = reference_metrics.get(metric_name, None)
 
             delta, reason = _validate_metric_values(current_value, reference_value)
             if delta is None:
-                _metric_unavailability.append(
+                reference_metric_unavailability.append(
                     MetricComparisonUnavailable(
                         metric_name=metric_name,
                         reason=cast(str, reason),
@@ -114,17 +118,17 @@ def compute_diffs_and_coverage(
             diff_id = make_diff_id(
                 monitoring_run_id=monitoring_run_id,
                 source_run_id=source_run_id,
-                reference=_diff_reference,
+                reference=diff_reference,
                 metric_name=metric_name,
             )
 
-            _diff_ids.append(diff_id)
+            reference_diff_ids.append(diff_id)
             diffs.append(
                 Diff(
                     diff_id=diff_id,
                     monitoring_run_id=monitoring_run_id,
                     source_run_id=source_run_id,
-                    reference=_diff_reference,
+                    reference=diff_reference,
                     metric_name=metric_name,
                     current_value=cast(float, current_value),
                     reference_value=cast(float, reference_value),
@@ -135,10 +139,10 @@ def compute_diffs_and_coverage(
         coverages.append(
             ReferenceComparisonCoverage(
                 reference_kind=reference_kind,
-                reference=_diff_reference,
-                status=_status,
-                diff_ids=tuple(_diff_ids),
-                metric_unavailability=tuple(_metric_unavailability),
+                reference=diff_reference,
+                status=ReferenceComparisonStatus.COMPLETED,
+                diff_ids=tuple(reference_diff_ids),
+                metric_unavailability=tuple(reference_metric_unavailability),
                 reason=None,
             )
         )
@@ -148,7 +152,7 @@ def compute_diffs_and_coverage(
 
 def _validate_metric_values(
     current_value: float | None, reference_value: float | None
-) -> tuple[float | None, str | None]:
+) -> tuple[float | None, MetricComparisonUnavailableReason | None]:
     """Validate the current and reference metric values.
 
     Args:
@@ -156,20 +160,20 @@ def _validate_metric_values(
         reference_value: The reference metric value.
 
     Returns:
-        A tuple containing the delta if the values are valid, and an optional reason string
-            if they are not valid.
+        A tuple containing the delta if the values are valid, and an optional reason code
+            if it is not valid.
     """
     if current_value is None:
-        return None, "current_metric_missing"
+        return None, MetricComparisonUnavailableReason.CURRENT_METRIC_MISSING
     if not math.isfinite(current_value):
-        return None, "current_metric_not_finite"
+        return None, MetricComparisonUnavailableReason.CURRENT_METRIC_NOT_FINITE
     if reference_value is None:
-        return None, "reference_metric_missing"
+        return None, MetricComparisonUnavailableReason.REFERENCE_METRIC_MISSING
     if not math.isfinite(reference_value):
-        return None, "reference_metric_not_finite"
+        return None, MetricComparisonUnavailableReason.REFERENCE_METRIC_NOT_FINITE
 
     delta = current_value - reference_value
     if not math.isfinite(delta):
-        return None, "delta_not_finite"
+        return None, MetricComparisonUnavailableReason.DELTA_NOT_FINITE
 
     return delta, None
