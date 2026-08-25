@@ -39,8 +39,8 @@ from mlflow_monitor.errors import (
     PreparedContextConsistencyViolation,
     PrepareStageError,
 )
-from mlflow_monitor.gateway import MonitoringGateway
-from mlflow_monitor.gateway_models import TimelineState
+from mlflow_monitor.gateway.models import TimelineState
+from mlflow_monitor.gateway.protocol import MonitoringGateway
 from mlflow_monitor.invariant import validate_contract_check_result
 from mlflow_monitor.recipe_compiler import CompiledRecipe, EffectiveRecipePlan
 from mlflow_monitor.utils import canonical_json

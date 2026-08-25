@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from mlflow_monitor.gateway_models import TimelineClaim
+from mlflow_monitor.gateway.models import TimelineClaim
 
 from .gateway import GatewayConsistencyCode, GatewayConsistencyViolation
 

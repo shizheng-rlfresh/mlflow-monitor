@@ -53,7 +53,7 @@ from mlflow_monitor.errors import (
     TimelineConsistencyViolation,
     TrainingRunMutationViolation,
 )
-from mlflow_monitor.gateway_models import (
+from mlflow_monitor.gateway.models import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
     IdempotencyKey,

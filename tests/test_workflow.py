@@ -20,11 +20,11 @@ from mlflow_monitor.errors import (
     GatewayConsistencyViolation,
     PrepareStageError,
 )
-from mlflow_monitor.gateway import InMemoryMonitoringGateway
-from mlflow_monitor.gateway_models import (
+from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
     IdempotencyKey,
+    InMemoryMonitoringGateway,
     TimelineState,
 )
 from mlflow_monitor.recipe import SYSTEM_DEFAULT_RECIPE_ID
