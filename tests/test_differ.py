@@ -201,31 +201,31 @@ def test_compute_diffs_and_coverage_completes_resolved_groups_for_empty_selectio
             {},
             {"accuracy": 0.5},
             "current_metric_missing",
-            id="current-metric-missing",
+            id="current_metric_missing",
         ),
         pytest.param(
             {"accuracy": 0.75},
             {},
             "reference_metric_missing",
-            id="reference-metric-missing",
+            id="reference_metric_missing",
         ),
         pytest.param(
             {"accuracy": math.nan},
             {"accuracy": 0.5},
             "current_metric_not_finite",
-            id="current-metric-not-finite",
+            id="current_metric_not_finite",
         ),
         pytest.param(
             {"accuracy": 0.75},
             {"accuracy": math.inf},
             "reference_metric_not_finite",
-            id="reference-metric-not-finite",
+            id="reference_metric_not_finite",
         ),
         pytest.param(
             {"accuracy": 1e308},
             {"accuracy": -1e308},
             "delta_not_finite",
-            id="delta-not-finite",
+            id="delta_not_finite",
         ),
     ),
 )
@@ -361,17 +361,17 @@ def test_compute_diffs_and_coverage_prioritizes_current_missing_when_both_are_mi
         pytest.param(
             DiffReferenceKind.PREVIOUS,
             "previous_reference_missing",
-            id="previous-reference-missing",
+            id="previous_reference_missing",
         ),
         pytest.param(
             DiffReferenceKind.LKG,
             "lkg_not_selected",
-            id="lkg-not-selected",
+            id="lkg_not_selected",
         ),
         pytest.param(
             DiffReferenceKind.LKG,
             "lkg_selection_inconsistent",
-            id="lkg-selection-inconsistent",
+            id="lkg_selection_inconsistent",
         ),
     ),
 )
