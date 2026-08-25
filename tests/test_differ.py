@@ -1,10 +1,15 @@
 """Specifications for pure atomic Diff and coverage computation."""
 
+import math
+
+import pytest
+
 from mlflow_monitor.differ import ComputedDiffCoverage, compute_diffs_and_coverage
 from mlflow_monitor.domain import (
     Diff,
     DiffReference,
     DiffReferenceKind,
+    MetricComparisonUnavailable,
     MonitoringRunReference,
     ReferenceComparisonCoverage,
     ReferenceComparisonStatus,
@@ -187,3 +192,247 @@ def test_compute_diffs_and_coverage_completes_resolved_groups_for_empty_selectio
             )
         )
     assert result.coverages == tuple(expected_coverage)
+
+
+@pytest.mark.parametrize(
+    ("current_metrics", "reference_metrics", "expected_reason"),
+    (
+        pytest.param(
+            {},
+            {"accuracy": 0.5},
+            "current_metric_missing",
+            id="current-metric-missing",
+        ),
+        pytest.param(
+            {"accuracy": 0.75},
+            {},
+            "reference_metric_missing",
+            id="reference-metric-missing",
+        ),
+        pytest.param(
+            {"accuracy": math.nan},
+            {"accuracy": 0.5},
+            "current_metric_not_finite",
+            id="current-metric-not-finite",
+        ),
+        pytest.param(
+            {"accuracy": 0.75},
+            {"accuracy": math.inf},
+            "reference_metric_not_finite",
+            id="reference-metric-not-finite",
+        ),
+        pytest.param(
+            {"accuracy": 1e308},
+            {"accuracy": -1e308},
+            "delta_not_finite",
+            id="delta-not-finite",
+        ),
+    ),
+)
+def test_compute_diffs_and_coverage_records_metric_unavailability(
+    current_metrics: dict[str, float],
+    reference_metrics: dict[str, float],
+    expected_reason: str,
+) -> None:
+    baseline_entry = _resolved_reference_plan()[0]
+    assert baseline_entry.reference is not None
+    reference = _diff_reference(baseline_entry.reference)
+
+    result = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=("accuracy",),
+        current_metrics=current_metrics,
+        reference_plan=(baseline_entry,),
+        reference_metrics_by_source_run_id={
+            baseline_entry.reference.source_run_id: reference_metrics
+        },
+    )
+
+    assert result == ComputedDiffCoverage(
+        diffs=(),
+        coverages=(
+            ReferenceComparisonCoverage(
+                reference_kind=DiffReferenceKind.BASELINE,
+                reference=reference,
+                status=ReferenceComparisonStatus.COMPLETED,
+                diff_ids=(),
+                metric_unavailability=(
+                    MetricComparisonUnavailable(
+                        metric_name="accuracy",
+                        reason=expected_reason,
+                    ),
+                ),
+                reason=None,
+            ),
+        ),
+    )
+
+
+def test_compute_diffs_and_coverage_uses_selected_names_without_intersecting_keys() -> None:
+    baseline_entry = _resolved_reference_plan()[0]
+    assert baseline_entry.reference is not None
+    reference = _diff_reference(baseline_entry.reference)
+    accuracy_diff_id = make_diff_id(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        reference=reference,
+        metric_name="accuracy",
+    )
+
+    result = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=("accuracy", "precision", "recall"),
+        current_metrics={
+            "accuracy": 0.75,
+            "precision": 0.875,
+            "current-only-unselected": 1.0,
+        },
+        reference_plan=(baseline_entry,),
+        reference_metrics_by_source_run_id={
+            baseline_entry.reference.source_run_id: {
+                "accuracy": 0.5,
+                "recall": 0.625,
+                "reference-only-unselected": 1.0,
+            }
+        },
+    )
+
+    assert result.diffs == (
+        Diff(
+            diff_id=accuracy_diff_id,
+            monitoring_run_id=MONITORING_RUN_ID,
+            source_run_id=SOURCE_RUN_ID,
+            reference=reference,
+            metric_name="accuracy",
+            current_value=0.75,
+            reference_value=0.5,
+            delta=0.25,
+        ),
+    )
+    assert result.coverages == (
+        ReferenceComparisonCoverage(
+            reference_kind=DiffReferenceKind.BASELINE,
+            reference=reference,
+            status=ReferenceComparisonStatus.COMPLETED,
+            diff_ids=(accuracy_diff_id,),
+            metric_unavailability=(
+                MetricComparisonUnavailable(
+                    metric_name="precision",
+                    reason="reference_metric_missing",
+                ),
+                MetricComparisonUnavailable(
+                    metric_name="recall",
+                    reason="current_metric_missing",
+                ),
+            ),
+            reason=None,
+        ),
+    )
+    coverage = result.coverages[0]
+    assert len(coverage.diff_ids) + len(coverage.metric_unavailability) == 3
+
+
+def test_compute_diffs_and_coverage_prioritizes_current_missing_when_both_are_missing() -> None:
+    baseline_entry = _resolved_reference_plan()[0]
+    assert baseline_entry.reference is not None
+
+    result = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=("accuracy",),
+        current_metrics={},
+        reference_plan=(baseline_entry,),
+        reference_metrics_by_source_run_id={baseline_entry.reference.source_run_id: {}},
+    )
+
+    assert result.coverages[0].metric_unavailability == (
+        MetricComparisonUnavailable(
+            metric_name="accuracy",
+            reason="current_metric_missing",
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("reference_kind", "unavailable_reason"),
+    (
+        pytest.param(
+            DiffReferenceKind.PREVIOUS,
+            "previous_reference_missing",
+            id="previous-reference-missing",
+        ),
+        pytest.param(
+            DiffReferenceKind.LKG,
+            "lkg_not_selected",
+            id="lkg-not-selected",
+        ),
+        pytest.param(
+            DiffReferenceKind.LKG,
+            "lkg_selection_inconsistent",
+            id="lkg-selection-inconsistent",
+        ),
+    ),
+)
+def test_compute_diffs_and_coverage_materializes_prepare_time_unavailable_reference(
+    reference_kind: DiffReferenceKind,
+    unavailable_reason: str,
+) -> None:
+    reference_entry = PreparedReferencePlanEntry(
+        kind=reference_kind,
+        reference=None,
+        unavailable_reason=unavailable_reason,
+    )
+
+    result = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=("accuracy",),
+        current_metrics={"accuracy": 0.75},
+        reference_plan=(reference_entry,),
+        reference_metrics_by_source_run_id={},
+    )
+
+    assert result == ComputedDiffCoverage(
+        diffs=(),
+        coverages=(
+            ReferenceComparisonCoverage(
+                reference_kind=reference_kind,
+                reference=None,
+                status=ReferenceComparisonStatus.UNAVAILABLE,
+                diff_ids=(),
+                metric_unavailability=(),
+                reason=unavailable_reason,
+            ),
+        ),
+    )
+
+
+def test_compute_diffs_and_coverage_retains_reference_when_source_run_is_missing() -> None:
+    previous_entry = _resolved_reference_plan()[1]
+    assert previous_entry.reference is not None
+    reference = _diff_reference(previous_entry.reference)
+
+    result = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=METRIC_NAMES,
+        current_metrics=CURRENT_METRICS,
+        reference_plan=(previous_entry,),
+        reference_metrics_by_source_run_id={previous_entry.reference.source_run_id: None},
+    )
+
+    assert result == ComputedDiffCoverage(
+        diffs=(),
+        coverages=(
+            ReferenceComparisonCoverage(
+                reference_kind=DiffReferenceKind.PREVIOUS,
+                reference=reference,
+                status=ReferenceComparisonStatus.UNAVAILABLE,
+                diff_ids=(),
+                metric_unavailability=(),
+                reason="reference_source_run_missing",
+            ),
+        ),
+    )
