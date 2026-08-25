@@ -1,7 +1,7 @@
 """Gateway module for MLflow-Monitor v0."""
 
 from .memory import InMemoryMonitoringGateway
-from .mlflow_gateway import MLflowMonitoringGateway
+from .mlflow import MLflowMonitoringGateway
 from .models import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,

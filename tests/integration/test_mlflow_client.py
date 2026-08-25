@@ -9,7 +9,7 @@ import pytest
 from mlflow import MlflowClient
 from mlflow.entities import RunStatus
 
-from mlflow_monitor.mlflow_client import MonitorMLflowClient
+from mlflow_monitor.client.mlflow import MonitorMLflowClient
 
 
 def test_get_monitoring_experiment_id_by_name_returns_none_before_creation(

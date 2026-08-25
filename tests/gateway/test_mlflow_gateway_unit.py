@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from mlflow_monitor.client.mlflow import MonitoringRunInfo, MonitoringRunTagSnapshot
 from mlflow_monitor.domain import (
     ComparabilityStatus,
     DiffReferenceKind,
@@ -19,7 +20,6 @@ from mlflow_monitor.errors import (
     GatewayNamespaceViolation,
 )
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey, MLflowMonitoringGateway
-from mlflow_monitor.mlflow_client import MonitoringRunInfo, MonitoringRunTagSnapshot
 from mlflow_monitor.result_contract import MonitorRunError, MonitorRunResult
 
 _BASELINE_CLAIM_TAG_PREFIX = "monitoring.baseline_source_run_id."
@@ -130,9 +130,7 @@ def test_get_source_run_metrics_applies_three_state_selection(
     stub_client = MagicMock()
     stub_client.get_run_metrics.return_value = source_metrics
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     result = gateway.get_source_run_metrics(
@@ -150,9 +148,7 @@ def test_missing_required_metrics_deduplicates_when_source_run_is_missing() -> N
     stub_client = MagicMock()
     stub_client.get_run_metrics.return_value = None
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     missing = gateway.get_missing_source_run_metrics(
@@ -190,9 +186,7 @@ def test_create_or_reuse_monitoring_run_repairs_partial_allocation_index(
         stub_client.list_monitoring_runs_with_tag.return_value[0].tags
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     result = gateway.create_or_reuse_monitoring_run(
@@ -231,9 +225,7 @@ def test_create_or_reuse_monitoring_run_repairs_orphan_before_new_allocation() -
         run_name="monitoring-run-2",
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     result = gateway.create_or_reuse_monitoring_run(
@@ -287,9 +279,7 @@ def test_get_timeline_state_distinguishes_no_allocation_from_allocated_uninitial
     stub_client.get_monitoring_experiment_tags.return_value = {}
     stub_client.list_monitoring_runs_with_tag.return_value = ()
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     assert gateway.get_timeline_state("churn_model") is None
@@ -335,9 +325,7 @@ def test_get_timeline_state_uses_legacy_projection_only_after_scanning_no_claims
         (allocation,) if tag_key == "training.source_run_id" else ()
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     timeline_state = gateway.get_timeline_state("churn_model")
@@ -375,9 +363,7 @@ def test_get_timeline_state_repairs_projection_from_identical_claims() -> None:
         claims if tag_key == "training.source_run_id" else ()
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     timeline_state = gateway.get_timeline_state("churn_model")
@@ -413,9 +399,7 @@ def test_get_timeline_state_rejects_conflicting_baseline_claims() -> None:
         claims if tag_key == "training.source_run_id" else ()
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -451,9 +435,7 @@ def test_get_timeline_state_rejects_contradictory_baseline_projection() -> None:
         (claim,) if tag_key == "training.source_run_id" else ()
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -493,9 +475,7 @@ def test_get_timeline_state_rejects_mismatched_baseline_claim_address() -> None:
         (malformed_claim,) if tag_key == "training.source_run_id" else ()
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -544,9 +524,7 @@ def test_reconcile_timeline_baseline_writes_new_participant_claim_before_project
 
     stub_client.set_monitoring_run_tags.side_effect = persist_claim
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     timeline_state = gateway.reconcile_timeline_baseline(
@@ -604,9 +582,7 @@ def test_reconcile_timeline_baseline_accepts_identical_claim_from_concurrent_all
 
     stub_client.set_monitoring_run_tags.side_effect = persist_identical_concurrent_claims
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     timeline_state = gateway.reconcile_timeline_baseline(
@@ -639,9 +615,7 @@ def test_reconcile_timeline_baseline_rejects_changed_durable_claim_before_writes
         (claim,) if tag_key == "training.source_run_id" else ()
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -700,9 +674,7 @@ def test_reconcile_timeline_baseline_rechecks_claims_before_projection() -> None
 
     stub_client.set_monitoring_run_tags.side_effect = persist_conflicting_claims
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -743,9 +715,7 @@ def test_reconcile_timeline_baseline_preserves_conflicting_claims_on_same_run() 
     stub_client.list_monitoring_runs_with_tag.side_effect = list_snapshots
     stub_client.set_monitoring_run_tags.side_effect = persist_competing_claims
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -795,9 +765,7 @@ def test_create_or_reuse_monitoring_run_reuses_older_recipe_without_rewriting_ca
     stub_client.list_monitoring_runs_with_tag.return_value = (v1, v0)
     stub_client.get_run_tags.return_value = dict(v0.tags)
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     result = gateway.create_or_reuse_monitoring_run(
@@ -842,9 +810,7 @@ def test_create_or_reuse_monitoring_run_repairs_stale_latest_and_source_binding(
     stub_client.list_monitoring_runs_with_tag.return_value = (v0, v1)
     stub_client.get_run_tags.return_value = dict(v0.tags)
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     result = gateway.create_or_reuse_monitoring_run(
@@ -1031,9 +997,7 @@ def test_create_or_reuse_monitoring_run_fails_closed_before_writes(
     stub_client.get_monitoring_experiment_tags.return_value = experiment_tags
     stub_client.list_monitoring_runs_with_tag.return_value = snapshots
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -1060,9 +1024,7 @@ def test_create_or_reuse_monitoring_run_writes_idempotency_tag_last() -> None:
         run_id="monitoring-run-1", run_name="monitoring-run-1"
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     gateway.create_or_reuse_monitoring_run(
@@ -1090,9 +1052,7 @@ def test_write_monitoring_run_json_artifact_rejects_run_outside_monitoring_names
     stub_client = MagicMock()
     stub_client.get_run_experiment_name.return_value = "training/churn"
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayNamespaceViolation, match="monitoring namespace"):
@@ -1131,9 +1091,7 @@ def test_write_monitoring_run_json_artifact_rejects_missing_allocation_tag(
     }
     del stub_client.get_run_tags.return_value[missing_tag]
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -1156,9 +1114,7 @@ def test_write_monitoring_run_json_artifact_rejects_missing_allocation_tag(
 def test_finalize_monitoring_run_result_rejects_mismatched_run_id_before_side_effects() -> None:
     stub_client = MagicMock()
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(ValueError, match="must match"):
@@ -1177,9 +1133,7 @@ def test_finalize_monitoring_run_result_rejects_mismatched_run_id_before_side_ef
 def test_finalize_monitoring_run_result_rejects_non_terminal_status_before_side_effects() -> None:
     stub_client = MagicMock()
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(ValueError, match="supports only CHECKED and FAILED"):
@@ -1208,9 +1162,7 @@ def test_finalize_monitoring_run_result_persists_artifact_and_termination(
 ) -> None:
     stub_client = MagicMock()
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     result = _make_result(
@@ -1269,9 +1221,7 @@ def test_finalize_monitoring_run_result_repairs_only_missing_terminal_side_effec
         expected_mlflow_status if current_mlflow_status == "EXPECTED" else current_mlflow_status
     )
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     result = _make_result(
@@ -1326,9 +1276,7 @@ def test_get_monitoring_run_returns_none_for_malformed_persisted_tags(
         tag_key: tag_value,
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     assert gateway.get_monitoring_run("churn_model", "monitoring-run-1") is None
@@ -1347,9 +1295,7 @@ def test_get_monitoring_run_rejects_invalid_comparability_projection() -> None:
         "monitoring.comparability_status": "unknown",
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -1376,9 +1322,7 @@ def test_get_monitoring_run_does_not_synthesize_check_result_from_projection() -
         "monitoring.comparability_status": "pass",
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     record = gateway.get_monitoring_run("churn_model", "monitoring-run-1")
@@ -1409,9 +1353,7 @@ def test_get_monitoring_run_hydrates_source_and_reference_pairs() -> None:
 
     stub_client.get_run_tags.side_effect = get_run_tags
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     record = gateway.get_monitoring_run("churn_model", "monitoring-run-current")
@@ -1446,9 +1388,7 @@ def test_upsert_monitoring_run_rejects_conflicting_reference_pair() -> None:
 
     stub_client.get_run_tags.side_effect = get_run_tags
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -1485,9 +1425,7 @@ def test_upsert_monitoring_run_rejects_conflicting_primary_pair() -> None:
         "training.source_run_id": "train-run-persisted",
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -1517,9 +1455,7 @@ def test_upsert_monitoring_run_rejects_run_outside_subject_timeline_before_run_a
         "training.source_run_id": "train-run-foreign",
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayConsistencyViolation) as exc_info:
@@ -1547,9 +1483,7 @@ def test_resolve_timeline_monitoring_run_id_ignores_malformed_index_tag_keys() -
         "monitoring.run.latest": "monitoring-run-1",
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     assert gateway.resolve_timeline_monitoring_run_id("churn_model", "monitoring-run-1") is None
@@ -1567,9 +1501,7 @@ def test_get_monitoring_run_returns_none_for_malformed_index_tag_key() -> None:
         "monitoring.comparability_status": "pass",
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     assert gateway.get_monitoring_run("churn_model", "monitoring-run-1") is None
@@ -1597,9 +1529,7 @@ def test_list_timeline_monitoring_runs_skips_malformed_reconstructed_run() -> No
         },
     ]
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     runs = gateway.list_timeline_monitoring_runs("churn_model")
@@ -1614,9 +1544,7 @@ def test_list_timeline_monitoring_runs_raises_for_malformed_next_sequence_index(
         "monitoring.next_sequence_index": "not-an-int",
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayNamespaceViolation, match="monitoring.next_sequence_index"):
@@ -1630,9 +1558,7 @@ def test_create_or_reuse_monitoring_run_raises_for_malformed_next_sequence_index
         "monitoring.next_sequence_index": "not-an-int",
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayNamespaceViolation, match="monitoring.next_sequence_index"):
@@ -1658,9 +1584,7 @@ def test_create_or_reuse_monitoring_run_raises_for_malformed_index_tag_key() -> 
         "monitoring.recipe_version": "v0",
     }
 
-    with patch(
-        "mlflow_monitor.gateway.mlflow_gateway.MonitorMLflowClient", return_value=stub_client
-    ):
+    with patch("mlflow_monitor.gateway.mlflow.MonitorMLflowClient", return_value=stub_client):
         gateway = MLflowMonitoringGateway(GatewayConfig())
 
     with pytest.raises(GatewayNamespaceViolation, match="monitoring.run.latest"):

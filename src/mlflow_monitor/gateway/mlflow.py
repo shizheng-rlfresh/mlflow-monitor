@@ -38,6 +38,7 @@ from enum import StrEnum
 from hashlib import sha256
 from typing import Any
 
+from mlflow_monitor.client.mlflow import MonitoringRunTagSnapshot, MonitorMLflowClient
 from mlflow_monitor.contract_checker import ContractEvidence
 from mlflow_monitor.domain import (
     ComparabilityStatus,
@@ -61,7 +62,6 @@ from mlflow_monitor.gateway.models import (
     TimelineClaim,
     TimelineState,
 )
-from mlflow_monitor.mlflow_client import MonitoringRunTagSnapshot, MonitorMLflowClient
 from mlflow_monitor.result_contract import MonitorRunResult
 from mlflow_monitor.utils import canonical_json
 

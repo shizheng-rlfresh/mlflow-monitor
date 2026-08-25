@@ -14,7 +14,7 @@ from mlflow.protos.databricks_pb2 import (
     RESOURCE_DOES_NOT_EXIST,
 )
 
-from mlflow_monitor.mlflow_client import MonitorMLflowClient
+from mlflow_monitor.client.mlflow import MonitorMLflowClient
 
 
 class _PagedRuns(list[Run]):
@@ -37,7 +37,7 @@ def test_list_monitoring_runs_with_tag_paginates_and_detaches_tags() -> None:
         _PagedRuns([second_run], None),
     ]
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     snapshots = client.list_monitoring_runs_with_tag(
@@ -84,7 +84,7 @@ def test_get_or_create_monitoring_experiment_recovers_from_duplicate_create_race
     )
     stub_client.get_experiment_by_name.side_effect = [None, existing]
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_or_create_monitoring_experiment("churn-monitoring") == "123"
@@ -103,7 +103,7 @@ def test_get_or_create_monitoring_experiment_passes_artifact_location_on_first_c
     stub_client.get_experiment_by_name.return_value = None
     stub_client.create_experiment.return_value = "123"
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert (
@@ -130,7 +130,7 @@ def test_get_or_create_monitoring_experiment_restores_deleted_experiment() -> No
     stub_client = MagicMock()
     stub_client.get_experiment_by_name.return_value = deleted
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_or_create_monitoring_experiment("churn-monitoring") == "123"
@@ -160,7 +160,7 @@ def test_get_or_create_monitoring_experiment_accepts_restore_race_for_deleted_ex
         error_code=RESOURCE_DOES_NOT_EXIST,
     )
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_or_create_monitoring_experiment("churn-monitoring") == "123"
@@ -187,7 +187,7 @@ def test_get_or_create_monitoring_experiment_reraises_failed_restore_when_not_re
     stub_client.get_experiment_by_name.side_effect = [deleted, None]
     stub_client.restore_experiment.side_effect = restore_error
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     with pytest.raises(MlflowException) as exc_info:
@@ -211,7 +211,7 @@ def test_get_or_create_monitoring_experiment_restores_deleted_experiment_after_d
     )
     stub_client.get_experiment_by_name.side_effect = [None, deleted]
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_or_create_monitoring_experiment("churn-monitoring") == "123"
@@ -248,7 +248,7 @@ def test_get_or_create_monitoring_experiment_accepts_restore_race_after_duplicat
         error_code=RESOURCE_DOES_NOT_EXIST,
     )
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_or_create_monitoring_experiment("churn-monitoring") == "123"
@@ -277,7 +277,7 @@ def test_get_or_create_monitoring_experiment_accepts_string_duplicate_error_code
     stub_client.create_experiment.side_effect = exc
     stub_client.get_experiment_by_name.side_effect = [None, existing]
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_or_create_monitoring_experiment("churn-monitoring") == "123"
@@ -290,7 +290,7 @@ def test_get_run_returns_none_for_proto_missing_run_error_code() -> None:
         error_code=RESOURCE_DOES_NOT_EXIST,
     )
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_run("missing-run-id") is None
@@ -305,7 +305,7 @@ def test_get_run_returns_none_for_string_missing_run_error_code() -> None:
     stub_client = MagicMock()
     stub_client.get_run.side_effect = exc
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_run("missing-run-id") is None
@@ -321,7 +321,7 @@ def test_get_run_metrics_distinguishes_missing_run_from_empty_metrics() -> None:
     stub_client = MagicMock()
     stub_client.get_run.side_effect = [missing_error, empty_run]
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_run_metrics("missing-run-id") is None
@@ -338,7 +338,7 @@ def test_get_run_experiment_name_returns_none_when_experiment_cannot_be_resolved
         error_code=RESOURCE_DOES_NOT_EXIST,
     )
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert client.get_run_experiment_name("run-123") is None
@@ -352,7 +352,7 @@ def test_read_monitoring_run_json_artifact_downloads_the_exact_requested_path(
     stub_client = MagicMock()
     stub_client.download_artifacts.return_value = str(artifact_path)
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     client.read_monitoring_run_json_artifact(
@@ -372,7 +372,7 @@ def test_read_monitoring_run_json_artifact_returns_none_when_artifact_is_missing
         error_code=RESOURCE_DOES_NOT_EXIST,
     )
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     assert (
@@ -390,7 +390,7 @@ def test_read_monitoring_run_json_artifact_rejects_json_null(tmp_path: Path) -> 
     stub_client = MagicMock()
     stub_client.download_artifacts.return_value = str(artifact_path)
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     with pytest.raises(ValueError, match="must contain a JSON object"):
@@ -408,7 +408,7 @@ def test_read_monitoring_run_json_artifact_propagates_transport_failure() -> Non
     stub_client = MagicMock()
     stub_client.download_artifacts.side_effect = transport_error
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     with pytest.raises(MlflowException) as exc_info:
@@ -426,7 +426,7 @@ def test_log_monitoring_run_json_artifact_rejects_non_finite_numbers(
 ) -> None:
     stub_client = MagicMock()
 
-    with patch("mlflow_monitor.mlflow_client.MlflowClient", return_value=stub_client):
+    with patch("mlflow_monitor.client.mlflow.MlflowClient", return_value=stub_client):
         client = MonitorMLflowClient(tracking_uri="file:///ignored")
 
     with pytest.raises(ValueError):
