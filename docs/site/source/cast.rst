@@ -49,3 +49,11 @@ Finding Policy
 .. automodule:: mlflow_monitor.finding_policy
    :members:
    :show-inheritance:
+
+
+Diff and Coverage Computation
+-----------------------------
+
+.. automodule:: mlflow_monitor.differ
+   :members:
+   :show-inheritance:

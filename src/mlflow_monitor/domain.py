@@ -74,6 +74,31 @@ class ReferenceComparisonStatus(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class ReferenceComparisonSkippedReason(StrEnum):
+    """Reason codes for skipped reference comparison."""
+
+    CURRENT_NOT_COMPARABLE = "current_not_comparable"
+
+
+class ReferenceComparisonUnavailableReason(StrEnum):
+    """Reason codes for unavailable reference comparison."""
+
+    PREVIOUS_REFERENCE_MISSING = "previous_reference_missing"
+    LKG_NOT_SELECTED = "lkg_not_selected"
+    LKG_SELECTION_INCONSISTENT = "lkg_selection_inconsistent"
+    REFERENCE_SOURCE_RUN_MISSING = "reference_source_run_missing"
+
+
+class MetricComparisonUnavailableReason(StrEnum):
+    """Reason codes for unavailable metric comparison."""
+
+    CURRENT_METRIC_MISSING = "current_metric_missing"
+    REFERENCE_METRIC_MISSING = "reference_metric_missing"
+    CURRENT_METRIC_NOT_FINITE = "current_metric_not_finite"
+    REFERENCE_METRIC_NOT_FINITE = "reference_metric_not_finite"
+    DELTA_NOT_FINITE = "delta_not_finite"
+
+
 CONTRACT_CHECK_REASON_CODE_BLOCKING = MappingProxyType(
     {
         ContractCheckReasonCode.ENV_MISMATCH: False,
@@ -83,6 +108,25 @@ CONTRACT_CHECK_REASON_CODE_BLOCKING = MappingProxyType(
     }
 )
 
+
+REFERENCE_COMPARISON_STATUS_TO_REASON = MappingProxyType(
+    {
+        ReferenceComparisonStatus.COMPLETED: frozenset(),
+        ReferenceComparisonStatus.SKIPPED: frozenset(
+            (ReferenceComparisonSkippedReason.CURRENT_NOT_COMPARABLE.value,)
+        ),
+        ReferenceComparisonStatus.UNAVAILABLE: frozenset(
+            (
+                ReferenceComparisonUnavailableReason.PREVIOUS_REFERENCE_MISSING.value,
+                ReferenceComparisonUnavailableReason.LKG_NOT_SELECTED.value,
+                ReferenceComparisonUnavailableReason.LKG_SELECTION_INCONSISTENT.value,
+                ReferenceComparisonUnavailableReason.REFERENCE_SOURCE_RUN_MISSING.value,
+            )
+        ),
+    }
+)
+
+
 _MONITORING_RUN_REFERENCE_KINDS = frozenset(
     (
         DiffReferenceKind.BASELINE,
@@ -90,31 +134,6 @@ _MONITORING_RUN_REFERENCE_KINDS = frozenset(
         DiffReferenceKind.LKG,
         DiffReferenceKind.CUSTOM,
     )
-)
-
-_METRIC_UNAVAILABILITY_REASONS = frozenset(
-    (
-        "current_metric_missing",
-        "reference_metric_missing",
-        "current_metric_not_finite",
-        "reference_metric_not_finite",
-        "delta_not_finite",
-    )
-)
-
-_SKIPPED_REFERENCE_COMPARISON_REASONS = frozenset(
-    {
-        "current_not_comparable",
-    }
-)
-
-_UNAVAILABILITY_REFERENCE_COMPARISON_REASONS = frozenset(
-    {
-        "previous_reference_missing",
-        "lkg_not_selected",
-        "lkg_selection_inconsistent",
-        "reference_source_run_missing",
-    }
 )
 
 
@@ -739,10 +758,11 @@ class MetricComparisonUnavailable:
                     f"field {field_name!r}."
                 )
         metric_level_reason = self.reason
-        if metric_level_reason not in _METRIC_UNAVAILABILITY_REASONS:
+        if metric_level_reason not in MetricComparisonUnavailableReason:
             raise ValueError(
                 f"MetricComparisonUnavailable 'reason' must be one of "
-                f"{_METRIC_UNAVAILABILITY_REASONS}, got {metric_level_reason!r}."
+                f"{[reason.value for reason in MetricComparisonUnavailableReason]}, "
+                f"got {metric_level_reason!r}."
             )
 
 
@@ -800,39 +820,47 @@ class ReferenceComparisonCoverage:
             self._validate_unavailable_coverage()
         else:
             raise ValueError(
-                f"ReferenceComparisonCoverage has an unrecognized status: {self.status!r}."
+                f"ReferenceComparisonCoverage has an unrecognized status={self.status!r}."
             )
 
     def _validate_completed_coverage(self) -> None:
         if self.reference is None:
             raise ValueError(
-                "ReferenceComparisonCoverage with status COMPLETED must have a valid reference."
+                f"ReferenceComparisonCoverage with status={self.status!r} "
+                "must have a valid reference."
             )
         if self.reason is not None:
             raise ValueError(
-                "ReferenceComparisonCoverage with status COMPLETED must not have a reason code."
+                f"ReferenceComparisonCoverage with status={self.status!r} "
+                "must not have a reason code."
             )
 
     def _validate_skipped_coverage(self) -> None:
         if self.reference is None:
             raise ValueError(
-                "ReferenceComparisonCoverage with status SKIPPED must have a valid reference."
+                f"ReferenceComparisonCoverage with status={self.status!r} "
+                "must have a valid reference."
             )
         if self.diff_ids:
             raise ValueError(
-                "ReferenceComparisonCoverage with status SKIPPED must not have any diff IDs."
+                f"ReferenceComparisonCoverage with status={self.status!r} "
+                "must not have any diff IDs."
             )
 
         if self.metric_unavailability:
             raise ValueError(
-                "ReferenceComparisonCoverage with status SKIPPED must not have any "
-                "metric unavailability entries."
+                f"ReferenceComparisonCoverage with status={self.status!r} "
+                "must not have any metric unavailability entries."
             )
 
-        if self.reason is None or self.reason not in _SKIPPED_REFERENCE_COMPARISON_REASONS:
+        if (
+            self.reason is None
+            or self.reason
+            not in REFERENCE_COMPARISON_STATUS_TO_REASON[ReferenceComparisonStatus.SKIPPED]
+        ):
             raise ValueError(
-                "ReferenceComparisonCoverage with status SKIPPED must have a reason code "
-                f"from {_SKIPPED_REFERENCE_COMPARISON_REASONS}."
+                f"ReferenceComparisonCoverage with status={self.status!r} must have a reason code "
+                f"from {REFERENCE_COMPARISON_STATUS_TO_REASON[ReferenceComparisonStatus.SKIPPED]}."
             )
 
     def _validate_unavailable_coverage(self) -> None:
@@ -840,30 +868,55 @@ class ReferenceComparisonCoverage:
         if self.diff_ids or self.metric_unavailability:
             raise ValueError("Unavailable coverage cannot contain metric results.")
 
-        if self.reason is None or self.reason not in _UNAVAILABILITY_REFERENCE_COMPARISON_REASONS:
+        if (
+            self.reason is None
+            or self.reason
+            not in REFERENCE_COMPARISON_STATUS_TO_REASON[ReferenceComparisonStatus.UNAVAILABLE]
+        ):
             raise ValueError(
-                "ReferenceComparisonCoverage with status UNAVAILABLE must have a reason code "
-                f"from {_UNAVAILABILITY_REFERENCE_COMPARISON_REASONS}."
+                f"ReferenceComparisonCoverage with status={self.status!r} must have a reason code "
+                f"from {REFERENCE_COMPARISON_STATUS_TO_REASON[ReferenceComparisonStatus.UNAVAILABLE]}."  # noqa: E501
             )
 
-        elif self.reason == "previous_reference_missing":
+        elif self.reason == ReferenceComparisonUnavailableReason.PREVIOUS_REFERENCE_MISSING:
             if self.reference_kind != DiffReferenceKind.PREVIOUS:
-                raise ValueError("previous_reference_missing requires reference_kind='previous'.")
+                raise ValueError(
+                    f"ReferenceComparisonCoverage with status={self.status!r} "
+                    f"and reason {self.reason!r} requires reference_kind='previous'."
+                )
             if self.reference is not None:
-                raise ValueError("previous_reference_missing requires reference=None.")
+                raise ValueError(
+                    f"ReferenceComparisonCoverage with status={self.status!r} "
+                    f"and reason {self.reason!r} requires reference=None."
+                )
 
-        elif self.reason == "lkg_not_selected":
+        elif self.reason == ReferenceComparisonUnavailableReason.LKG_NOT_SELECTED:
             if self.reference_kind != DiffReferenceKind.LKG:
-                raise ValueError("lkg_not_selected requires reference_kind='lkg'.")
+                raise ValueError(
+                    f"ReferenceComparisonCoverage with status={self.status!r} "
+                    f"and reason {self.reason!r} requires reference_kind='lkg'."
+                )
             if self.reference is not None:
-                raise ValueError("lkg_not_selected requires reference=None.")
+                raise ValueError(
+                    f"ReferenceComparisonCoverage with status={self.status!r} "
+                    f"and reason {self.reason!r} requires reference=None."
+                )
 
-        elif self.reason == "lkg_selection_inconsistent":
+        elif self.reason == ReferenceComparisonUnavailableReason.LKG_SELECTION_INCONSISTENT:
             if self.reference_kind != DiffReferenceKind.LKG:
-                raise ValueError("lkg_selection_inconsistent requires reference_kind='lkg'.")
+                raise ValueError(
+                    f"ReferenceComparisonCoverage with status={self.status!r} "
+                    f"and reason {self.reason!r} requires reference_kind='lkg'."
+                )
             if self.reference is not None:
-                raise ValueError("lkg_selection_inconsistent requires reference=None.")
+                raise ValueError(
+                    f"ReferenceComparisonCoverage with status={self.status!r} "
+                    f"and reason {self.reason!r} requires reference=None."
+                )
 
         else:
             if self.reference is None:
-                raise ValueError("reference_source_run_missing requires a retained reference.")
+                raise ValueError(
+                    f"ReferenceComparisonCoverage with status={self.status!r} "
+                    f"and reason {self.reason!r} requires a retained reference."
+                )
