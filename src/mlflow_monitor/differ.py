@@ -51,9 +51,6 @@ def compute_diffs_and_coverage(
 
     Returns:
         An instance of `ComputedDiffCoverage` containing the diffs and coverages for each metric.
-
-    Raises:
-        ValueError: If the metric names list is empty or contains duplicates.
     """
     diffs: list[Diff] = []
     coverages: list[ReferenceComparisonCoverage] = []
