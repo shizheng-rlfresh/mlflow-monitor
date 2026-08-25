@@ -1,5 +1,7 @@
 """Diff domain models for mlflow-monitor v0."""
 
+from __future__ import annotations
+
 import math
 from dataclasses import dataclass
 from enum import StrEnum

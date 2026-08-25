@@ -15,7 +15,9 @@ from .contract import (
     ContractCheckResult,
 )
 from .diff import (
+    ABSOLUTE_DELTA_TOLERANCE,
     REFERENCE_COMPARISON_STATUS_TO_REASON,
+    RELATIVE_DELTA_TOLERANCE,
     Diff,
     MetricComparisonUnavailable,
     MetricComparisonUnavailableReason,
@@ -41,6 +43,8 @@ __all__ = [
     "ReferenceComparisonUnavailableReason",
     "MetricComparisonUnavailableReason",
     "REFERENCE_COMPARISON_STATUS_TO_REASON",
+    "ABSOLUTE_DELTA_TOLERANCE",
+    "RELATIVE_DELTA_TOLERANCE",
     "Finding",
     "FindingDraft",
     "FindingSeverity",
