@@ -1,0 +1,189 @@
+"""Specifications for pure atomic Diff and coverage computation."""
+
+from mlflow_monitor.differ import compute_diffs_and_coverage
+from mlflow_monitor.domain import (
+    Diff,
+    DiffReference,
+    DiffReferenceKind,
+    MonitoringRunReference,
+    ReferenceComparisonCoverage,
+    ReferenceComparisonStatus,
+)
+from mlflow_monitor.identity import make_diff_id
+from mlflow_monitor.workflow import PreparedReferencePlanEntry
+
+MONITORING_RUN_ID = "monitoring-run-current"
+SOURCE_RUN_ID = "train-run-current"
+DIFF_ID_FIXTURE = "diff-v1-6b7105add110bd5993e8eb644e7231d49b10ac8e638a454dd9020befcec736b7"
+METRIC_NAMES = ("accuracy", "precision")
+CURRENT_METRICS = {"precision": 0.875, "accuracy": 0.75}
+REFERENCE_METRICS_BY_SOURCE_RUN_ID = {
+    "train-run-custom": {"precision": 0.375, "accuracy": 0.25},
+    "train-run-lkg": {"precision": 0.8125, "accuracy": 0.8125},
+    "train-run-previous": {"precision": 0.75, "accuracy": 0.625},
+    "train-run-baseline": {"precision": 0.625, "accuracy": 0.5},
+}
+
+
+def _resolved_reference_plan() -> tuple[PreparedReferencePlanEntry, ...]:
+    return (
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.BASELINE,
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.BASELINE,
+                monitoring_run_id=None,
+                source_run_id="train-run-baseline",
+            ),
+            unavailable_reason=None,
+        ),
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.PREVIOUS,
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.PREVIOUS,
+                monitoring_run_id="monitoring-run-previous",
+                source_run_id="train-run-previous",
+            ),
+            unavailable_reason=None,
+        ),
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.LKG,
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.LKG,
+                monitoring_run_id="monitoring-run-lkg",
+                source_run_id="train-run-lkg",
+            ),
+            unavailable_reason=None,
+        ),
+        PreparedReferencePlanEntry(
+            kind=DiffReferenceKind.CUSTOM,
+            reference=MonitoringRunReference(
+                kind=DiffReferenceKind.CUSTOM,
+                monitoring_run_id="monitoring-run-custom",
+                source_run_id="train-run-custom",
+            ),
+            unavailable_reason=None,
+        ),
+    )
+
+
+def _diff_reference(reference: MonitoringRunReference) -> DiffReference:
+    return DiffReference(
+        kind=reference.kind,
+        monitoring_run_id=reference.monitoring_run_id,
+        source_run_id=reference.source_run_id,
+    )
+
+
+def _expected_diffs(
+    reference_plan: tuple[PreparedReferencePlanEntry, ...],
+) -> tuple[Diff, ...]:
+    expected: list[Diff] = []
+    for plan_entry in reference_plan:
+        assert plan_entry.reference is not None
+        reference = _diff_reference(plan_entry.reference)
+        assert reference.source_run_id is not None
+        reference_metrics = REFERENCE_METRICS_BY_SOURCE_RUN_ID[reference.source_run_id]
+        for metric_name in METRIC_NAMES:
+            current_value = CURRENT_METRICS[metric_name]
+            reference_value = reference_metrics[metric_name]
+            expected.append(
+                Diff(
+                    diff_id=make_diff_id(
+                        monitoring_run_id=MONITORING_RUN_ID,
+                        source_run_id=SOURCE_RUN_ID,
+                        reference=reference,
+                        metric_name=metric_name,
+                    ),
+                    monitoring_run_id=MONITORING_RUN_ID,
+                    source_run_id=SOURCE_RUN_ID,
+                    reference=reference,
+                    metric_name=metric_name,
+                    current_value=current_value,
+                    reference_value=reference_value,
+                    delta=current_value - reference_value,
+                )
+            )
+    return tuple(expected)
+
+
+def _expected_completed_coverage(
+    reference_plan: tuple[PreparedReferencePlanEntry, ...],
+    diffs: tuple[Diff, ...],
+) -> tuple[ReferenceComparisonCoverage, ...]:
+    expected: list[ReferenceComparisonCoverage] = []
+    for plan_entry in reference_plan:
+        assert plan_entry.reference is not None
+        reference = _diff_reference(plan_entry.reference)
+        expected.append(
+            ReferenceComparisonCoverage(
+                reference_kind=plan_entry.kind,
+                reference=reference,
+                status=ReferenceComparisonStatus.COMPLETED,
+                diff_ids=tuple(diff.diff_id for diff in diffs if diff.reference == reference),
+                metric_unavailability=(),
+                reason=None,
+            )
+        )
+    return tuple(expected)
+
+
+def test_compute_diffs_and_coverage_materializes_atomic_diffs_and_completed_groups() -> None:
+    reference_plan = _resolved_reference_plan()
+
+    diffs, coverage = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=METRIC_NAMES,
+        current_metrics=CURRENT_METRICS,
+        reference_plan=reference_plan,
+        reference_metrics_by_source_run_id=REFERENCE_METRICS_BY_SOURCE_RUN_ID,
+    )
+
+    expected_diffs = _expected_diffs(reference_plan)
+    assert diffs == expected_diffs
+    assert diffs[0].diff_id == DIFF_ID_FIXTURE
+    assert tuple((diff.reference.kind, diff.metric_name) for diff in diffs) == (
+        (DiffReferenceKind.BASELINE, "accuracy"),
+        (DiffReferenceKind.BASELINE, "precision"),
+        (DiffReferenceKind.PREVIOUS, "accuracy"),
+        (DiffReferenceKind.PREVIOUS, "precision"),
+        (DiffReferenceKind.LKG, "accuracy"),
+        (DiffReferenceKind.LKG, "precision"),
+        (DiffReferenceKind.CUSTOM, "accuracy"),
+        (DiffReferenceKind.CUSTOM, "precision"),
+    )
+    assert coverage == _expected_completed_coverage(reference_plan, expected_diffs)
+
+
+def test_compute_diffs_and_coverage_completes_resolved_groups_for_empty_selection() -> None:
+    reference_plan = _resolved_reference_plan()
+    empty_reference_metrics = {
+        plan_entry.reference.source_run_id: {}
+        for plan_entry in reference_plan
+        if plan_entry.reference is not None
+    }
+
+    diffs, coverage = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=(),
+        current_metrics={},
+        reference_plan=reference_plan,
+        reference_metrics_by_source_run_id=empty_reference_metrics,
+    )
+
+    assert diffs == ()
+    expected_coverage: list[ReferenceComparisonCoverage] = []
+    for plan_entry in reference_plan:
+        assert plan_entry.reference is not None
+        expected_coverage.append(
+            ReferenceComparisonCoverage(
+                reference_kind=plan_entry.kind,
+                reference=_diff_reference(plan_entry.reference),
+                status=ReferenceComparisonStatus.COMPLETED,
+                diff_ids=(),
+                metric_unavailability=(),
+                reason=None,
+            )
+        )
+    assert coverage == tuple(expected_coverage)
