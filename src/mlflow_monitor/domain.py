@@ -113,14 +113,14 @@ REFERENCE_COMPARISON_STATUS_TO_REASON = MappingProxyType(
     {
         ReferenceComparisonStatus.COMPLETED: frozenset(),
         ReferenceComparisonStatus.SKIPPED: frozenset(
-            (ReferenceComparisonSkippedReason.CURRENT_NOT_COMPARABLE,)
+            (ReferenceComparisonSkippedReason.CURRENT_NOT_COMPARABLE.value,)
         ),
         ReferenceComparisonStatus.UNAVAILABLE: frozenset(
             (
-                ReferenceComparisonUnavailableReason.PREVIOUS_REFERENCE_MISSING,
-                ReferenceComparisonUnavailableReason.LKG_NOT_SELECTED,
-                ReferenceComparisonUnavailableReason.LKG_SELECTION_INCONSISTENT,
-                ReferenceComparisonUnavailableReason.REFERENCE_SOURCE_RUN_MISSING,
+                ReferenceComparisonUnavailableReason.PREVIOUS_REFERENCE_MISSING.value,
+                ReferenceComparisonUnavailableReason.LKG_NOT_SELECTED.value,
+                ReferenceComparisonUnavailableReason.LKG_SELECTION_INCONSISTENT.value,
+                ReferenceComparisonUnavailableReason.REFERENCE_SOURCE_RUN_MISSING.value,
             )
         ),
     }
@@ -133,17 +133,6 @@ _MONITORING_RUN_REFERENCE_KINDS = frozenset(
         DiffReferenceKind.PREVIOUS,
         DiffReferenceKind.LKG,
         DiffReferenceKind.CUSTOM,
-    )
-)
-
-
-_METRIC_UNAVAILABILITY_REASONS = frozenset(
-    (
-        MetricComparisonUnavailableReason.CURRENT_METRIC_MISSING,
-        MetricComparisonUnavailableReason.REFERENCE_METRIC_MISSING,
-        MetricComparisonUnavailableReason.CURRENT_METRIC_NOT_FINITE,
-        MetricComparisonUnavailableReason.REFERENCE_METRIC_NOT_FINITE,
-        MetricComparisonUnavailableReason.DELTA_NOT_FINITE,
     )
 )
 
@@ -769,10 +758,11 @@ class MetricComparisonUnavailable:
                     f"field {field_name!r}."
                 )
         metric_level_reason = self.reason
-        if metric_level_reason not in _METRIC_UNAVAILABILITY_REASONS:
+        if metric_level_reason not in MetricComparisonUnavailableReason:
             raise ValueError(
                 f"MetricComparisonUnavailable 'reason' must be one of "
-                f"{_METRIC_UNAVAILABILITY_REASONS}, got {metric_level_reason!r}."
+                f"{[reason.value for reason in MetricComparisonUnavailableReason]}, "
+                f"got {metric_level_reason!r}."
             )
 
 
