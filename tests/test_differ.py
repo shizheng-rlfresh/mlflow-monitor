@@ -22,7 +22,7 @@ SOURCE_RUN_ID = "train-run-current"
 DIFF_ID_FIXTURE = "diff-v1-6b7105add110bd5993e8eb644e7231d49b10ac8e638a454dd9020befcec736b7"
 METRIC_NAMES = ("accuracy", "precision")
 CURRENT_METRICS = {"precision": 0.875, "accuracy": 0.75}
-REFERENCE_METRICS_BY_SOURCE_RUN_ID = {
+REFERENCE_METRICS_BY_SOURCE_RUN_ID: dict[str, dict[str, float] | None] = {
     "train-run-custom": {"precision": 0.375, "accuracy": 0.25},
     "train-run-lkg": {"precision": 0.8125, "accuracy": 0.8125},
     "train-run-previous": {"precision": 0.75, "accuracy": 0.625},
@@ -88,6 +88,7 @@ def _expected_diffs(
         reference = _diff_reference(plan_entry.reference)
         assert reference.source_run_id is not None
         reference_metrics = REFERENCE_METRICS_BY_SOURCE_RUN_ID[reference.source_run_id]
+        assert reference_metrics is not None
         for metric_name in METRIC_NAMES:
             current_value = CURRENT_METRICS[metric_name]
             reference_value = reference_metrics[metric_name]
@@ -162,7 +163,7 @@ def test_compute_diffs_and_coverage_materializes_atomic_diffs_and_completed_grou
 
 def test_compute_diffs_and_coverage_completes_resolved_groups_for_empty_selection() -> None:
     reference_plan = _resolved_reference_plan()
-    empty_reference_metrics = {
+    empty_reference_metrics: dict[str, dict[str, float] | None] = {
         plan_entry.reference.source_run_id: {}
         for plan_entry in reference_plan
         if plan_entry.reference is not None
@@ -436,3 +437,87 @@ def test_compute_diffs_and_coverage_retains_reference_when_source_run_is_missing
             ),
         ),
     )
+
+
+def test_compute_diffs_and_coverage_ignores_input_mapping_order() -> None:
+    reference_plan = _resolved_reference_plan()
+    expected = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=METRIC_NAMES,
+        current_metrics=CURRENT_METRICS,
+        reference_plan=reference_plan,
+        reference_metrics_by_source_run_id=REFERENCE_METRICS_BY_SOURCE_RUN_ID,
+    )
+    reordered_current_metrics = dict(reversed(tuple(CURRENT_METRICS.items())))
+    reordered_reference_metrics: dict[str, dict[str, float] | None] = {}
+    for reference_source_run_id, reference_metrics in reversed(
+        tuple(REFERENCE_METRICS_BY_SOURCE_RUN_ID.items())
+    ):
+        assert reference_metrics is not None
+        reordered_reference_metrics[reference_source_run_id] = dict(
+            reversed(tuple(reference_metrics.items()))
+        )
+
+    actual = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=METRIC_NAMES,
+        current_metrics=reordered_current_metrics,
+        reference_plan=reference_plan,
+        reference_metrics_by_source_run_id=reordered_reference_metrics,
+    )
+
+    assert actual == expected
+
+
+def test_compute_diffs_and_coverage_is_identical_across_repeated_execution() -> None:
+    reference_plan = _resolved_reference_plan()
+
+    first = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=METRIC_NAMES,
+        current_metrics=CURRENT_METRICS,
+        reference_plan=reference_plan,
+        reference_metrics_by_source_run_id=REFERENCE_METRICS_BY_SOURCE_RUN_ID,
+    )
+    second = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=METRIC_NAMES,
+        current_metrics=CURRENT_METRICS,
+        reference_plan=reference_plan,
+        reference_metrics_by_source_run_id=REFERENCE_METRICS_BY_SOURCE_RUN_ID,
+    )
+
+    assert second == first
+
+
+def test_compute_diffs_and_coverage_returns_large_metric_set_without_a_cap() -> None:
+    metric_names = tuple(f"metric_{index:04d}" for index in range(512))
+    current_metrics = {metric_name: float(index) for index, metric_name in enumerate(metric_names)}
+    reference_plan = _resolved_reference_plan()
+    reference_metrics_by_source_run_id: dict[str, dict[str, float] | None] = {
+        plan_entry.reference.source_run_id: {
+            metric_name: float(index) / 2 for index, metric_name in enumerate(metric_names)
+        }
+        for plan_entry in reference_plan
+        if plan_entry.reference is not None
+    }
+
+    result = compute_diffs_and_coverage(
+        monitoring_run_id=MONITORING_RUN_ID,
+        source_run_id=SOURCE_RUN_ID,
+        metric_names=metric_names,
+        current_metrics=current_metrics,
+        reference_plan=reference_plan,
+        reference_metrics_by_source_run_id=reference_metrics_by_source_run_id,
+    )
+
+    assert len(result.diffs) == len(metric_names) * len(reference_plan)
+    assert len(result.coverages) == len(reference_plan)
+    for coverage in result.coverages:
+        assert coverage.status is ReferenceComparisonStatus.COMPLETED
+        assert len(coverage.diff_ids) + len(coverage.metric_unavailability) == len(metric_names)
+        assert coverage.metric_unavailability == ()
