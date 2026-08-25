@@ -9,6 +9,7 @@ from mlflow_monitor.domain import (
     ReferenceComparisonCoverage,
     ReferenceComparisonStatus,
 )
+from mlflow_monitor.identity import make_diff_id
 from mlflow_monitor.workflow import PreparedReferencePlanEntry
 
 
@@ -41,29 +42,64 @@ def compute_diffs_and_coverage(
     Returns:
         An instance of `ComputedDiffCoverage` containing the diffs and coverages for each metric.
     """  # noqa: E501
-    _validate_metric_names(metric_names, current_metrics)
-
     diffs = []
     coverages = []
 
     for reference_entry in reference_plan:
-        if reference_entry.reference is None:
-            reference_comparison_status = ReferenceComparisonStatus.UNAVAILABLE
-            reference_comparison_coverage = ReferenceComparisonCoverage(
-                reference_kind=reference_entry.kind,
-                reference=
-            )
-        diff_reference = DiffReference(
-            kind=reference_entry.kind,
-            monitoring_run_id=reference_entry.reference.monitoring_run_id,
-            source_run_id=reference_entry.reference.source_run_id,
+        reference_kind = reference_entry.kind
+        assert reference_entry.reference is not None
+        assert reference_entry.reference.source_run_id is not None
+        reference_monitoring_run_id = reference_entry.reference.monitoring_run_id
+        reference_source_run_id = reference_entry.reference.source_run_id
+
+        _diff_ids = []
+        _metric_unavailability = []
+        _status = ReferenceComparisonStatus.COMPLETED
+
+        _diff_reference = DiffReference(
+            kind=reference_kind,
+            monitoring_run_id=reference_monitoring_run_id,
+            source_run_id=reference_source_run_id,
         )
 
-    return ComputedDiffCoverage(diffs=(), coverages=())
+        for metric_name in metric_names:
+            diff_id = make_diff_id(
+                monitoring_run_id=monitoring_run_id,
+                source_run_id=source_run_id,
+                reference=_diff_reference,
+                metric_name=metric_name,
+            )
 
+            _diff_ids.append(diff_id)
 
-def _validate_metric_names(metric_names: Sequence[str], current_metrics: dict[str, float]) -> None:
-    """Validate that all metric names exist in the current metrics dictionary."""
-    for metric_name in metric_names:
-        if metric_name not in current_metrics:
-            raise ValueError(f"Metric '{metric_name}' is not present in the current metrics.")
+            current_value = current_metrics[metric_name]
+            reference_value = reference_metrics_by_source_run_id[reference_source_run_id][
+                metric_name
+            ]
+
+            delta = current_value - reference_value
+            diffs.append(
+                Diff(
+                    diff_id=diff_id,
+                    monitoring_run_id=monitoring_run_id,
+                    source_run_id=source_run_id,
+                    reference=_diff_reference,
+                    metric_name=metric_name,
+                    current_value=current_value,
+                    reference_value=reference_value,
+                    delta=delta,
+                )
+            )
+
+        coverages.append(
+            ReferenceComparisonCoverage(
+                reference_kind=reference_kind,
+                reference=_diff_reference,
+                status=_status,
+                diff_ids=tuple(_diff_ids),
+                metric_unavailability=tuple(_metric_unavailability),
+                reason=None,
+            )
+        )
+
+    return ComputedDiffCoverage(diffs=tuple(diffs), coverages=tuple(coverages))
