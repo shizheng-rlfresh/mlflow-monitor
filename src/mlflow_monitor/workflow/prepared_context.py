@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from mlflow_monitor.domain import Contract, DiffReferenceKind, MonitoringRunReference
 from mlflow_monitor.errors import PreparedContextConsistencyViolation
-from mlflow_monitor.recipe.recipe_compiler import CompiledRecipe, EffectiveRecipePlan
+from mlflow_monitor.recipe_compiler import CompiledRecipe, EffectiveRecipePlan
 from mlflow_monitor.utils import canonical_json
 
 PREPARED_CONTEXT_ARTIFACT_PATH = "state/prepared_context.json"

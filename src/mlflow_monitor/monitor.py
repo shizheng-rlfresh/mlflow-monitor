@@ -7,7 +7,7 @@ from mlflow_monitor.gateway.mlflow import MLflowMonitoringGateway
 from mlflow_monitor.gateway.models import GatewayConfig
 from mlflow_monitor.gateway.protocol import MonitoringGateway
 from mlflow_monitor.orchestration import run_orchestration
-from mlflow_monitor.recipe.recipe_compiler import CompiledRecipe
+from mlflow_monitor.recipe_compiler import CompiledRecipe
 from mlflow_monitor.result_contract import MonitorRunResult
 
 

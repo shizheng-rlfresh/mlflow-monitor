@@ -2,7 +2,7 @@
 
 import pytest
 
-from mlflow_monitor.contract import SYSTEM_DEFAULT_CONTRACT_ID
+from mlflow_monitor.builtins import SYSTEM_DEFAULT_CONTRACT_ID, SYSTEM_DEFAULT_RECIPE_ID
 from mlflow_monitor.domain import (
     ComparabilityStatus,
     ContractCheckReason,
@@ -16,7 +16,6 @@ from mlflow_monitor.gateway import (
     InMemoryMonitoringGateway,
     TimelineState,
 )
-from mlflow_monitor.recipe import SYSTEM_DEFAULT_RECIPE_ID
 from mlflow_monitor.recipe_compiler import compile_recipe
 
 from ._prepare_support import (
