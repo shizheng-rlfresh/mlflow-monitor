@@ -1,8 +1,8 @@
 Workflow and Stages
 ===================
 
-Workflow
---------
+Prepare Stage
+-------------
 
 Prepare freezes a fixed reference plan in this order: baseline, previous, LKG,
 and optional custom. The baseline is always resolved. Previous selects the
@@ -21,8 +21,19 @@ it must identify a closed Monitoring Run on the same Timeline or Prepare fails.
 Committed prepared context is replayed as written without resolving Timeline or
 reference state again.
 
-Contract Check output
----------------------
+.. automodule:: mlflow_monitor.workflow.prepare
+   :members:
+   :show-inheritance:
+
+Prepared Context
+----------------
+
+.. automodule:: mlflow_monitor.workflow.prepared_context
+   :members:
+   :show-inheritance:
+
+Check Stage
+-----------
 
 After Check succeeds, the complete result is committed to
 ``outputs/contract_check.json`` before the Monitoring Run advances to

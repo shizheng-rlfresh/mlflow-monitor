@@ -1,5 +1,7 @@
 """Invariant checks for the MLflow-Monitor runtime."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping, Sequence
 
 from mlflow_monitor.contract_checker import CONTRACT_CHECK_REASON_MESSAGE

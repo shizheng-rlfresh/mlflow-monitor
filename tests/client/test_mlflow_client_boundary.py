@@ -7,11 +7,14 @@ from pathlib import Path
 
 
 def test_runtime_modules_import_mlflow_client_only_via_adapter() -> None:
-    runtime_root = Path(__file__).resolve().parents[1] / "src" / "mlflow_monitor"
+    runtime_root = Path(__file__).resolve().parents[2] / "src" / "mlflow_monitor"
+    adapter_path = runtime_root / "client" / "mlflow.py"
     disallowed_imports: list[str] = []
 
+    assert runtime_root.is_dir()
+
     for path in runtime_root.rglob("*.py"):
-        if path.name == "mlflow_client.py":
+        if path == adapter_path:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
@@ -21,7 +24,7 @@ def test_runtime_modules_import_mlflow_client_only_via_adapter() -> None:
                     if alias.name == "mlflow" or alias.name.startswith("mlflow."):
                         disallowed_imports.append(str(path.relative_to(runtime_root.parent.parent)))
                         break
-            elif isinstance(node, ast.ImportFrom):
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
                 if node.module == "mlflow" or (
                     node.module is not None and node.module.startswith("mlflow.")
                 ):

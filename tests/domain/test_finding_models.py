@@ -5,13 +5,13 @@ from typing import Any
 
 import pytest
 
-import mlflow_monitor.domain as domain
+from mlflow_monitor.domain import Finding, FindingDraft, FindingSeverity
 
 
 def _draft(**overrides: object) -> Any:
     values: dict[str, object] = {
         "finding_rule_id": "quality.accuracy_regression",
-        "severity": domain.FindingSeverity.HIGH,
+        "severity": FindingSeverity.HIGH,
         "category": "quality",
         "summary": "Accuracy regressed against the baseline.",
         "recommendation": "Review the model and input changes.",
@@ -19,10 +19,10 @@ def _draft(**overrides: object) -> Any:
         "evidence_compatibility_ids": (),
     }
     values.update(overrides)
-    return domain.FindingDraft(**values)  # type: ignore[arg-type]
+    return FindingDraft(**values)  # type: ignore[arg-type]
 
 
-def _finding(**overrides: object) -> domain.Finding:
+def _finding(**overrides: object) -> Finding:
     values: dict[str, object] = {
         "finding_id": "finding-v1-example",
         "monitoring_run_id": "monitoring-run-current",
@@ -30,7 +30,7 @@ def _finding(**overrides: object) -> domain.Finding:
         "finding_policy_id": "relative-regression",
         "finding_policy_version": "1",
         "finding_rule_id": "quality.accuracy_regression",
-        "severity": domain.FindingSeverity.HIGH,
+        "severity": FindingSeverity.HIGH,
         "category": "quality",
         "summary": "Accuracy regressed against the baseline.",
         "recommendation": "Review the model and input changes.",
@@ -38,11 +38,11 @@ def _finding(**overrides: object) -> domain.Finding:
         "evidence_compatibility_ids": (),
     }
     values.update(overrides)
-    return domain.Finding(**values)  # type: ignore[arg-type]
+    return Finding(**values)  # type: ignore[arg-type]
 
 
 def test_finding_models_have_the_approved_shapes() -> None:
-    finding_draft_type = domain.FindingDraft
+    finding_draft_type = FindingDraft
 
     assert tuple(field.name for field in fields(finding_draft_type)) == (
         "finding_rule_id",
@@ -53,7 +53,7 @@ def test_finding_models_have_the_approved_shapes() -> None:
         "evidence_diff_ids",
         "evidence_compatibility_ids",
     )
-    assert tuple(field.name for field in fields(domain.Finding)) == (
+    assert tuple(field.name for field in fields(Finding)) == (
         "finding_id",
         "monitoring_run_id",
         "source_run_id",

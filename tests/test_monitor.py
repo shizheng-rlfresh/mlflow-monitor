@@ -24,11 +24,11 @@ from mlflow_monitor.errors import (
     PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE,
     GatewayConsistencyViolation,
 )
-from mlflow_monitor.gateway import InMemoryMonitoringGateway
-from mlflow_monitor.gateway_models import (
+from mlflow_monitor.gateway import (
     CreateOrReuseMonitoringRunResult,
     GatewayConfig,
     IdempotencyKey,
+    InMemoryMonitoringGateway,
     TimelineState,
 )
 from mlflow_monitor.orchestration import run_orchestration
