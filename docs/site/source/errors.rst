@@ -23,10 +23,32 @@ For example:
        second_monitoring_run_id="monitoring-run-2",
    )
 
-Gateway Errors
---------------
 
-General Gateway Consistency Violation
+Gateway Namespace Violation
+---------------------------
+
+.. autoclass:: mlflow_monitor.errors.GatewayNamespaceViolation
+   :members:
+   :show-inheritance:
+
+Training Run Mutation Violation Code
+------------------------------------
+
+.. autoclass:: mlflow_monitor.errors.TrainingRunMutationViolation
+   :members:
+   :show-inheritance:
+
+Gateway Consistency Violation
+------------------------------
+
+Gateway Consistency Violation Code
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: mlflow_monitor.errors.GatewayConsistencyCode
+   :members:
+   :show-inheritance:
+
+Generic Gateway Consistency Violation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. autoclass:: mlflow_monitor.errors.GatewayConsistencyViolation
@@ -53,22 +75,6 @@ Timeline Consistency Violation
 .. autoclass:: mlflow_monitor.errors.TimelineConsistencyViolation
    :members:
    :show-inheritance:
-
-
-Gateway Namespace Violation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. autoclass:: mlflow_monitor.errors.GatewayNamespaceViolation
-   :members:
-   :show-inheritance:
-
-Training Run Mutation Violation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. autoclass:: mlflow_monitor.errors.TrainingRunMutationViolation
-   :members:
-   :show-inheritance:
-
 
 
 Workflow Errors
