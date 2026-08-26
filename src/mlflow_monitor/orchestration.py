@@ -20,7 +20,7 @@ from mlflow_monitor.errors import (
 )
 from mlflow_monitor.gateway.models import IdempotencyKey, MonitoringRunRecord
 from mlflow_monitor.gateway.protocol import MonitoringGateway
-from mlflow_monitor.recipe_compiler import (
+from mlflow_monitor.recipe.recipe_compiler import (
     SYSTEM_DEFAULT_COMPILED_RECIPE,
     CompiledRecipe,
 )
