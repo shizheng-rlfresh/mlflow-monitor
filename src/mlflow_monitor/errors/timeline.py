@@ -10,7 +10,7 @@ from mlflow_monitor.gateway.models import TimelineClaim
 from .gateway import GatewayConsistencyCode, GatewayConsistencyViolation
 
 
-class _TimelineInconsistentReason(StrEnum):
+class TimelineInconsistentReason(StrEnum):
     """Reasons for monitoring Timeline inconsistency."""
 
     REQUEST_CONFLICT = "request_conflict"
@@ -27,7 +27,7 @@ class TimelineConsistencyViolation(GatewayConsistencyViolation):
     def _create(
         cls,
         *,
-        reason: _TimelineInconsistentReason,
+        reason: TimelineInconsistentReason,
         message: str,
         details: tuple[tuple[str, str | int | None], ...],
     ) -> TimelineConsistencyViolation:
@@ -47,7 +47,7 @@ class TimelineConsistencyViolation(GatewayConsistencyViolation):
     ) -> TimelineConsistencyViolation:
         """Create a violation for one Monitoring Run requesting a conflicting baseline."""
         return cls._create(
-            reason=_TimelineInconsistentReason.REQUEST_CONFLICT,
+            reason=TimelineInconsistentReason.REQUEST_CONFLICT,
             message=(
                 "Baseline request conflicts with durable Timeline state for "
                 f"monitoring_run_id={requested_claim.monitoring_run_id!r}."
@@ -81,7 +81,7 @@ class TimelineConsistencyViolation(GatewayConsistencyViolation):
             )
         )
         return cls._create(
-            reason=_TimelineInconsistentReason.CLAIMS_CONFLICT,
+            reason=TimelineInconsistentReason.CLAIMS_CONFLICT,
             message=(
                 f"Monitoring Runs of subject_id={subject_id!r} "
                 "contain conflicting immutable baseline claims."
@@ -108,7 +108,7 @@ class TimelineConsistencyViolation(GatewayConsistencyViolation):
             )
         )
         return cls._create(
-            reason=_TimelineInconsistentReason.PROJECTION_CONFLICT,
+            reason=TimelineInconsistentReason.PROJECTION_CONFLICT,
             message=f"subject_id={subject_id!r} baseline projection contradicts durable claims.",
             details=(
                 ("subject_id", subject_id),
@@ -128,7 +128,7 @@ class TimelineConsistencyViolation(GatewayConsistencyViolation):
     ) -> TimelineConsistencyViolation:
         """Create a violation for a claim tag that does not match its expected address."""
         return cls._create(
-            reason=_TimelineInconsistentReason.CLAIM_ADDRESS_MISMATCH,
+            reason=TimelineInconsistentReason.CLAIM_ADDRESS_MISMATCH,
             message=(
                 f"monitoring_run_id={monitoring_run_id!r} claimed baseline tag={tag_key!r} "
                 "does not match its expected address for "

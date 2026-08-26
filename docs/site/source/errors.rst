@@ -41,12 +41,6 @@ Training Run Mutation Violation Code
 Gateway Consistency Violation
 ------------------------------
 
-Gateway Consistency Violation Code
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. autoclass:: mlflow_monitor.errors.GatewayConsistencyCode
-   :members:
-   :show-inheritance:
 
 Generic Gateway Consistency Violation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

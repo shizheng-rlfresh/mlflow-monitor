@@ -8,7 +8,7 @@ from enum import StrEnum
 from .gateway import GatewayConsistencyCode, GatewayConsistencyViolation
 
 
-class _PreparedContextInconsistentReason(StrEnum):
+class PreparedContextInconsistentReason(StrEnum):
     """Reasons for prepared context inconsistent reason code."""
 
     MISSING_ARTIFACT = "missing_artifact"
@@ -32,7 +32,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def _create(
         cls,
         *,
-        reason: _PreparedContextInconsistentReason,
+        reason: PreparedContextInconsistentReason,
         details: tuple[tuple[str, str | int | None], ...],
     ) -> PreparedContextConsistencyViolation:
         """Create a violation with its stable code and normalized reason."""
@@ -47,7 +47,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def missing_artifact(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for missing artifact."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.MISSING_ARTIFACT,
+            reason=PreparedContextInconsistentReason.MISSING_ARTIFACT,
             details=(("field", field),),
         )
 
@@ -55,7 +55,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def broken_artifact(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for broken artifact."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.BROKEN_ARTIFACT,
+            reason=PreparedContextInconsistentReason.BROKEN_ARTIFACT,
             details=(("field", field),),
         )
 
@@ -65,7 +65,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     ) -> PreparedContextConsistencyViolation:
         """Create a violation for unsupported artifact schema version."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.UNSUPPORTED_ARTIFACT_SCHEMA_VERSION,
+            reason=PreparedContextInconsistentReason.UNSUPPORTED_ARTIFACT_SCHEMA_VERSION,
             details=(("field", field),),
         )
 
@@ -73,7 +73,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def allocation_identity_mismatch(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for allocation identity mismatch."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.ALLOCATION_IDENTITY_MISMATCH,
+            reason=PreparedContextInconsistentReason.ALLOCATION_IDENTITY_MISMATCH,
             details=(("field", field),),
         )
 
@@ -81,7 +81,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def invalid_field_type(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for invalid field type."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.INVALID_FIELD_TYPE,
+            reason=PreparedContextInconsistentReason.INVALID_FIELD_TYPE,
             details=(("field", field),),
         )
 
@@ -89,7 +89,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def invalid_fields(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for invalid fields."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.INVALID_FIELDS,
+            reason=PreparedContextInconsistentReason.INVALID_FIELDS,
             details=(("field", field),),
         )
 
@@ -97,7 +97,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def effective_recipe_mismatch(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for effective recipe mismatch."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.EFFECTIVE_RECIPE_MISMATCH,
+            reason=PreparedContextInconsistentReason.EFFECTIVE_RECIPE_MISMATCH,
             details=(("field", field),),
         )
 
@@ -105,7 +105,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def contract_mismatch(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for contract mismatch."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.CONTRACT_MISMATCH,
+            reason=PreparedContextInconsistentReason.CONTRACT_MISMATCH,
             details=(("field", field),),
         )
 
@@ -113,7 +113,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def invalid_reference(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for invalid reference."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.INVALID_REFERENCE,
+            reason=PreparedContextInconsistentReason.INVALID_REFERENCE,
             details=(("field", field),),
         )
 
@@ -121,7 +121,7 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def baseline_reference_mismatch(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for baseline reference mismatch."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.BASELINE_REFERENCE_MISMATCH,
+            reason=PreparedContextInconsistentReason.BASELINE_REFERENCE_MISMATCH,
             details=(("field", field),),
         )
 
@@ -129,6 +129,6 @@ class PreparedContextConsistencyViolation(GatewayConsistencyViolation):
     def noncanonical_references(cls, *, field: str) -> PreparedContextConsistencyViolation:
         """Create a violation for noncanonical references."""
         return cls._create(
-            reason=_PreparedContextInconsistentReason.NONCANONICAL_REFERENCES,
+            reason=PreparedContextInconsistentReason.NONCANONICAL_REFERENCES,
             details=(("field", field),),
         )

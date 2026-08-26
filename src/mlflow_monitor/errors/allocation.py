@@ -8,7 +8,7 @@ from enum import StrEnum
 from .gateway import GatewayConsistencyCode, GatewayConsistencyViolation
 
 
-class _AllocationInconsistentReason(StrEnum):
+class AllocationInconsistentReason(StrEnum):
     """Reasons for monitoring run allocation inconsistent reason code."""
 
     DUPLICATE_IDENTITY = "duplicate_identity"
@@ -30,7 +30,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     def _create(
         cls,
         *,
-        reason: _AllocationInconsistentReason,
+        reason: AllocationInconsistentReason,
         message: str,
         details: tuple[tuple[str, str | int | None], ...],
     ) -> AllocationConsistencyViolation:
@@ -50,7 +50,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for two Monitoring Runs with the same identity."""
         return cls._create(
-            reason=_AllocationInconsistentReason.DUPLICATE_IDENTITY,
+            reason=AllocationInconsistentReason.DUPLICATE_IDENTITY,
             message="Multiple Monitoring Runs claim the same allocation identity.",
             details=(
                 ("first_monitoring_run_id", first_monitoring_run_id),
@@ -68,7 +68,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for two Monitoring Runs with the same sequence index."""
         return cls._create(
-            reason=_AllocationInconsistentReason.DUPLICATE_SEQUENCE,
+            reason=AllocationInconsistentReason.DUPLICATE_SEQUENCE,
             message=f"Multiple Monitoring Runs claim sequence_index={sequence_index}.",
             details=(
                 ("sequence_index", sequence_index),
@@ -86,7 +86,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a non-contiguous allocation sequence."""
         return cls._create(
-            reason=_AllocationInconsistentReason.SEQUENCE_GAP,
+            reason=AllocationInconsistentReason.SEQUENCE_GAP,
             message=(
                 "Monitoring allocation sequence is not contiguous; "
                 f"expected sequence_index={expected_sequence_index}, "
@@ -108,7 +108,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
         """Create a violation for an allocation missing required durable tags."""
         rendered_missing_tags = ", ".join(missing_tags)
         return cls._create(
-            reason=_AllocationInconsistentReason.INVALID_ALLOCATION,
+            reason=AllocationInconsistentReason.INVALID_ALLOCATION,
             message=(
                 f"Monitoring Run {monitoring_run_id!r} is missing durable "
                 f"allocation tags: {rendered_missing_tags}."
@@ -128,7 +128,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a non-integer allocation sequence index."""
         return cls._create(
-            reason=_AllocationInconsistentReason.INVALID_ALLOCATION,
+            reason=AllocationInconsistentReason.INVALID_ALLOCATION,
             message=(
                 f"Monitoring Run {monitoring_run_id!r} has a non-integer "
                 f"sequence index: {raw_sequence_index!r}."
@@ -148,7 +148,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a negative allocation sequence index."""
         return cls._create(
-            reason=_AllocationInconsistentReason.INVALID_ALLOCATION,
+            reason=AllocationInconsistentReason.INVALID_ALLOCATION,
             message=(
                 f"Monitoring Run {monitoring_run_id!r} has a negative "
                 f"sequence_index={sequence_index}."
@@ -168,7 +168,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a persisted next sequence ahead of durable state."""
         return cls._create(
-            reason=_AllocationInconsistentReason.NEXT_SEQUENCE_AHEAD,
+            reason=AllocationInconsistentReason.NEXT_SEQUENCE_AHEAD,
             message=(
                 "Monitoring allocation next sequence index is ahead of durable state; "
                 f"persisted sequence_index={persisted_next_sequence_index}, "
@@ -184,7 +184,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     def unknown_pointer(cls, *, monitoring_run_id: str) -> AllocationConsistencyViolation:
         """Create a violation for a pointer to an unknown allocation."""
         return cls._create(
-            reason=_AllocationInconsistentReason.UNKNOWN_POINTER,
+            reason=AllocationInconsistentReason.UNKNOWN_POINTER,
             message=(
                 "Monitoring pointer references an unknown allocation for "
                 f"monitoring_run_id={monitoring_run_id!r}."
@@ -201,7 +201,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for an experiment tag pointing to an unknown allocation."""
         return cls._create(
-            reason=_AllocationInconsistentReason.UNKNOWN_TAG,
+            reason=AllocationInconsistentReason.UNKNOWN_TAG,
             message=f"Experiment tag {tag!r} references an unknown allocation.",
             details=(
                 ("tag", tag),
@@ -220,7 +220,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for an allocation bound to a different source run."""
         return cls._create(
-            reason=_AllocationInconsistentReason.SOURCE_BINDING_CONFLICT,
+            reason=AllocationInconsistentReason.SOURCE_BINDING_CONFLICT,
             message=(
                 f"Experiment tag {tag!r} points to monitoring_run_id={monitoring_run_id!r} "
                 f"allocated for source_run_id={persisted_source_run_id!r}, "
@@ -244,7 +244,7 @@ class AllocationConsistencyViolation(GatewayConsistencyViolation):
     ) -> AllocationConsistencyViolation:
         """Create a violation for a timeline slot that conflicts with durable state."""
         return cls._create(
-            reason=_AllocationInconsistentReason.TIMELINE_CONFLICT,
+            reason=AllocationInconsistentReason.TIMELINE_CONFLICT,
             message=(
                 f"Experiment timeline slot sequence_index={sequence_index} does not match "
                 "its durable Monitoring Run allocation."
