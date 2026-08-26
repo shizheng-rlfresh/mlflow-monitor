@@ -80,11 +80,13 @@ class MonitoringGateway(Protocol):
 
     def resolve_active_lkg_monitoring_run_id(self, subject_id: str) -> str | None:
         """Resolve the active LKG monitoring run id for a subject, if any."""
+        ...
 
     def set_active_lkg_monitoring_run_id(
         self, subject_id: str, monitoring_run_id: str | None
     ) -> None:
         """Set or clear the active LKG monitoring run id for a subject."""
+        ...
 
     def upsert_monitoring_run(
         self,
@@ -97,11 +99,13 @@ class MonitoringGateway(Protocol):
         references: tuple[MonitoringRunReference, ...] | None = None,
     ) -> None:
         """Persist minimal monitoring run metadata for a subject."""
+        ...
 
     def get_monitoring_run(
         self, subject_id: str, monitoring_run_id: str
     ) -> MonitoringRunRecord | None:
         """Return the monitoring run record for a given subject and monitoring run id if it exists."""  # noqa: E501
+        ...
 
     def list_timeline_monitoring_runs(
         self,
