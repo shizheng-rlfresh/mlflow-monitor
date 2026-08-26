@@ -1,7 +1,5 @@
 """Lifecycle domain models for mlflow-monitor v0."""
 
-from __future__ import annotations
-
 from enum import StrEnum
 
 
