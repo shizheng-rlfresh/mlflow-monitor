@@ -11,6 +11,8 @@ def test_runtime_modules_import_mlflow_client_only_via_adapter() -> None:
     adapter_path = runtime_root / "client" / "mlflow.py"
     disallowed_imports: list[str] = []
 
+    assert runtime_root.is_dir()
+
     for path in runtime_root.rglob("*.py"):
         if path == adapter_path:
             continue
@@ -22,7 +24,7 @@ def test_runtime_modules_import_mlflow_client_only_via_adapter() -> None:
                     if alias.name == "mlflow" or alias.name.startswith("mlflow."):
                         disallowed_imports.append(str(path.relative_to(runtime_root.parent.parent)))
                         break
-            elif isinstance(node, ast.ImportFrom):
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
                 if node.module == "mlflow" or (
                     node.module is not None and node.module.startswith("mlflow.")
                 ):
