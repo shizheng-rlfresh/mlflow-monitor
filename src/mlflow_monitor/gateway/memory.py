@@ -1,5 +1,7 @@
 """In-memory implementation of the Monitoring Gateway for testing and local use."""
 
+from __future__ import annotations
+
 import json
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
