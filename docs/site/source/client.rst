@@ -4,6 +4,6 @@ Client
 MLflow Client
 -------------
 
-.. automodule:: mlflow_monitor.mlflow_client
+.. automodule:: mlflow_monitor.client.mlflow
    :members:
    :show-inheritance:
