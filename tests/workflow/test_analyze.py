@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from traceback import format_exception
 from types import MappingProxyType
 
 import pytest
@@ -322,7 +323,37 @@ def test_execute_finding_policies_rejects_malformed_policy_output(
         ("finding_policy_id", "invalid-policy"),
         ("finding_policy_version", "2"),
     )
-    assert error.__cause__ is not None
+    assert error.__cause__ is None
+    assert error.__context__ is None
+
+
+def test_execute_finding_policies_bounds_corrupted_finding_draft_validation() -> None:
+    evidence = _compatibility_evidence()
+    draft = _draft(
+        finding_rule_id="quality.corrupted",
+        evidence_id=evidence.compatibility_evidence_id,
+    )
+    object.__setattr__(draft, "finding_rule_id", "")
+    calls: list[_PolicyCall] = []
+    policy = _RecordingPolicy(
+        finding_policy_id="corrupted-draft-policy",
+        finding_policy_version="1",
+        drafts=(draft,),
+        calls=calls,
+    )
+
+    with pytest.raises(AnalyzeStageError) as exc_info:
+        _execute_one_policy(policy, compatibility_evidence=[evidence])
+
+    error = exc_info.value
+    assert error.code == ANALYZE_FINDING_POLICY_OUTPUT_INVALID
+    assert str(error) == "Finding policy output is invalid."
+    assert error.details == (
+        ("finding_policy_id", "corrupted-draft-policy"),
+        ("finding_policy_version", "1"),
+    )
+    assert error.__cause__ is None
+    assert error.__context__ is None
 
 
 def test_execute_finding_policies_rejects_unknown_evidence_as_invalid_output() -> None:
@@ -343,7 +374,8 @@ def test_execute_finding_policies_rejects_unknown_evidence_as_invalid_output() -
         _execute_one_policy(policy)
 
     assert exc_info.value.code == ANALYZE_FINDING_POLICY_OUTPUT_INVALID
-    assert exc_info.value.__cause__ is not None
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
 
 
 def test_execute_finding_policies_rejects_cross_pair_evidence_as_invalid_output() -> None:
@@ -368,7 +400,8 @@ def test_execute_finding_policies_rejects_cross_pair_evidence_as_invalid_output(
         _execute_one_policy(policy, compatibility_evidence=[evidence])
 
     assert exc_info.value.code == ANALYZE_FINDING_POLICY_OUTPUT_INVALID
-    assert exc_info.value.__cause__ is not None
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
 
 
 def test_execute_finding_policies_classifies_conflicting_identity_as_inconsistent() -> None:
@@ -395,7 +428,8 @@ def test_execute_finding_policies_classifies_conflicting_identity_as_inconsisten
         ("finding_policy_id", "conflicting-policy"),
         ("finding_policy_version", "3"),
     )
-    assert error.__cause__ is not None
+    assert error.__cause__ is None
+    assert error.__context__ is None
 
 
 def test_execute_finding_policies_bounds_policy_exception_and_stops_execution() -> None:
@@ -438,7 +472,11 @@ def test_execute_finding_policies_bounds_policy_exception_and_stops_execution() 
     )
     assert "exception-secret" not in str(error)
     assert "parameter-secret" not in str(error)
-    assert error.__cause__ is failure
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    rendered_error = "".join(format_exception(error))
+    assert "exception-secret" not in rendered_error
+    assert "parameter-secret" not in rendered_error
     assert tuple(call.finding_policy_id for call in calls) == ("a-failing-policy",)
 
 
