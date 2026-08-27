@@ -32,6 +32,25 @@ records into the canonical self-contained JSON payload. It does not persist the
 payload or advance the Monitoring Run lifecycle; Analyze integration owns those
 responsibilities.
 
+Typical usage keeps the committed prepared context paired with its hydrated Check
+result through both operations:
+
+.. code-block:: python
+
+   evidence_records = materialize_compatibility_evidence(
+       prepared_context,
+       contract_check_result,
+   )
+   artifact_payload = compatibility_evidence_to_dict(
+       prepared_context,
+       evidence_records,
+   )
+
+The payload's ``artifact_schema_version="v0"`` and the deterministic evidence-ID
+scheme are independently versioned. Compatibility Evidence IDs retain the
+``compatibility-evidence-v1-...`` prefix defined by the shared identity helpers;
+the artifact version does not change or override that identity contract.
+
 .. automodule:: mlflow_monitor.compatibility
    :members:
    :show-inheritance:
