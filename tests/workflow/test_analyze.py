@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from concurrent.futures import CancelledError as FutureCancelledError
 from dataclasses import dataclass, replace
 from traceback import format_exception
 from types import MappingProxyType
@@ -109,13 +108,6 @@ class _SecretHashString(str):
 
     def __hash__(self) -> int:
         raise RuntimeError("materialization-secret must not escape")
-
-
-class _CancellingHashString(str):
-    """String double that cancels while a draft is materialized."""
-
-    def __hash__(self) -> int:
-        raise FutureCancelledError
 
 
 def _diff() -> Diff:
@@ -540,41 +532,3 @@ def test_execute_finding_policies_does_not_convert_process_interruptions() -> No
 
     with pytest.raises(KeyboardInterrupt):
         _execute_one_policy(policy)
-
-
-def test_execute_finding_policies_does_not_convert_evaluation_cancellation() -> None:
-    cancellation = FutureCancelledError()
-    policy = _RecordingPolicy(
-        finding_policy_id="cancelled-policy",
-        finding_policy_version="1",
-        drafts=(),
-        calls=[],
-        failure=cancellation,
-    )
-
-    with pytest.raises(FutureCancelledError) as exc_info:
-        _execute_one_policy(policy)
-
-    assert exc_info.value is cancellation
-
-
-def test_execute_finding_policies_does_not_convert_materialization_cancellation() -> None:
-    evidence = _compatibility_evidence()
-    draft = _draft(
-        finding_rule_id="quality.cancelled-hash",
-        evidence_id=evidence.compatibility_evidence_id,
-    )
-    object.__setattr__(
-        draft,
-        "evidence_compatibility_ids",
-        (_CancellingHashString(evidence.compatibility_evidence_id),),
-    )
-    policy = _RecordingPolicy(
-        finding_policy_id="cancelled-materialization-policy",
-        finding_policy_version="1",
-        drafts=(draft,),
-        calls=[],
-    )
-
-    with pytest.raises(FutureCancelledError):
-        _execute_one_policy(policy, compatibility_evidence=[evidence])

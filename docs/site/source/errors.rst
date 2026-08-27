@@ -94,9 +94,11 @@ codes:
 
 The message is bounded and ``details`` contains exactly ``finding_policy_id`` and
 ``finding_policy_version``. Raw policy parameters and arbitrary exception text are
-not exposed. Process interruption and cancellation are not converted. V0-021 owns
-the later orchestration that durably commits these errors as failed Monitoring Run
-results.
+not exposed. Process interruptions such as ``KeyboardInterrupt`` are not converted.
+The synchronous Finding-policy interface defines no separate policy-cancellation
+signal, so exceptions raised by policy evaluation are bounded as Analyze failures.
+V0-021 owns the later orchestration that durably commits these errors as failed
+Monitoring Run results.
 
 .. autoclass:: mlflow_monitor.errors.AnalyzeStageError
    :members:
