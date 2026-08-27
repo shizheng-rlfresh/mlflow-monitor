@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from concurrent.futures import CancelledError as FutureCancelledError
 
 from mlflow_monitor.domain import (
     CompatibilityEvidence,
@@ -111,6 +112,8 @@ def _evaluate_policy(
             compatibility_evidence=compatibility_evidence,
             reference_comparison_coverage=reference_comparison_coverage,
         )
+    except FutureCancelledError:
+        raise
     except Exception:
         evaluation_error = _policy_error(
             binding=binding,
@@ -141,13 +144,21 @@ def _materialize_policy_drafts(
             diffs=diffs,
             compatibility_evidence=compatibility_evidence,
         )
-    except (InvariantViolation, TypeError, ValueError) as exc:
+    except FutureCancelledError:
+        raise
+    except InvariantViolation as exc:
         code = ANALYZE_FINDING_POLICY_OUTPUT_INVALID
         message = "Finding policy output is invalid."
-        if isinstance(exc, InvariantViolation) and exc.code == "finding_identity_content_conflict":
+        if exc.code == "finding_identity_content_conflict":
             code = ANALYZE_FINDING_POLICY_OUTPUT_INCONSISTENT
             message = "Finding policy output is inconsistent."
         output_error = _policy_error(binding=binding, code=code, message=message)
+    except Exception:
+        output_error = _policy_error(
+            binding=binding,
+            code=ANALYZE_FINDING_POLICY_OUTPUT_INVALID,
+            message="Finding policy output is invalid.",
+        )
     raise output_error
 
 
