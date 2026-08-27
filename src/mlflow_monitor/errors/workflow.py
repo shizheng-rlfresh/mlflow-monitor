@@ -3,6 +3,9 @@
 from dataclasses import dataclass
 
 PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existing_baseline"
+ANALYZE_FINDING_POLICY_EVALUATION_FAILED = "analyze_finding_policy_evaluation_failed"
+ANALYZE_FINDING_POLICY_OUTPUT_INVALID = "analyze_finding_policy_output_invalid"
+ANALYZE_FINDING_POLICY_OUTPUT_INCONSISTENT = "analyze_finding_policy_output_inconsistent"
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +31,19 @@ class CheckStageError(ValueError):
 
     def __str__(self) -> str:
         """Return the error message when the exception is converted to a string."""
+        return self.message
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyzeStageError(ValueError):
+    """Raised when Analyze-stage policy execution fails deterministically."""
+
+    code: str
+    message: str
+    details: tuple[tuple[str, str], ...]
+
+    def __str__(self) -> str:
+        """Return the bounded error message for operator display."""
         return self.message
 
 

@@ -58,6 +58,31 @@ identity conflicts, and comparability-projection disagreement raise a Gateway
 consistency violation without mutating committed state. Consequently, legacy
 ``checked`` records that predate the authoritative artifact cannot be replayed.
 
+Analyze Finding Policy Execution
+--------------------------------
+
+``execute_finding_policies()`` is the pure, backend-independent policy execution
+boundary used by Analyze. It accepts the current Monitoring Run and Source
+Training Run identities, compiled Finding-policy bindings, and the Diffs,
+Compatibility Evidence, and Reference Comparison Coverage already produced by
+the current Analyze execution.
+
+Bindings execute in canonical policy-identity/version order. Every policy receives
+its already-validated frozen parameters and the same immutable evidence tuples;
+policies do not receive drafts or Findings produced by another policy. A policy
+returns only transient ``FindingDraft`` values. MLflow-Monitor validates that every
+cited evidence identity exists in the supplied current output, attaches the exact
+Monitoring Run, Source Training Run, and policy identity, and returns materialized
+Findings ordered by deterministic ``finding_id``. Empty binding lists and empty
+draft tuples both produce an empty Finding tuple.
+
+A policy exception, invalid draft or evidence reference, or conflicting content
+under one deterministic Finding identity raises ``AnalyzeStageError`` and publishes
+no partial result. This helper does not persist artifacts, advance lifecycle, or
+commit a terminal failure. Built-in compatibility interpretation is delivered by
+V0-020; artifact persistence, replay, and lifecycle integration are delivered by
+V0-021; end-to-end custom-policy guidance is deferred to V0-033.
+
 .. automodule:: mlflow_monitor.workflow
    :members:
    :show-inheritance:
