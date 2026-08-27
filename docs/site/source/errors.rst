@@ -82,6 +82,26 @@ Workflow Errors
    :members:
    :show-inheritance:
 
+Analyze policy execution uses one ``AnalyzeStageError`` class with three stable
+codes:
+
+- ``analyze_finding_policy_evaluation_failed`` for an ordinary exception raised
+  by policy evaluation;
+- ``analyze_finding_policy_output_invalid`` for a nonconforming draft tuple,
+  invalid draft, or unknown/cross-Monitoring-Run evidence reference;
+- ``analyze_finding_policy_output_inconsistent`` for conflicting content under
+  one deterministic Finding identity.
+
+The message is bounded and ``details`` contains exactly ``finding_policy_id`` and
+``finding_policy_version``. Raw policy parameters and arbitrary exception text are
+not exposed. Process interruption and cancellation are not converted. V0-021 owns
+the later orchestration that durably commits these errors as failed Monitoring Run
+results.
+
+.. autoclass:: mlflow_monitor.errors.AnalyzeStageError
+   :members:
+   :show-inheritance:
+
 .. autoclass:: mlflow_monitor.errors.TerminalRunRetryError
    :members:
    :show-inheritance:

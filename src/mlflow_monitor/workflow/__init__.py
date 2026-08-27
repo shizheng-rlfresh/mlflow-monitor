@@ -1,9 +1,10 @@
 """Workflow lifecycle helpers for MLflow-Monitor v0.
 
-This module contains backend-agnostic workflow logic for two responsibilities:
+This module contains backend-agnostic workflow logic for three responsibilities:
 
 1. Prepare-stage context resolution before contract checking begins.
 2. Contract checking and evaluation after prepare-stage context resolution.
+3. Finding policy execution over immutable Analyze evidence.
 
 Prepare-stage resolution combines caller inputs (Monitoring Run identity, compiled plan,
 resolved contract, optional first-run baseline input) with gateway-resolved
@@ -12,6 +13,7 @@ The workflow layer decides what must be resolved for a run to proceed, while
 the gateway owns all persistence-specific mechanics.
 """
 
+from .analyze import execute_finding_policies
 from .check import (
     CONTRACT_CHECK_ARTIFACT_PATH,
     contract_check_result_to_dict,
@@ -31,6 +33,7 @@ from .prepared_context import (
 )
 
 __all__ = [
+    "execute_finding_policies",
     "PREPARED_CONTEXT_ARTIFACT_PATH",
     "PreparedContext",
     "PreparedReferencePlanEntry",
