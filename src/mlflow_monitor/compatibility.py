@@ -65,7 +65,9 @@ def compatibility_evidence_to_dict(
     The evidence records must have been materialized from the same prepared
     context supplied to this function. The prepared context supplies the
     artifact envelope even when a PASS result produces no evidence records from
-    which lineage could otherwise be recovered.
+    which lineage could otherwise be recovered. This pure projection does not
+    revalidate that cross-stage binding; Analyze integration validates it before
+    persistence.
 
     Args:
         prepared_context: Committed prepared context that owns the evidence.

@@ -50,7 +50,9 @@ Populated Compatibility Evidence records already carry the same lineage fields,
 but the prepared context remains an explicit projection input because a PASS
 result produces an empty record tuple. The canonical empty payload still requires
 the complete Monitoring Run, Source Training Run, Baseline Source Run, and
-Contract envelope.
+Contract envelope. Pairing the records with that same prepared context is a
+precondition of this pure projection; Analyze integration validates the
+cross-stage binding before persistence.
 
 The payload's ``artifact_schema_version="v0"`` and the deterministic evidence-ID
 scheme are independently versioned. Compatibility Evidence IDs retain the
