@@ -63,7 +63,9 @@ def compatibility_evidence_to_dict(
     """Project Compatibility Evidence into its canonical JSON payload.
 
     The evidence records must have been materialized from the same prepared
-    context supplied to this function.
+    context supplied to this function. The prepared context supplies the
+    artifact envelope even when a PASS result produces no evidence records from
+    which lineage could otherwise be recovered.
 
     Args:
         prepared_context: Committed prepared context that owns the evidence.
