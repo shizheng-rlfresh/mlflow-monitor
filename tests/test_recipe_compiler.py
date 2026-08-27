@@ -229,18 +229,6 @@ def test_system_default_compiled_recipe_is_precomputed_and_reusable() -> None:
     assert SYSTEM_DEFAULT_COMPILED_RECIPE == compile_recipe()
 
 
-def test_system_policy_evaluation_fails_closed_before_analyze_integration() -> None:
-    binding = SYSTEM_DEFAULT_COMPILED_RECIPE.finding_policy_bindings[0]
-
-    with pytest.raises(RuntimeError, match="evaluation is unavailable"):
-        binding.policy.evaluate(
-            parameters=binding.parameters,
-            diffs=(),
-            compatibility_evidence=(),
-            reference_comparison_coverage=(),
-        )
-
-
 def test_compile_recipe_normalizes_system_only_recipe_canonically() -> None:
     raw = build_system_default_recipe()
     raw["source_requirements"] = {
