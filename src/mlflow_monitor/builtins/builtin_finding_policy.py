@@ -5,11 +5,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import cast
 
 from mlflow_monitor.domain import (
     CompatibilityEvidence,
+    ContractCheckReasonCode,
     Diff,
     FindingDraft,
+    FindingSeverity,
     ReferenceComparisonCoverage,
 )
 from mlflow_monitor.finding_policy import (
@@ -19,6 +22,39 @@ from mlflow_monitor.finding_policy import (
 
 SYSTEM_COMPATIBILITY_FINDING_POLICY_ID = "system-compatibility-findings"
 SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION = "v0"
+
+
+_SYSTEM_COMPATIBILITY_FINDING_POLICY_CATEGORY = "compatibility"
+
+_SYSTEM_COMPATIBILITY_FINDING_POLICY_FINDING_RULE_IDS = MappingProxyType(
+    {
+        ContractCheckReasonCode.ENV_MISMATCH: "compatibility.environment_mismatch",
+        ContractCheckReasonCode.SCHEMA_MISMATCH: "compatibility.schema_mismatch",
+        ContractCheckReasonCode.FEAT_MISMATCH: "compatibility.feature_mismatch",
+        ContractCheckReasonCode.DATA_SCOPE_MISMATCH: "compatibility.data_scope_mismatch",
+    }
+)
+
+_SYSTEM_COMPATIBILITY_FINDING_POLICY_RECOMMENDATIONS = MappingProxyType(
+    {
+        ContractCheckReasonCode.ENV_MISMATCH: (
+            "Review the execution-environment differences and confirm that the current "
+            "evidence is comparable with the baseline before relying on metric comparisons."
+        ),
+        ContractCheckReasonCode.SCHEMA_MISMATCH: (
+            "Review the schema changes and either restore baseline-compatible data or "
+            "intentionally update the Contract for a future Monitoring Run."
+        ),
+        ContractCheckReasonCode.FEAT_MISMATCH: (
+            "Review the feature-set changes and either restore baseline-compatible features or "
+            "intentionally update the Contract for a future Monitoring Run."
+        ),
+        ContractCheckReasonCode.DATA_SCOPE_MISMATCH: (
+            "Confirm the intended data population and either restore the baseline-compatible "
+            "scope or intentionally update the Contract for a future Monitoring Run."
+        ),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +68,10 @@ class SystemCompatibilityFindingPolicy:
 
     finding_policy_id: str = SYSTEM_COMPATIBILITY_FINDING_POLICY_ID
     finding_policy_version: str = SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION
+
+    category: str = _SYSTEM_COMPATIBILITY_FINDING_POLICY_CATEGORY
+    finding_rule_ids = _SYSTEM_COMPATIBILITY_FINDING_POLICY_FINDING_RULE_IDS
+    recommendations = _SYSTEM_COMPATIBILITY_FINDING_POLICY_RECOMMENDATIONS
 
     def validate_parameters(
         self,
@@ -71,7 +111,29 @@ class SystemCompatibilityFindingPolicy:
         Raises:
             RuntimeError: Always, because Analyze integration is not yet available.
         """
-        raise RuntimeError("System compatibility Finding policy evaluation is unavailable.")
+        drafts = []
+
+        for evidence in compatibility_evidence:
+            if evidence.reason.code not in self.finding_rule_ids:
+                raise ValueError(f"Unsupported compatibility reason code={evidence.reason.code!r}")
+
+            drafts.append(
+                FindingDraft(
+                    finding_rule_id=self.finding_rule_ids[
+                        cast(ContractCheckReasonCode, evidence.reason.code)
+                    ],
+                    severity=FindingSeverity.HIGH,
+                    category=self.category,
+                    summary=evidence.reason.message,
+                    recommendation=self.recommendations[
+                        cast(ContractCheckReasonCode, evidence.reason.code)
+                    ],
+                    evidence_diff_ids=(),
+                    evidence_compatibility_ids=(evidence.compatibility_evidence_id,),
+                )
+            )
+
+        return tuple(drafts)
 
 
 SYSTEM_COMPATIBILITY_FINDING_POLICY = SystemCompatibilityFindingPolicy()
