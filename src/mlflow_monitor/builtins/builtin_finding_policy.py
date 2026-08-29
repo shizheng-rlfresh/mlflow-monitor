@@ -69,10 +69,6 @@ class SystemCompatibilityFindingPolicy:
     finding_policy_id: str = SYSTEM_COMPATIBILITY_FINDING_POLICY_ID
     finding_policy_version: str = SYSTEM_COMPATIBILITY_FINDING_POLICY_VERSION
 
-    category: str = _SYSTEM_COMPATIBILITY_FINDING_POLICY_CATEGORY
-    finding_rule_ids = _SYSTEM_COMPATIBILITY_FINDING_POLICY_FINDING_RULE_IDS
-    recommendations = _SYSTEM_COMPATIBILITY_FINDING_POLICY_RECOMMENDATIONS
-
     def validate_parameters(
         self,
         parameters: Mapping[str, JSONValue],
@@ -114,18 +110,18 @@ class SystemCompatibilityFindingPolicy:
         drafts = []
 
         for evidence in compatibility_evidence:
-            if evidence.reason.code not in self.finding_rule_ids:
+            if evidence.reason.code not in _SYSTEM_COMPATIBILITY_FINDING_POLICY_FINDING_RULE_IDS:
                 raise ValueError(f"Unsupported compatibility reason code={evidence.reason.code!r}")
 
             drafts.append(
                 FindingDraft(
-                    finding_rule_id=self.finding_rule_ids[
+                    finding_rule_id=_SYSTEM_COMPATIBILITY_FINDING_POLICY_FINDING_RULE_IDS[
                         cast(ContractCheckReasonCode, evidence.reason.code)
                     ],
                     severity=FindingSeverity.HIGH,
-                    category=self.category,
+                    category=_SYSTEM_COMPATIBILITY_FINDING_POLICY_CATEGORY,
                     summary=evidence.reason.message,
-                    recommendation=self.recommendations[
+                    recommendation=_SYSTEM_COMPATIBILITY_FINDING_POLICY_RECOMMENDATIONS[
                         cast(ContractCheckReasonCode, evidence.reason.code)
                     ],
                     evidence_diff_ids=(),
