@@ -79,9 +79,46 @@ draft tuples both produce an empty Finding tuple.
 A policy exception, invalid draft or evidence reference, or conflicting content
 under one deterministic Finding identity raises ``AnalyzeStageError`` and publishes
 no partial result. This helper does not persist artifacts, advance lifecycle, or
-commit a terminal failure. Built-in compatibility interpretation is delivered by
-V0-020; artifact persistence, replay, and lifecycle integration are delivered by
-V0-021; end-to-end custom-policy guidance is deferred to V0-033.
+commit a terminal failure. Artifact persistence, replay, and lifecycle integration
+are delivered by V0-021; end-to-end custom-policy guidance is deferred to V0-033.
+
+Built-in Compatibility Finding Policy
+-------------------------------------
+
+``system-compatibility-findings@v0`` interprets Compatibility Evidence only. It
+produces one ``HIGH`` Finding draft in category ``compatibility`` per evidence
+record. The draft summary is the committed reason message, it cites exactly that
+record's Compatibility Evidence identity, and it cites no Metric Diff identities.
+
+.. list-table:: Built-in compatibility mappings
+   :header-rows: 1
+   :widths: 20 30 50
+
+   * - Reason code
+     - Finding rule ID
+     - Recommendation
+   * - ``environment_mismatch``
+     - ``compatibility.environment_mismatch``
+     - Review the execution-environment differences and confirm that the current
+       evidence is comparable with the baseline before relying on metric comparisons.
+   * - ``schema_mismatch``
+     - ``compatibility.schema_mismatch``
+     - Review the schema changes and either restore baseline-compatible data or
+       intentionally update the Contract for a future Monitoring Run.
+   * - ``feature_mismatch``
+     - ``compatibility.feature_mismatch``
+     - Review the feature-set changes and either restore baseline-compatible features
+       or intentionally update the Contract for a future Monitoring Run.
+   * - ``data_scope_mismatch``
+     - ``compatibility.data_scope_mismatch``
+     - Confirm the intended data population and either restore the baseline-compatible
+       scope or intentionally update the Contract for a future Monitoring Run.
+
+The reason's ``blocking`` flag controls whether metric analysis proceeds; it does
+not determine Finding severity. Consequently, a nonblocking environment mismatch
+still produces a ``HIGH`` Finding. Metric Diffs and Reference Comparison Coverage
+do not affect this built-in policy's output. An unsupported reason code fails
+closed rather than producing a partially interpreted result.
 
 .. automodule:: mlflow_monitor.workflow
    :members:

@@ -96,16 +96,20 @@ class SystemCompatibilityFindingPolicy:
         compatibility_evidence: tuple[CompatibilityEvidence, ...],
         reference_comparison_coverage: tuple[ReferenceComparisonCoverage, ...],
     ) -> tuple[FindingDraft, ...]:
-        """Fail closed until the compatibility interpretation is implemented.
+        """Map supported Compatibility Evidence to Finding drafts.
 
         Args:
-            parameters: Validated effective parameters.
-            diffs: Current committed Metric Diffs.
+            parameters: Validated empty parameters.
+            diffs: Current committed Metric Diffs, which this policy ignores.
             compatibility_evidence: Current committed Compatibility Evidence.
-            reference_comparison_coverage: Current reference coverage.
+            reference_comparison_coverage: Current reference coverage, which this
+                policy ignores.
+
+        Returns:
+            One high-severity compatibility draft per evidence record.
 
         Raises:
-            RuntimeError: Always, because Analyze integration is not yet available.
+            ValueError: If an evidence record has an unsupported reason code.
         """
         drafts = []
 
