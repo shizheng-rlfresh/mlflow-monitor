@@ -1,7 +1,7 @@
-[![CI](https://github.com/shizheng-rlfresh/mlflow-monitor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shizheng-rlfresh/mlflow-monitor/actions/workflows/ci.yml) [![Developer Doc](https://mlflow-monitor.readthedocs.io/en/latest/) [![Release](https://img.shields.io/github/v/release/shizheng-rlfresh/mlflow-monitor?display_name=tag)](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/latest) [![Python](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](https://www.python.org/) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) 
+[![CI](https://github.com/shizheng-rlfresh/mlflow-monitor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shizheng-rlfresh/mlflow-monitor/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/shizheng-rlfresh/mlflow-monitor?display_name=tag)](https://github.com/shizheng-rlfresh/mlflow-monitor/releases/latest) [![Python](https://img.shields.io/badge/python-%3E%3D3.12-blue.svg)](https://www.python.org/) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) 
 
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/shizheng-rlfresh/mlflow-monitor)
+[![Developer Doc](https://img.shields.io/readthedocs/mlflow-monitor?label=Developer%20Docs)](https://mlflow-monitor.readthedocs.io/en/latest/) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/shizheng-rlfresh/mlflow-monitor)
 
 # MLflow-Monitor
 
