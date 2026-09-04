@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -177,6 +178,48 @@ def _validate_diffs(
         ):
             key = (source, diff.metric_name)
             _require(observations.setdefault(key, value) == value)
+    _validate_observation_states(output, context, check, observations)
+
+
+def _validate_observation_states(
+    output: AnalyzeOutput,
+    context: PreparedContext,
+    check: ContractCheckResult,
+    values: dict[tuple[str | None, str], float],
+) -> None:
+    """Reject incompatible existence, finiteness, or overflow claims for one source."""
+    if check.status is ComparabilityStatus.FAIL:
+        return
+    sources: dict[str | None, bool] = {context.source_run_id: True}
+    states = {key: "finite" for key in values}
+    for group in output.reference_comparison_coverage:
+        if group.reference is None:
+            continue
+        source = group.reference.source_run_id
+        present = group.status is ReferenceComparisonStatus.COMPLETED
+        _require(sources.setdefault(source, present) == present)
+        for row in group.metric_unavailability:
+            current_key = (context.source_run_id, row.metric_name)
+            reference_key = (source, row.metric_name)
+            if row.reason == "current_metric_missing":
+                current_state = "missing"
+            elif row.reason == "current_metric_not_finite":
+                current_state = "not_finite"
+            else:
+                current_state = "finite"
+            _require(states.setdefault(current_key, current_state) == current_state)
+            if current_state != "finite":
+                continue  # Current-side failure takes precedence; reference is unobserved.
+            if row.reason == "reference_metric_missing":
+                reference_state = "missing"
+            elif row.reason == "reference_metric_not_finite":
+                reference_state = "not_finite"
+            else:
+                reference_state = "finite"
+                _require(source != context.source_run_id)
+                if current_key in values and reference_key in values:
+                    _require(not math.isfinite(values[current_key] - values[reference_key]))
+            _require(states.setdefault(reference_key, reference_state) == reference_state)
 
 
 def _validate_findings(
