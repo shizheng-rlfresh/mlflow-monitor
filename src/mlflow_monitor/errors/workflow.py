@@ -6,6 +6,7 @@ PREPARE_BASELINE_OVERRIDE_EXISTING_BASELINE = "prepare_baseline_override_existin
 ANALYZE_FINDING_POLICY_EVALUATION_FAILED = "analyze_finding_policy_evaluation_failed"
 ANALYZE_FINDING_POLICY_OUTPUT_INVALID = "analyze_finding_policy_output_invalid"
 ANALYZE_FINDING_POLICY_OUTPUT_INCONSISTENT = "analyze_finding_policy_output_inconsistent"
+ANALYZE_MISSING_CURRENT_SOURCE_RUN = "analyze_missing_current_source_run"
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +37,7 @@ class CheckStageError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class AnalyzeStageError(ValueError):
-    """Raised when Analyze-stage policy execution fails deterministically."""
+    """Raised when Analyze lacks its current source or policy execution fails."""
 
     code: str
     message: str
