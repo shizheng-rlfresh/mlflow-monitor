@@ -81,6 +81,53 @@ FAIL performs no metric reads. Resolved reference groups are skipped with
 All branches materialize Compatibility Evidence from Check reasons and execute
 the compiled Finding policies. A comparability FAIL is not an execution failure.
 
+Internal Analyze Commit and Replay
+----------------------------------
+
+``mlflow_monitor.analyze_orchestration.commit_analyze_stage()`` is the internal
+durable boundary for a checked, unfinalized Monitoring Run. It rehydrates
+``state/prepared_context.json`` and ``outputs/contract_check.json`` against the
+allocated identity and supplied compiled Recipe. It never resolves references or
+Timeline state again. Checked metadata must agree with these committed inputs.
+
+All metric comparisons, Compatibility Evidence, and policy execution finish
+before any output write. After cross-output validation, the stage writes:
+
+1. ``outputs/compatibility_evidence.json``
+2. ``outputs/diffs.json``
+3. ``outputs/findings.json``
+
+Every artifact is present even when its rows are empty. The stage reads back and
+validates the complete saved set against the computed output before writing
+``analyzed`` last. It does not write ``outputs/result.json``, close the Monitoring
+Run, or terminate its MLflow run. Source Training Runs remain read-only.
+
+When recovering a ``checked`` stage, existing partial artifacts are validated
+before execution. Analyze then recomputes the complete output from fresh metric
+observations and compares every existing artifact before filling any missing path.
+Identical artifacts are reused without rewriting. A malformed artifact or changed
+output fails closed; partial output is never overwritten. Consequently, changed
+source metrics or nondeterministic policies can prevent a partial retry from
+completing. No cross-attempt metric snapshot artifact is introduced.
+
+An ``analyzed`` replay hydrates all three saved artifacts without reading source
+metrics, executing policies, or writing state. Missing or inconsistent committed
+output fails closed rather than triggering recomputation. The stage rejects
+other lifecycle states. It rechecks checked metadata during commit, and both
+Gateways reject an analyzed update after observing ``closed`` or ``failed``.
+These checks do not provide a transaction, atomic compare-and-swap, or lock for
+concurrent writers.
+
+This internal integration does not activate Analyze in public ``monitor.run()``.
+The public workflow retains its existing checked-result and finalization behavior;
+terminal-result construction, failure persistence, and public lifecycle cutover
+remain separate integration work.
+
+.. autofunction:: mlflow_monitor.workflow.analyze.execute_analyze
+
+.. automodule:: mlflow_monitor.analyze_orchestration
+   :members:
+
 Analyze Finding Policy Execution
 --------------------------------
 
@@ -102,8 +149,9 @@ draft tuples both produce an empty Finding tuple.
 A policy exception, invalid draft or evidence reference, or conflicting content
 under one deterministic Finding identity raises ``AnalyzeStageError`` and publishes
 no partial result. This helper does not persist artifacts, advance lifecycle, or
-commit a terminal failure. Artifact persistence, replay, and lifecycle integration
-are delivered by V0-021; end-to-end custom-policy guidance is deferred to V0-033.
+commit a terminal failure. The internal Analyze commit boundary described above
+owns artifact persistence and replay. End-to-end custom-policy guidance remains
+deferred until the public workflow integrates Analyze.
 
 Built-in Compatibility Finding Policy
 -------------------------------------
