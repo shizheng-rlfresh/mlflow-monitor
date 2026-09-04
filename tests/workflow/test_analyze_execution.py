@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import subprocess
+import sys
 from dataclasses import replace
 
 import pytest
@@ -15,61 +16,10 @@ from mlflow_monitor.domain import (
     MonitoringRunReference,
     ReferenceComparisonStatus,
 )
-from mlflow_monitor.errors import AnalyzeStageError
-from mlflow_monitor.gateway import GatewayConfig, InMemoryMonitoringGateway
-from mlflow_monitor.recipe import build_system_default_recipe
-from mlflow_monitor.recipe_compiler import compile_recipe
+from mlflow_monitor.errors import AnalyzeStageError, PreparedContextConsistencyViolation
 from mlflow_monitor.workflow.analyze import execute_analyze
-from mlflow_monitor.workflow.prepared_context import PreparedContext, PreparedReferencePlanEntry
-
-
-class MetricsGateway(InMemoryMonitoringGateway):
-    """Return selected detached metrics and reject repeated source observations."""
-
-    def __init__(self, metrics: dict[str, dict[str, float]]) -> None:
-        super().__init__(GatewayConfig())
-        self.metrics = metrics
-        self.reads: list[tuple[str, tuple[str, ...] | None]] = []
-
-    def get_source_run_metrics(
-        self, source_run_id: str, metric_names: Sequence[str] | None = None
-    ) -> dict[str, float] | None:
-        assert source_run_id not in [source for source, _ in self.reads]
-        self.reads.append((source_run_id, None if metric_names is None else tuple(metric_names)))
-        values = self.metrics.get(source_run_id)
-        if values is None:
-            return None
-        names = sorted(values) if metric_names is None else metric_names
-        return {name: values[name] for name in names if name in values}
-
-
-def context_and_recipe(metric_names: list[str] | None = None):
-    raw = build_system_default_recipe()
-    if metric_names is not None:
-        raw["analysis"] = {"metric_names": metric_names}
-    recipe = compile_recipe(raw)
-    context = PreparedContext(
-        monitoring_run_id="monitoring-current",
-        source_run_id="current",
-        subject_id="model",
-        timeline_id="timeline-model",
-        sequence_index=1,
-        baseline_source_run_id="baseline",
-        effective_recipe=recipe.effective_plan,
-        contract=recipe.contract,
-        reference_plan=(
-            PreparedReferencePlanEntry(
-                kind=DiffReferenceKind.BASELINE,
-                reference=MonitoringRunReference(DiffReferenceKind.BASELINE, None, "baseline"),
-                unavailable_reason=None,
-            ),
-            PreparedReferencePlanEntry(
-                DiffReferenceKind.PREVIOUS, None, "previous_reference_missing"
-            ),
-            PreparedReferencePlanEntry(DiffReferenceKind.LKG, None, "lkg_not_selected"),
-        ),
-    )
-    return context, recipe
+from mlflow_monitor.workflow.prepared_context import PreparedReferencePlanEntry
+from workflow._analyze_support import MetricsGateway, context_and_recipe
 
 
 @pytest.mark.parametrize(
@@ -201,3 +151,32 @@ def test_analyze_retains_a_resolved_reference_when_its_source_is_missing() -> No
     assert group.status is ReferenceComparisonStatus.UNAVAILABLE
     assert group.reason == "reference_source_run_missing"
     assert group.reference is not None and group.reference.source_run_id == "baseline"
+
+
+def test_analyze_rejects_changed_effective_recipe_before_reading_sources() -> None:
+    context, _ = context_and_recipe()
+    _, different_recipe = context_and_recipe([])
+    gateway = MetricsGateway({})
+    with pytest.raises(PreparedContextConsistencyViolation):
+        execute_analyze(
+            prepared_context=context,
+            contract_check_result=ContractCheckResult(ComparabilityStatus.PASS, ()),
+            compiled_recipe=different_recipe,
+            gateway=gateway,
+        )
+    assert gateway.reads == []
+
+
+@pytest.mark.parametrize("first", ["differ", "compatibility", "workflow.analyze", "workflow"])
+def test_analyze_modules_import_without_order_dependent_cycles(first: str) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"import mlflow_monitor.{first}; "
+            "from mlflow_monitor.workflow.analyze import execute_analyze",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
