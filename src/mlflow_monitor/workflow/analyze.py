@@ -32,7 +32,7 @@ from mlflow_monitor.invariant import validate_contract_check_result
 from mlflow_monitor.recipe_compiler import CompiledFindingPolicyBinding, CompiledRecipe
 from mlflow_monitor.utils import canonical_json
 
-from .analyze_artifacts import AnalyzeOutput
+from .analyze_artifacts import AnalyzeOutput, validate_analyze_output
 from .prepared_context import PreparedContext
 
 
@@ -73,6 +73,7 @@ def execute_analyze(
         raise PreparedContextConsistencyViolation.contract_mismatch(field="contract")
     validate_contract_check_result(contract_check_result)
     evidence = materialize_compatibility_evidence(prepared_context, contract_check_result)
+    names = None
 
     if contract_check_result.status is ComparabilityStatus.FAIL:
         computed = ComputedDiffCoverage(
@@ -98,7 +99,7 @@ def execute_analyze(
             ),
         )
     else:
-        computed = _read_and_compare_metrics(prepared_context, gateway)
+        computed, names = _read_and_compare_metrics(prepared_context, gateway)
 
     findings = execute_finding_policies(
         monitoring_run_id=prepared_context.monitoring_run_id,
@@ -108,12 +109,19 @@ def execute_analyze(
         compatibility_evidence=evidence,
         reference_comparison_coverage=computed.coverages,
     )
-    return AnalyzeOutput(evidence, computed.diffs, computed.coverages, findings)
+    output = AnalyzeOutput(evidence, computed.diffs, computed.coverages, findings)
+    validate_analyze_output(
+        output,
+        prepared_context=prepared_context,
+        contract_check_result=contract_check_result,
+        selected_metric_names=names,
+    )
+    return output
 
 
 def _read_and_compare_metrics(
     context: PreparedContext, gateway: MonitoringGateway
-) -> ComputedDiffCoverage:
+) -> tuple[ComputedDiffCoverage, tuple[str, ...]]:
     """Observe each distinct source once, then compare the selected names."""
     selection = context.effective_recipe.analysis.metric_names
     current = gateway.get_source_run_metrics(context.source_run_id, selection)
@@ -132,7 +140,7 @@ def _read_and_compare_metrics(
         source = entry.reference.source_run_id
         metrics = gateway.get_source_run_metrics(source, names)
         snapshots[source] = None if metrics is None else dict(metrics)
-    return compute_diffs_and_coverage(
+    computed = compute_diffs_and_coverage(
         context.monitoring_run_id,
         context.source_run_id,
         names,
@@ -140,6 +148,7 @@ def _read_and_compare_metrics(
         context.reference_plan,
         snapshots,
     )
+    return computed, names
 
 
 def execute_finding_policies(
