@@ -58,6 +58,29 @@ identity conflicts, and comparability-projection disagreement raise a Gateway
 consistency violation without mutating committed state. Consequently, legacy
 ``checked`` records that predate the authoritative artifact cannot be replayed.
 
+Internal Analyze Execution
+--------------------------
+
+``mlflow_monitor.workflow.analyze.execute_analyze()`` composes the Analyze
+building blocks using committed prepared context and Check output. The supplied
+compiled Recipe must match the persisted effective plan and Contract. This
+internal boundary does not change the public ``monitor.run()`` checked-result
+workflow, persist artifacts, or terminalize a Monitoring Run.
+
+PASS and WARN resolve omitted metric selection from sorted current metric keys;
+explicit selection uses exactly its normalized names, and empty selection
+compares none. Analyze reads each distinct ``source_run_id`` once and reuses the
+detached observation when references share a source, including self-comparisons.
+An existing source with empty metrics is valid. A missing current source raises
+an owned Analyze error; a missing reference source produces unavailable coverage
+with its frozen reference retained. Empty selections still distinguish missing
+sources from sources with no metric values.
+
+FAIL performs no metric reads. Resolved reference groups are skipped with
+``current_not_comparable`` while absent groups retain their unavailability reason.
+All branches materialize Compatibility Evidence from Check reasons and execute
+the compiled Finding policies. A comparability FAIL is not an execution failure.
+
 Analyze Finding Policy Execution
 --------------------------------
 
