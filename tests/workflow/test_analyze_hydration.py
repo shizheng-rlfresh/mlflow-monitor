@@ -1,10 +1,11 @@
 """Analyze replay validates saved representations without live dependencies."""
 
 from copy import deepcopy
+from dataclasses import replace
 
 import pytest
 
-from mlflow_monitor.domain import ComparabilityStatus
+from mlflow_monitor.domain import ComparabilityStatus, DiffReferenceKind, MonitoringRunReference
 from mlflow_monitor.errors import GatewayConsistencyViolation
 from mlflow_monitor.workflow.analyze import execute_analyze
 from mlflow_monitor.workflow.analyze_artifacts import (
@@ -15,6 +16,7 @@ from mlflow_monitor.workflow.analyze_hydration import (
     hydrate_analyze_output,
     validate_partial_analyze_artifacts,
 )
+from mlflow_monitor.workflow.prepared_context import PreparedReferencePlanEntry
 from workflow._analyze_support import MetricsGateway, check_result, context_and_recipe
 
 
@@ -159,3 +161,50 @@ def test_checked_partial_artifacts_are_validated_without_filling_missing_depende
             validate_partial_analyze_artifacts(
                 corrupt, prepared_context=context, contract_check_result=check
             )
+
+
+@pytest.mark.parametrize(
+    "corruption", ["current_missing", "reference_missing", "source_missing", "self_overflow"]
+)
+def test_hydration_rejects_contradictory_observations_of_shared_sources(corruption):
+    context, recipe = context_and_recipe(["a"])
+    context = replace(
+        context,
+        baseline_source_run_id="current",
+        reference_plan=tuple(
+            PreparedReferencePlanEntry(
+                kind,
+                MonitoringRunReference(
+                    kind,
+                    None if kind is DiffReferenceKind.BASELINE else f"monitoring-{kind}",
+                    "current",
+                ),
+                None,
+            )
+            for kind in DiffReferenceKind
+        ),
+    )
+    check = check_result()
+    output = execute_analyze(
+        prepared_context=context,
+        contract_check_result=check,
+        compiled_recipe=recipe,
+        gateway=MetricsGateway({"current": {"a": 1.0}}),
+    )
+    artifacts = analyze_output_to_artifacts(
+        output, prepared_context=context, contract_check_result=check
+    )
+    group = artifacts[ANALYZE_ARTIFACT_PATHS[1]]["reference_groups"][0]
+    group["diffs"] = []
+    if corruption == "source_missing":
+        group["status"] = "unavailable"
+        group["reason"] = "reference_source_run_missing"
+    else:
+        reason = {
+            "current_missing": "current_metric_missing",
+            "reference_missing": "reference_metric_missing",
+            "self_overflow": "delta_not_finite",
+        }[corruption]
+        group["metric_unavailability"] = [{"metric_name": "a", "reason": reason}]
+    with pytest.raises(GatewayConsistencyViolation):
+        hydrate_analyze_output(artifacts, prepared_context=context, contract_check_result=check)
