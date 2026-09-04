@@ -106,6 +106,16 @@ Run during Analyze metric collection. Its bounded details contain only
 ``source_run_id``. This differs from an existing source with an empty metric map,
 which is valid, and a missing reference source, which produces unavailable coverage.
 
+Analyze commit validates saved artifacts and their cross-stage bindings before
+advancing the lifecycle. Malformed or conflicting output raises
+``GatewayConsistencyViolation`` with code
+``monitoring_run_json_artifact_inconsistent`` and only the Monitoring Run identity
+and artifact path in its details. An incompatible lifecycle update raises
+``monitoring_run_upsert_field_override``. These are consistency failures, not
+policy failures, and do not create a terminal failed result. Interrupted writes
+can leave partial artifacts while the stage remains ``checked``; validated
+identical output can be reused on retry.
+
 .. autoclass:: mlflow_monitor.errors.AnalyzeStageError
    :members:
    :show-inheritance:

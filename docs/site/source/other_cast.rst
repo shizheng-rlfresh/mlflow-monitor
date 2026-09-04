@@ -77,3 +77,39 @@ Diff and Coverage Computation
 .. automodule:: mlflow_monitor.differ
    :members:
    :show-inheritance:
+
+Analyze Output Artifacts
+------------------------
+
+The internal ``AnalyzeOutput`` collects Compatibility Evidence, atomic Diffs,
+Reference Comparison Coverage, and Findings. It has no independent identity.
+Its canonical projection consists of three ``artifact_schema_version="v0"``
+artifacts; there is no separate coverage artifact or stage-transition log.
+
+All three envelopes contain ``monitoring_run_id`` and ``source_run_id``.
+Compatibility Evidence also carries the Baseline Source Run and Contract lineage
+and exactly reproduces the committed Check reasons in their original order.
+``diffs.json`` contains ordered ``reference_groups``: each group retains its
+reference kind, nullable paired reference, status, reason, nested ``diffs``, and
+``metric_unavailability`` rows. Atomic Diff rows inherit current identity from
+the envelope and reference identity from their group. Coverage Diff IDs are
+reconstructed from those rows rather than stored a second time.
+
+``findings.json`` contains Findings ordered by deterministic identity. Each row
+inherits the envelope's current identity and stores the exact policy identity
+and version, rule, severity, category, summary, recommendation, and both evidence
+ID collections. Hydration validates policy bindings and evidence citations but
+does not execute policies or reinterpret saved conclusions.
+
+Validation rejects extra or missing fields, conflicting identities, duplicate
+rows, orphaned or unknown evidence, reference-plan disagreement, incompatible
+observations of a shared source, and incomplete explicit metric selection.
+Every selected metric in a completed group has exactly one Diff or metric-level
+unavailability entry. For omitted selection, replay checks agreement among
+completed groups; it does not rediscover current metric keys from the live source.
+
+.. automodule:: mlflow_monitor.workflow.analyze_artifacts
+   :members:
+
+.. automodule:: mlflow_monitor.workflow.analyze_hydration
+   :members:
