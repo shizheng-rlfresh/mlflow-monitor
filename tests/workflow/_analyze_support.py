@@ -1,17 +1,26 @@
 """Small shared fixtures for Analyze execution and persistence specifications."""
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from mlflow_monitor.domain import (
     ComparabilityStatus,
     ContractCheckReason,
     ContractCheckResult,
     DiffReferenceKind,
+    LifecycleStatus,
     MonitoringRunReference,
 )
-from mlflow_monitor.gateway import GatewayConfig, InMemoryMonitoringGateway
+from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey, InMemoryMonitoringGateway
+from mlflow_monitor.orchestration import OrchestrationState
 from mlflow_monitor.recipe import build_system_default_recipe
 from mlflow_monitor.recipe_compiler import CompiledRecipe, compile_recipe
+from mlflow_monitor.workflow import (
+    CONTRACT_CHECK_ARTIFACT_PATH,
+    PREPARED_CONTEXT_ARTIFACT_PATH,
+    contract_check_result_to_dict,
+    prepared_context_to_dict,
+)
 from mlflow_monitor.workflow.prepared_context import PreparedContext, PreparedReferencePlanEntry
 
 
@@ -82,3 +91,56 @@ def check_result(status: ComparabilityStatus = ComparabilityStatus.PASS) -> Cont
             ),
         ),
     )
+
+
+def seed_checked(gateway, status=ComparabilityStatus.WARN, context=None, recipe=None):
+    """Seed a checked but unfinalized stage, independently of the legacy facade."""
+    if context is None:
+        context, recipe = context_and_recipe()
+    allocation = gateway.create_or_reuse_monitoring_run(
+        IdempotencyKey(
+            context.subject_id,
+            context.source_run_id,
+            recipe.identity.recipe_id,
+            recipe.identity.recipe_version,
+        )
+    )
+    context = replace(
+        context,
+        monitoring_run_id=allocation.monitoring_run_id,
+        timeline_id=allocation.timeline_id,
+        sequence_index=allocation.sequence_index,
+    )
+    check = check_result(status)
+    gateway.write_monitoring_run_json_artifact(
+        monitoring_run_id=context.monitoring_run_id,
+        path=PREPARED_CONTEXT_ARTIFACT_PATH,
+        data=prepared_context_to_dict(context),
+    )
+    gateway.write_monitoring_run_json_artifact(
+        monitoring_run_id=context.monitoring_run_id,
+        path=CONTRACT_CHECK_ARTIFACT_PATH,
+        data=contract_check_result_to_dict(context, check),
+    )
+    gateway.upsert_monitoring_run(
+        subject_id=context.subject_id,
+        monitoring_run_id=context.monitoring_run_id,
+        source_run_id=context.source_run_id,
+        sequence_index=context.sequence_index,
+        lifecycle_status=LifecycleStatus.CHECKED,
+        contract_check_result=check,
+        references=context.references,
+    )
+    state = OrchestrationState(
+        subject_id=context.subject_id,
+        source_run_id=context.source_run_id,
+        baseline_source_run_id=context.baseline_source_run_id,
+        compiled_recipe=recipe,
+        custom_reference_monitoring_run_id=None,
+        timeline_id=context.timeline_id,
+        monitoring_run_id=context.monitoring_run_id,
+        existing_monitoring_run=None,
+        is_new_monitoring_run=False,
+        sequence_index=context.sequence_index,
+    )
+    return state, context, check
