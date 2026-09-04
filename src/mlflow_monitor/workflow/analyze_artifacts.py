@@ -179,7 +179,9 @@ def _validate_diffs(
             _require(observations.setdefault(key, value) == value)
 
 
-def _validate_findings(output: AnalyzeOutput, context: PreparedContext) -> None:
+def _validate_findings(
+    output: AnalyzeOutput, context: PreparedContext, *, diffs_available: bool = True
+) -> None:
     """Validate canonical Findings against the exact compiled bindings and evidence."""
     validate_finding_identity_consistency(output.findings)
     ids = tuple(finding.finding_id for finding in output.findings)
@@ -198,9 +200,11 @@ def _validate_findings(output: AnalyzeOutput, context: PreparedContext) -> None:
         _require((finding.finding_policy_id, finding.finding_policy_version) in policies)
         for references in (finding.evidence_diff_ids, finding.evidence_compatibility_ids):
             _require(references == tuple(sorted(set(references))))
-        validate_finding_evidence_references(
-            finding, diffs_by_id=diffs, compatibility_evidence_by_id=evidence
-        )
+        _require(all(identity in evidence for identity in finding.evidence_compatibility_ids))
+        if diffs_available:
+            validate_finding_evidence_references(
+                finding, diffs_by_id=diffs, compatibility_evidence_by_id=evidence
+            )
 
 
 def analyze_output_to_artifacts(
