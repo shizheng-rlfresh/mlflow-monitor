@@ -15,7 +15,12 @@ from mlflow_monitor.domain import (
 from mlflow_monitor.gateway import GatewayConfig, IdempotencyKey, MLflowMonitoringGateway
 from mlflow_monitor.orchestration import OrchestrationState
 from mlflow_monitor.recipe_compiler import SYSTEM_DEFAULT_COMPILED_RECIPE
-from mlflow_monitor.workflow import contract_check_result_to_dict, prepared_context_to_dict
+from mlflow_monitor.workflow import (
+    CONTRACT_CHECK_ARTIFACT_PATH,
+    PREPARED_CONTEXT_ARTIFACT_PATH,
+    contract_check_result_to_dict,
+    prepared_context_to_dict,
+)
 from mlflow_monitor.workflow.analyze_artifacts import ANALYZE_ARTIFACT_PATHS
 from mlflow_monitor.workflow.prepared_context import PreparedContext, PreparedReferencePlanEntry
 
@@ -63,8 +68,8 @@ def seed_checked(gateway, sources, status):
         )
     check = ContractCheckResult(status, reasons)
     for path, data in (
-        ("outputs/prepared_context.json", prepared_context_to_dict(context)),
-        ("outputs/contract_check.json", contract_check_result_to_dict(context, check)),
+        (PREPARED_CONTEXT_ARTIFACT_PATH, prepared_context_to_dict(context)),
+        (CONTRACT_CHECK_ARTIFACT_PATH, contract_check_result_to_dict(context, check)),
     ):
         gateway.write_monitoring_run_json_artifact(
             monitoring_run_id=context.monitoring_run_id, data=data, path=path
@@ -162,7 +167,6 @@ def test_real_mlflow_analyze_commit_recovery_and_replay_preserve_training_runs(
         is None
     )
     assert {item.path for item in raw.list_artifacts(state.monitoring_run_id, "outputs")} == {
-        "outputs/prepared_context.json",
         "outputs/contract_check.json",
         *ANALYZE_ARTIFACT_PATHS,
     }
