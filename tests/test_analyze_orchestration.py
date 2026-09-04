@@ -197,3 +197,53 @@ def test_internal_analyze_rejects_wrong_stage_without_mutation(status):
         commit_analyze_stage(state=state, gateway=gateway)
     assert gateway.events == gateway.reads == []
     assert record(gateway, state).lifecycle_status is status
+
+
+@pytest.mark.parametrize("boundary", ["before_write", "before_marker", "inside_upsert"])
+@pytest.mark.parametrize("status", [LifecycleStatus.CLOSED, LifecycleStatus.FAILED])
+def test_concurrent_advancement_is_not_overwritten_by_analyze(monkeypatch, boundary, status):
+    gateway = CommitGateway()
+    state, _, _ = seed_checked(gateway)
+    upsert = gateway.upsert_monitoring_run
+
+    def advance():
+        upsert(
+            subject_id=state.subject_id,
+            monitoring_run_id=state.monitoring_run_id,
+            source_run_id=state.source_run_id,
+            sequence_index=state.sequence_index,
+            lifecycle_status=status,
+        )
+
+    if boundary == "before_write":
+        execute = execute_analyze
+
+        def execute_and_advance(**kwargs):
+            output = execute(**kwargs)
+            advance()
+            return output
+
+        monkeypatch.setattr(
+            "mlflow_monitor.analyze_orchestration.execute_analyze", execute_and_advance
+        )
+    elif boundary == "before_marker":
+        write = gateway.write_monitoring_run_json_artifact
+
+        def write_and_advance(**kwargs):
+            write(**kwargs)
+            if kwargs["path"] == ANALYZE_ARTIFACT_PATHS[-1]:
+                advance()
+
+        monkeypatch.setattr(gateway, "write_monitoring_run_json_artifact", write_and_advance)
+    else:
+
+        def advance_and_upsert(**kwargs):
+            advance()
+            upsert(**kwargs)
+
+        monkeypatch.setattr(gateway, "upsert_monitoring_run", advance_and_upsert)
+    with pytest.raises(GatewayConsistencyViolation):
+        commit_analyze_stage(state=state, gateway=gateway)
+    assert record(gateway, state).lifecycle_status is status
+    if boundary == "before_write":
+        assert gateway.events == []
