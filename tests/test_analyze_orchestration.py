@@ -247,3 +247,57 @@ def test_concurrent_advancement_is_not_overwritten_by_analyze(monkeypatch, bound
     assert record(gateway, state).lifecycle_status is status
     if boundary == "before_write":
         assert gateway.events == []
+
+
+def test_policy_failure_happens_before_any_output_write(monkeypatch):
+    gateway = CommitGateway()
+    state, _, _ = seed_checked(gateway)
+    policy = state.compiled_recipe.finding_policy_bindings[0].policy
+
+    def fail_policy(*args, **kwargs):
+        assert gateway.events == []
+        raise ValueError("sensitive policy input")
+
+    monkeypatch.setattr(type(policy), "evaluate", fail_policy)
+    with pytest.raises(AnalyzeStageError) as caught:
+        commit_analyze_stage(state=state, gateway=gateway)
+    assert caught.value.code == "analyze_finding_policy_evaluation_failed"
+    assert "sensitive" not in str(caught.value)
+    assert gateway.events == []
+    assert record(gateway, state).lifecycle_status is LifecycleStatus.CHECKED
+
+
+@pytest.mark.parametrize("path", ANALYZE_ARTIFACT_PATHS)
+def test_analyzed_missing_artifact_fails_without_recomputation(monkeypatch, path):
+    gateway = CommitGateway()
+    state, _, _ = seed_checked(gateway)
+    commit_analyze_stage(state=state, gateway=gateway)
+    gateway.events.clear()
+    gateway.reads.clear()
+    read = gateway.read_monitoring_run_json_artifact
+
+    def missing_artifact(**kwargs):
+        return None if kwargs["path"] == path else read(**kwargs)
+
+    monkeypatch.setattr(gateway, "read_monitoring_run_json_artifact", missing_artifact)
+    with pytest.raises(GatewayConsistencyViolation) as caught:
+        commit_analyze_stage(state=state, gateway=gateway)
+    assert dict(caught.value.details)["path"] == path
+    assert gateway.events == gateway.reads == []
+    assert record(gateway, state).lifecycle_status is LifecycleStatus.ANALYZED
+
+
+def test_changed_metrics_during_partial_retry_fail_closed():
+    gateway = CommitGateway()
+    state, _, _ = seed_checked(gateway)
+    gateway.interrupt = ANALYZE_ARTIFACT_PATHS[1]
+    with pytest.raises(RuntimeError):
+        commit_analyze_stage(state=state, gateway=gateway)
+    gateway.interrupt = None
+    gateway.reads.clear()
+    gateway.events.clear()
+    gateway.metrics["current"]["a"] = 3.0
+    with pytest.raises(GatewayConsistencyViolation):
+        commit_analyze_stage(state=state, gateway=gateway)
+    assert gateway.events == []
+    assert record(gateway, state).lifecycle_status is LifecycleStatus.CHECKED
