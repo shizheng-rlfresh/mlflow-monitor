@@ -385,12 +385,19 @@ class MLflowMonitoringGateway:
                 monitoring_run_id=monitoring_run_id,
             )
 
-        persisted_source_run_id = self._mlflow.get_run_tags(monitoring_run_id).get(_SOURCE_RUN_TAG)
+        persisted_tags = self._mlflow.get_run_tags(monitoring_run_id)
+        persisted_source_run_id = persisted_tags.get(_SOURCE_RUN_TAG)
         if persisted_source_run_id != source_run_id:
             raise self._source_identity_consistency_error(
                 monitoring_run_id=monitoring_run_id,
                 source_run_id=source_run_id,
                 persisted_source_run_id=persisted_source_run_id,
+            )
+        if lifecycle_status is LifecycleStatus.ANALYZED and persisted_tags.get(
+            _LIFECYCLE_STATUS_TAG
+        ) in {LifecycleStatus.CLOSED.value, LifecycleStatus.FAILED.value}:
+            raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
+                fields=(("lifecycle_status", lifecycle_status.value),)
             )
         monitoring_tags = {
             _SEQUENCE_INDEX_TAG: str(sequence_index),
