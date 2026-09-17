@@ -1,0 +1,4 @@
+interface:
+  display_name: "TDD"
+  short_description: "Use red-green-refactor with pytest and uv in this repo"
+  default_prompt: "Use $tdd to implement this behavior with a focused red-green-refactor workflow."
