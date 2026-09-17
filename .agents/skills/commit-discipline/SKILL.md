@@ -1,9 +1,9 @@
 ---
-name: mlflow-monitor-commit-discipline
+name: commit-discipline
 description: Use for commit follow-through in MLflow-Monitor after a verified ticket, review, or documentation slice is ready. Enforces repository-specific validation, staging review, and private-file exclusions.
 ---
 
-# MLflow-Monitor Commit Discipline
+# Commit Discipline
 
 Use this skill after implementation or review work in this repo when changes are ready to commit.
 

@@ -29,10 +29,10 @@ Skip this skill when:
 2. Put runtime code in `src/mlflow_monitor/`
 3. Put tests in `tests/` using `test_*.py` and `test_<behavior>()`.
 4. Run:
-   - `uv run pytest`
-   - `uv run ruff check .`
-   - `uv run ruff format --check .`
-   - `uv run pyright`
+   - `uv run poe test`
+   - `uv run poe lint`
+   - `uv run poe format-check`
+   - `uv run poe typecheck`
 5. Use deterministic, network-independent unit tests unless explicitly needed.
 
 ## Workflow (Red -> Green -> Refactor)
@@ -42,7 +42,7 @@ Skip this skill when:
 1. Identify the smallest externally visible behavior change.
 2. Write or update one failing test that captures only that behavior.
 3. Confirm failure explicitly:
-   - `uv run pytest tests/<target_test_file>.py -k <test_name>`
+   - `uv run poe test tests/<target_test_file>.py -k <test_name>`
 4. If the test does not fail for the expected reason, fix the test before code changes.
 
 ### 2. Green: Implement Minimal Change
@@ -57,9 +57,9 @@ Skip this skill when:
 1. Refactor naming/structure only after tests are green.
 2. Keep changes small and re-run tests frequently.
 3. Re-run full suite for confidence:
-   - `uv run pytest`
+   - `uv run poe test`
 4. Ensure lint still passes:
-   - `uv run ruff check .`
+   - `uv run poe lint`
 5. Before closing the ticket, run the complete validation gate defined in
    `AGENTS.md`, including format check, Pyright, and build.
 
@@ -83,17 +83,17 @@ Before finishing:
 ## Common Commands
 
 1. Run one test file:
-   - `uv run pytest tests/test_<name>.py`
+   - `uv run poe test tests/test_<name>.py`
 2. Run one test:
-   - `uv run pytest tests/test_<name>.py -k <test_case>`
+   - `uv run poe test tests/test_<name>.py -k <test_case>`
 3. Run all tests:
-   - `uv run pytest`
+   - `uv run poe test`
 4. Lint:
-   - `uv run ruff check .`
+   - `uv run poe lint`
 5. Check formatting:
-   - `uv run ruff format --check .`
+   - `uv run poe format-check`
 6. Type-check:
-   - `uv run pyright`
+   - `uv run poe typecheck`
 
 ## Output Expectations
 
