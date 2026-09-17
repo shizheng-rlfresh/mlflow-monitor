@@ -20,10 +20,10 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
 - Preserve existing behavior unless the task explicitly changes it.
 - Prefer the simplest implementation that satisfies the current ticket.
 - Avoid speculative abstractions or future-facing indirection unless required by the current ticket.
-- Look for relevant local skills under `.codex/skills/` before starting implementation or review work.
+- Look for relevant local skills under `.agents/skills/` before starting implementation or review work.
 - Use the local `tdd` skill for behavior-changing work; skip it for docs-only or formatting-only edits.
 - Use the local `seeking-design-truth` skill for ticket-driven work, design questions, behavior clarification, and other tasks that need grounding in the repo's design docs before implementation or review.
-- Use the local `mlflow-monitor-commit-discipline` skill for commit follow-through after green ticket slices.
+- Use the local `commit-discipline` skill for commit follow-through after green ticket slices.
 - Commit frequently at coherent green, reviewable slices.
 - Do not log PII.
 
@@ -34,7 +34,6 @@ Prefer architectural correctness, explicit behavior, and small reviewable change
   authority, sequencing, and release rules.
 - Its absence in a public clone is expected. Do not infer or request the private
   plan when it is unavailable.
-- Never stage or publish files under `.agents/`.
 
 ## Code Review Rules
 
