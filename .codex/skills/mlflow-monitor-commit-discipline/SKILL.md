@@ -1,9 +1,9 @@
 ---
-name: commit-discipline
-description: Use this skill when doing code-changing work in this repository that should end with a small, reviewable commit, especially after a green TDD slice or completed ticket slice.
+name: mlflow-monitor-commit-discipline
+description: Use for commit follow-through in MLflow-Monitor after a verified ticket, review, or documentation slice is ready. Enforces repository-specific validation, staging review, and private-file exclusions.
 ---
 
-# Commit Discipline
+# MLflow-Monitor Commit Discipline
 
 Use this skill after implementation or review work in this repo when changes are ready to commit.
 
@@ -28,21 +28,36 @@ Do not use this skill when:
 ## Workflow
 
 1. Confirm scope.
+   - Run `git status --short` before staging.
    - Commit only the active ticket or review slice.
    - Do not bundle unrelated files.
-   - Read the private maintainer overlay when present and never stage excluded
-     design or overlay files.
+   - For maintainer release or ticket work, read the private maintainer overlay
+     when present.
+   - Never stage private design, ADR, context, or overlay files excluded by the
+     repository instructions.
+   - Do not alter unrelated user staging. If the active slice cannot be isolated
+     safely, report the staged files as a blocker.
 2. Verify readiness.
-   - Run the touched-area tests first.
-   - Run broader required checks when the slice warrants it.
+   - Before each green ticket commit, run focused tests plus the applicable Ruff
+     and Pyright checks required by `AGENTS.md`.
+   - For documentation- or instruction-only changes, run the narrow validator
+     that covers the changed artifact; do not invent runtime tests.
+   - Before closing a ticket, and for release transitions or final acceptance,
+     run the complete validation gate required by `AGENTS.md`.
    - Do not commit with known red-phase failures in the slice.
-3. Review the diff.
-   - Inspect `git diff --stat` and a narrow diff.
+3. Review the unstaged diff.
+   - Inspect `git diff --stat` and a path-limited diff for the active slice.
+   - Confirm each changed file belongs to the slice before staging it.
+4. Stage and review the index.
+   - Stage only explicit files from the active slice.
+   - Re-run `git status --short`.
+   - Inspect `git diff --cached --stat` and the complete cached diff.
+   - Confirm the index contains no unrelated or private files.
    - Confirm the commit is small and reviewable.
-4. Commit by default.
+5. Commit by default.
    - Commit after each coherent green slice.
    - Prefer multiple small commits over one large commit.
-5. Report clearly.
+6. Report clearly.
    - State the commit created and what slice it covers.
    - If no commit was made, state the blocker.
 
