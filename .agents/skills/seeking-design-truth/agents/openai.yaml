@@ -1,0 +1,4 @@
+interface:
+  display_name: "Seeking Design Truth"
+  short_description: "Ground repo work in design docs, code, and tests"
+  default_prompt: "Use $seeking-design-truth to resolve this design question from repository docs, code, and tests."

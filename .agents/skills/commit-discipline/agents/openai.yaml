@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit Discipline"
+  short_description: "Create verified, reviewable MLflow-Monitor commits"
+  default_prompt: "Use $commit-discipline to prepare and commit this verified repository slice safely."
