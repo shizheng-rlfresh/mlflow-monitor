@@ -7,8 +7,9 @@ description: Use this skill when implementing or changing code in this repositor
 
 ## Overview
 
-Use this skill for feature work, bug fixes, and refactors that change behavior in this repo.
-It keeps development strict: write a failing test first, implement minimal code to pass, then refactor while keeping tests green.
+Use this skill for feature work, bug fixes, and behavior-preserving refactors in this repo.
+Start behavior changes with a failing test. For a behavior-preserving refactor,
+establish a green test baseline before editing and keep it green.
 
 ## When To Use
 
@@ -21,7 +22,7 @@ Use this skill when:
 Skip this skill when:
 1. Editing docs only.
 2. Pure formatting/comment cleanup with no behavior changes.
-3. One-off exploratory work where tests are intentionally deferred.
+3. One-off exploration that produces no deliverable code changes.
 
 ## Repository Defaults
 
@@ -37,7 +38,13 @@ Skip this skill when:
 
 ## Workflow (Red -> Green -> Refactor)
 
+For a behavior-preserving refactor, run the relevant existing tests first. Add
+passing characterization coverage if needed, then make the smallest refactor
+and rerun those tests. Do not create an artificial failing test.
+
 ### 1. Red: Specify Behavior First
+
+For features, bug fixes, and other behavior changes:
 
 1. Identify the smallest externally visible behavior change.
 2. Write or update one failing test that captures only that behavior.
@@ -46,6 +53,8 @@ Skip this skill when:
 4. If the test does not fail for the expected reason, fix the test before code changes.
 
 ### 2. Green: Implement Minimal Change
+
+For behavior changes:
 
 1. Implement only what is needed to make the failing test pass.
 2. Re-run the focused test first.
@@ -65,7 +74,8 @@ Skip this skill when:
 
 ## Test Scope Rules
 
-1. Start with the narrowest failing unit test.
+1. Start behavior changes with the narrowest failing unit test; start
+   behavior-preserving refactors with focused passing tests.
 2. Add integration-style tests only when behavior crosses module boundaries.
 3. Do not overfit tests to internal implementation details.
 4. Prefer explicit fixtures/test data over hidden globals.
@@ -73,12 +83,14 @@ Skip this skill when:
 ## Change Checklist
 
 Before finishing:
-1. At least one failing test was observed before implementation.
-2. New/updated behavior is covered by tests.
+1. A relevant failing test was observed before a behavior change, or a green
+   test baseline was established before a behavior-preserving refactor.
+2. Changed behavior is covered by tests; refactors preserve existing or
+   characterization coverage.
 3. All relevant tests pass.
 4. Ruff check passes.
 5. The complete `AGENTS.md` ticket-close gate passes.
-6. Notes include what behavior changed and why.
+6. Notes include what changed and why.
 
 ## Common Commands
 
@@ -98,8 +110,9 @@ Before finishing:
 ## Output Expectations
 
 When this skill is used, outputs should include:
-1. The failing test that drove the change.
-2. The minimal implementation change summary.
+1. The failing test that drove a behavior change, or the green baseline used
+   for a behavior-preserving refactor.
+2. The minimal implementation or refactor summary.
 3. Evidence that tests and lint pass (or explicit blockers).
 4. Evidence that the complete ticket-close gate passes before the ticket is
    declared complete.
