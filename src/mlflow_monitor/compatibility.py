@@ -13,9 +13,13 @@ retain the ``v1`` identity scheme owned by :mod:`mlflow_monitor.identity`.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from mlflow_monitor.domain import CompatibilityEvidence, ContractCheckResult
 from mlflow_monitor.identity import make_compatibility_evidence_id
-from mlflow_monitor.workflow.prepared_context import PreparedContext
+
+if TYPE_CHECKING:
+    from mlflow_monitor.workflow.prepared_context import PreparedContext
 
 # Artifact schemas and deterministic identities are versioned independently.
 _COMPATIBILITY_EVIDENCE_ARTIFACT_SCHEMA_VERSION = "v0"

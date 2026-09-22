@@ -97,8 +97,24 @@ The message is bounded and ``details`` contains exactly ``finding_policy_id`` an
 not exposed. Process interruptions such as ``KeyboardInterrupt`` are not converted.
 The synchronous Finding-policy interface defines no separate policy-cancellation
 signal, so exceptions raised by policy evaluation are bounded as Analyze failures.
-V0-021 owns the later orchestration that durably commits these errors as failed
-Monitoring Run results.
+Internal Analyze execution propagates these bounded errors without terminalizing
+the Monitoring Run. Durable failed-result persistence and replay belong to the
+later terminal-failure integration; the public workflow still ends at Check.
+
+``analyze_missing_current_source_run`` identifies a missing current Source Training
+Run during Analyze metric collection. Its bounded details contain only
+``source_run_id``. This differs from an existing source with an empty metric map,
+which is valid, and a missing reference source, which produces unavailable coverage.
+
+Analyze commit validates saved artifacts and their cross-stage bindings before
+advancing the lifecycle. Malformed or conflicting output raises
+``GatewayConsistencyViolation`` with code
+``monitoring_run_json_artifact_inconsistent`` and only the Monitoring Run identity
+and artifact path in its details. An incompatible lifecycle update raises
+``monitoring_run_upsert_field_override``. These are consistency failures, not
+policy failures, and do not create a terminal failed result. Interrupted writes
+can leave partial artifacts while the stage remains ``checked``; validated
+identical output can be reused on retry.
 
 .. autoclass:: mlflow_monitor.errors.AnalyzeStageError
    :members:
