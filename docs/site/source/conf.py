@@ -30,3 +30,12 @@ myst_enable_extensions = [
 ]
 
 autodoc_member_order = "bysource"
+
+# Annotation-only imports avoid workflow cycles. Resolve their short names to
+# canonical definitions rather than equally named workflow re-exports.
+autodoc_type_aliases = {
+    "PreparedContext": "mlflow_monitor.workflow.prepared_context.PreparedContext",
+    "PreparedReferencePlanEntry": (
+        "mlflow_monitor.workflow.prepared_context.PreparedReferencePlanEntry"
+    ),
+}

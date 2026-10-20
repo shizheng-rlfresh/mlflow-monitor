@@ -98,7 +98,10 @@ class MonitoringGateway(Protocol):
         contract_check_result: ContractCheckResult | None = None,
         references: tuple[MonitoringRunReference, ...] | None = None,
     ) -> None:
-        """Persist minimal monitoring run metadata for a subject."""
+        """Persist metadata; reject analyzed updates after closed or failed.
+
+        This protects observed terminal state, not an atomic multi-writer CAS.
+        """
         ...
 
     def get_monitoring_run(

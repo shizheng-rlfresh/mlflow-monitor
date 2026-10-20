@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from mlflow_monitor.domain import (
     Diff,
@@ -16,7 +16,9 @@ from mlflow_monitor.domain import (
     ReferenceComparisonStatus,
 )
 from mlflow_monitor.identity import make_diff_id
-from mlflow_monitor.workflow import PreparedReferencePlanEntry
+
+if TYPE_CHECKING:
+    from mlflow_monitor.workflow.prepared_context import PreparedReferencePlanEntry
 
 MetricValue = Mapping[str, float]
 ReferenceMetricsBySourceRunId = Mapping[str, MetricValue | None]

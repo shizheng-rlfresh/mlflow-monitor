@@ -299,6 +299,15 @@ class InMemoryMonitoringGateway:
         subject_runs = self._monitoring_runs_by_subject.setdefault(subject_id, {})
         monitoring_run = subject_runs.get(monitoring_run_id)
 
+        if (
+            lifecycle_status is LifecycleStatus.ANALYZED
+            and monitoring_run is not None
+            and monitoring_run.lifecycle_status in {LifecycleStatus.CLOSED, LifecycleStatus.FAILED}
+        ):
+            raise GatewayConsistencyViolation.monitoring_run_upsert_field_override(
+                fields=(("lifecycle_status", lifecycle_status.value),)
+            )
+
         if monitoring_run is None:
             subject_runs[monitoring_run_id] = MonitoringRunRecord(
                 monitoring_run_id=monitoring_run_id,
